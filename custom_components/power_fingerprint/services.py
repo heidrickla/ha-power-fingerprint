@@ -559,6 +559,25 @@ def async_setup_services(hass: HomeAssistant) -> None:
         verdict, confidence = grade(
             measured, fired, device_metered, answered, len(detail)
         )
+        # Record it so the device's own page shows the answer, and so a mapping
+        # that cost an active probe survives a restart. Only a real circuit is
+        # written - see async_record_assignment; "I could not tell this time"
+        # must not erase a previous answer.
+        if verdict:
+            await store.async_record_assignment(
+                device,
+                verdict,
+                confidence,
+                "probe",
+                {
+                    "probes": len(detail),
+                    "agreed": answered,
+                    "device_metered": device_metered,
+                    "automations_fired": fired,
+                },
+            )
+            await coordinator.async_request_refresh()
+
         return {
             "device": device,
             "power_sensor": meter,
@@ -695,7 +714,27 @@ def async_setup_services(hass: HomeAssistant) -> None:
             per_circuit.setdefault(str(row["circuit"]), set()).add(area_name)
         suspect = sorted(c for c, a in per_circuit.items() if len(a) >= 3)
 
+        # Passive results are recorded too, but never over a probe's answer.
+        wrote = 0
+        for row in placed:
+            if await runtime.store.async_record_assignment(
+                str(row["device"]),
+                str(row["circuit"]),
+                "measured" if float(row["step_match"] or 0) >= 0.6 else "inferred",
+                "correlation",
+                {
+                    "step_match": row["step_match"],
+                    "correlation": row["correlation"],
+                    "margin": row["margin"],
+                    "grid_seconds": step,
+                },
+            ):
+                wrote += 1
+        if wrote:
+            await coordinator.async_request_refresh()
+
         return {
+            "assignments_recorded": wrote,
             "grid_seconds": step,
             "grid_source": "given" if call.data.get("step") else "measured",
             "days": days,

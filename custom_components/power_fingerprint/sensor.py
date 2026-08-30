@@ -9,13 +9,16 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfPower
+from homeassistant.const import EntityCategory, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import MIN_STANDBY_WINDOW_HOURS
 from .coordinator import FingerprintCoordinator, PowerFingerprintConfigEntry
-from .entity import FingerprintEntity
+from .entity import AttachedEntity, FingerprintEntity
 
 # See binary_sensor.py - everything is derived from state already in memory.
 PARALLEL_UPDATES = 0
@@ -34,6 +37,7 @@ async def async_setup_entry(
             UnmonitoredLoadSensor(coordinator),
             StandbyPowerSensor(coordinator),
             StandbyCostSensor(coordinator),
+            CandidatesSensor(coordinator),
         ]
     )
 
@@ -54,6 +58,49 @@ async def async_setup_entry(
 
     _add_new_circuits()
     entry.async_on_unload(coordinator.async_add_listener(_add_new_circuits))
+
+    # One entity per mapped device, attached to THAT device rather than to this
+    # integration's service device - see AttachedEntity. Added as mappings are
+    # established, so a probe run populates device pages without a restart.
+    mapped: set[str] = set()
+
+    @callback
+    def _add_mapped_devices() -> None:
+        new = []
+        for device_entity in store.assignments():
+            if device_entity in mapped:
+                continue
+            info = _device_info_for(hass, device_entity)
+            if info is None:
+                # Not in the registry, or not on a device. Nothing to attach to.
+                continue
+            mapped.add(device_entity)
+            new.append(CircuitSensor(coordinator, device_entity, info))
+        if new:
+            async_add_entities(new)
+
+    _add_mapped_devices()
+    entry.async_on_unload(coordinator.async_add_listener(_add_mapped_devices))
+
+
+def _device_info_for(hass: HomeAssistant, entity_id: str) -> DeviceInfo | None:
+    """The DeviceInfo needed to attach an entity to an existing device.
+
+    Carries only the target device's own identifiers and connections. Anything
+    else - a name, a manufacturer - would be this integration writing to a
+    device it does not own.
+    """
+    entities = er.async_get(hass)
+    row = entities.async_get(entity_id)
+    if row is None or row.device_id is None:
+        return None
+    device = dr.async_get(hass).async_get(row.device_id)
+    if device is None:
+        return None
+    return DeviceInfo(
+        identifiers=set(device.identifiers),
+        connections=set(device.connections),
+    )
 
 
 class _Base(FingerprintEntity, SensorEntity):
@@ -221,3 +268,112 @@ class StandbyCostSensor(_StandbyBase):
         if not self._window_ready:
             return None
         return (self.coordinator.data or {}).get("standby_annual_cost")
+
+
+class CandidatesSensor(_Base):
+    """Learned shapes waiting for a human to say what they are.
+
+    ⭐ WITHOUT THIS THE LEARN STEP HAS NO VISIBLE OUTPUT. Clustering finds the
+    recurring shapes and genuinely cannot name them - that needs someone who
+    knows what is plugged in - but until now the candidates existed only in
+    `.storage` and in the `learn` action's response. A person who ran `learn`
+    and then looked at the integration saw six entities and no sign that
+    anything had been learned at all. On the development install that was 39
+    shapes, entirely invisible.
+
+    The attributes carry the plain-English description of each shape, which is
+    the thing a human actually reads to recognise "that's the dishwasher".
+    """
+
+    _attr_translation_key = "candidates"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    # Capped because every attribute payload is written to the state machine on
+    # each update, and an unbounded list on a large panel would bloat the
+    # recorder. The count in the state is always the true total.
+    _MAX_SHOWN = 25
+
+    def __init__(self, coordinator: FingerprintCoordinator) -> None:
+        super().__init__(coordinator, "candidates")
+
+    @property
+    def native_value(self) -> int | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        return len(data.get("candidates", []))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data or {}
+        rows = data.get("candidates", [])
+        out: dict[str, Any] = {
+            "named": data.get("labelled_fingerprints", 0),
+            "candidates": rows[: self._MAX_SHOWN],
+        }
+        if len(rows) > self._MAX_SHOWN:
+            out["not_shown"] = len(rows) - self._MAX_SHOWN
+        if rows:
+            # The exact call that names one, so nobody has to go and read the
+            # docs to act on what this sensor is telling them.
+            first = rows[0]
+            out["to_name_one"] = (
+                f"action: power_fingerprint.label / circuit: {first['circuit']} / "
+                f"current_label: {first['candidate']} / new_label: <what it is>"
+            )
+        return out
+
+
+class CircuitSensor(AttachedEntity, SensorEntity):
+    """Which breaker this device is actually on, shown on the device itself.
+
+    The state is the circuit sensor's friendly name, because "Circuit 30" on
+    the front porch light's own page is the answer to a question somebody asked
+    while standing at a breaker panel. The attributes carry how it was
+    established, because ⛔ a passive correlation and a three-probe agreement
+    are not the same claim and must never look the same.
+    """
+
+    _attr_translation_key = "circuit"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FingerprintCoordinator,
+        device_entity: str,
+        device_info: DeviceInfo,
+    ) -> None:
+        super().__init__(coordinator, f"circuit_{device_entity}", device_info)
+        self._device_entity = device_entity
+
+    @property
+    def _row(self) -> dict[str, Any]:
+        store = self.coordinator.store
+        if store is None:
+            return {}
+        row: dict[str, Any] = store.assignments().get(self._device_entity, {})
+        return row
+
+    @property
+    def native_value(self) -> str | None:
+        circuit = self._row.get("circuit")
+        if not circuit:
+            return None
+        state = self.hass.states.get(str(circuit))
+        if state and state.attributes.get("friendly_name"):
+            return str(state.attributes["friendly_name"])
+        return str(circuit)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        row = self._row
+        return {
+            "measured_entity": self._device_entity,
+            "circuit_entity": row.get("circuit"),
+            "confidence": row.get("confidence"),
+            # `probe` switched the device and watched a circuit move.
+            # `correlation` only observed them moving together.
+            "established_by": row.get("source"),
+            "evidence": row.get("evidence", {}),
+        }

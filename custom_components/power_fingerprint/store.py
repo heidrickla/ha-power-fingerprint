@@ -49,6 +49,10 @@ class FingerprintStore:
         # time nobody was watching, and absence detection must not count it as
         # silence.
         self._last_poll: str | None = None
+        # device entity id -> what circuit it was found on, and on what evidence.
+        # Persisted so the per-device entities survive a restart: a mapping that
+        # cost an active probe to establish must not evaporate on reboot.
+        self._assignments: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
     @staticmethod
@@ -74,6 +78,16 @@ class FingerprintStore:
         """
         return [fp for fp in self._fingerprints if is_named(fp)]
 
+    def unnamed(self) -> list[Fingerprint]:
+        """Candidates a human has not yet identified.
+
+        These are the whole point of the learn step and were invisible until
+        now: they lived only in .storage and in the learn service's response,
+        so the one screen that could tell you what your house does showed
+        nothing at all until you had already named something.
+        """
+        return [fp for fp in self._fingerprints if not is_named(fp)]
+
     def for_circuit(self, circuit: str) -> list[Fingerprint]:
         return [fp for fp in self.labelled() if fp.circuit == circuit]
 
@@ -89,6 +103,7 @@ class FingerprintStore:
             self._paused = list(data.get("paused_automations", []))
             self._last_seen = dict(data.get("last_seen", {}))
             self._last_poll = data.get("last_poll")
+            self._assignments = dict(data.get("assignments", {}))
         self._loaded = True
         _LOGGER.debug("Loaded %d fingerprints", len(self._fingerprints))
 
@@ -99,8 +114,57 @@ class FingerprintStore:
                 "paused_automations": self._paused,
                 "last_seen": self._last_seen,
                 "last_poll": self._last_poll,
+                "assignments": self._assignments,
             }
         )
+
+    def assignments(self) -> dict[str, dict[str, Any]]:
+        return {k: dict(v) for k, v in self._assignments.items()}
+
+    async def async_record_assignment(
+        self,
+        device: str,
+        circuit: str | None,
+        confidence: str,
+        source: str,
+        evidence: dict[str, Any] | None = None,
+    ) -> bool:
+        """Remember which circuit a device was found on.
+
+        ⛔ AN ACTIVE PROBE MUST NOT OVERWRITE ITSELF WITH A WEAKER ANSWER.
+        A probe that switched a real light and watched a real circuit move is
+        stronger evidence than a passive correlation, and a later passive sweep
+        finding nothing must not erase it. A `None` circuit is never recorded
+        over an existing assignment at all - "I could not tell this time" is
+        not the same as "it is not there", and this project keeps relearning
+        that distinction.
+
+        Returns True when something actually changed, so the caller can avoid
+        writing to disk on every no-op refresh.
+        """
+        existing = self._assignments.get(device)
+        if circuit is None:
+            return False
+        if existing and existing.get("source") == "probe" and source != "probe":
+            return False
+        row = {
+            "circuit": circuit,
+            "confidence": confidence,
+            "source": source,
+            "evidence": evidence or {},
+        }
+        if existing == row:
+            return False
+        self._assignments[device] = row
+        await self.async_save()
+        return True
+
+    async def async_forget_assignment(self, device: str) -> bool:
+        if device not in self._assignments:
+            return False
+        del self._assignments[device]
+        await self.async_save()
+        return True
 
     async def async_record_seen(self, seen: dict[str, str], last_poll: str) -> None:
         """Update the last-seen times and the heartbeat, then persist.
