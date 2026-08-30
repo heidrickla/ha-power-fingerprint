@@ -79,3 +79,75 @@ def test_subtract_removes_a_known_device():
     circuit = [500.0, 500.0, 500.0]
     dev = [100.0, 100.0, 100.0]
     assert at.subtract(circuit, [dev]) == [400.0, 400.0, 400.0]
+
+
+# --- devices that never switched in the window -----------------------------
+#
+# From the development install: a rack PDU drifted between 211 and 227 W for
+# three days without one step above threshold, and was "contained" by its
+# circuit in all 43,201 samples. That reads as a confident placement and means
+# nothing.
+#
+# ⛔ These are NOT constant loads. Network gear draws very differently when it
+# starts; it simply never gets switched, because switching it takes the network
+# down. A window containing one real power cut places them instantly.
+
+
+def _rack(n: int = 400) -> list[float]:
+    """A rack PDU: slow drift inside a narrow band, no step, like the real one."""
+    return [211.0 + (i * 16 / n) for i in range(n)]
+
+
+def _motion_light(n: int = 400) -> list[float]:
+    """On for 3% of the window. Its p95 and p5 are both "off"."""
+    return [11.0 if 100 <= i < 112 else 0.0 for i in range(n)]
+
+
+def test_a_device_that_never_switched_is_not_traceable():
+    rack = _rack()
+    assert at.transitions(rack) == 0
+    assert not at.traceable(rack)
+
+
+def test_a_rarely_used_light_IS_traceable():
+    """The regression that killed the percentile version of this test.
+
+    A light on for 3% of the window has an identical 95th and 5th percentile,
+    so a spread-based check called it untraceable while it was switching
+    several times a day. Steps see it immediately.
+    """
+    light = _motion_light()
+    assert at.transitions(light) == 2  # on, then off
+    assert at.traceable(light)
+
+
+def test_slow_drift_is_not_a_transition():
+    """The other half: drift moves a trace without ever stepping."""
+    assert at.transitions([211.0 + i * 0.04 for i in range(400)]) == 0
+
+
+def test_assign_says_no_transition_rather_than_no_candidate():
+    """The whole point: the two answers must not look the same.
+
+    Containment would happily place this device - the circuit is above it at
+    every sample - which is exactly the false confidence being refused.
+    """
+    circuit = [900.0 + (i * 37 % 401) for i in range(400)]
+    result = at.assign({"sensor.rack": _rack()}, {"sensor.circuit": circuit})
+    assert result["sensor.rack"]["circuit"] is None
+    assert result["sensor.rack"]["reason"] == "no transition in window"
+
+
+def test_an_unswitched_device_cannot_consume_a_real_device_s_circuit():
+    """Set aside BEFORE the subtraction loop, not after.
+
+    A device that squeaked through on containment would have its trace
+    subtracted from the circuit, stripping the steps the real device needs.
+    """
+    lamp = [0.0 if (i // 20) % 2 else 60.0 for i in range(400)]
+    circuit = [800.0 + (0.0 if (i // 20) % 2 else 60.0) for i in range(400)]
+    result = at.assign(
+        {"sensor.rack": _rack(), "sensor.lamp": lamp}, {"sensor.circuit": circuit}
+    )
+    assert result["sensor.rack"]["reason"] == "no transition in window"
+    assert result["sensor.lamp"]["circuit"] == "sensor.circuit"

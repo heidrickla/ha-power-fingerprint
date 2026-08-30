@@ -101,6 +101,53 @@ def steps(trace: list[float], min_delta_w: float) -> list[tuple[int, float]]:
     return out
 
 
+def transitions(device: list[float], min_delta_w: float = 5.0) -> int:
+    """How many switching events this device produced in the window.
+
+    Deliberately the same `steps()` call and the same default threshold that
+    `step_match` uses, so "no transitions" means exactly "nothing step_match
+    could ever have matched" rather than a second, subtly different opinion
+    about what counts as movement.
+    """
+    return len(steps(device, min_delta_w))
+
+
+def traceable(device: list[float], min_delta_w: float = 5.0) -> bool:
+    """Whether this device produced anything to trace DURING THIS WINDOW.
+
+    ⭐ A DEVICE THAT NEVER SWITCHED CANNOT BE PLACED, AND THAT IS A FACT ABOUT
+    THE WINDOW RATHER THAN ABOUT THE DEVICE. Correlation and step matching both
+    work on transitions. No transition, nothing to match - and containment
+    alone cannot tell such a device apart from any other circuit whose floor
+    happens to clear its draw.
+
+    ⛔ DO NOT READ THIS AS "the device draws a constant load". Network gear,
+    freezers and alarm panels all draw very differently when they start; they
+    simply are not switched, because switching them is disruptive or unsafe.
+    Widen the window over a real power cut or a planned maintenance reboot and
+    the same device becomes trivially placeable on that one event. What is off
+    the table is probing it, not the device's own behaviour.
+
+    Measured on the development install: a rack PDU drifted between 211 and
+    227 W for three days without one step above the threshold, and was
+    "contained" by its circuit in all 43,201 samples. That reads as a confident
+    placement and is worth nothing.
+
+    ⚠ THE TEST IS STEPS, NOT SPREAD. The first version of this compared the
+    device's 95th-to-5th percentile range against the circuit's noise, and got
+    it exactly backwards on both classes it had to separate: a bathroom light
+    that is on 3% of the time has p95 == p5 == off, so it looked untraceable
+    while switching several times a day, and the PDU's slow thermal drift gave
+    it a nonzero spread so it looked traceable while never switching at all.
+    Percentiles describe where a trace SITS; only steps describe when it MOVED.
+
+    Returning False is the difference between "I looked and found nothing" and
+    "there was nothing to look at yet". Those are not the same answer and must
+    never be reported as if they were.
+    """
+    return transitions(device, min_delta_w) > 0
+
+
 def step_match(
     device: list[float],
     circuit: list[float],
@@ -218,8 +265,26 @@ def assign(
     the right answer far more often than a guess would be.
     """
     out: dict[str, dict[str, float | str | None]] = {}
-    remaining = dict(devices)
     residual = {c: list(t) for c, t in circuits.items()}
+
+    # Devices with no transition in the window are set aside BEFORE scoring,
+    # not scored and then rejected. Scoring them reports the wrong reason, and
+    # worse, one that squeaked past the bars on containment alone would have
+    # its trace subtracted from the circuit below, stripping the steps a real
+    # device needs.
+    remaining = {}
+    for dname, dtrace in devices.items():
+        if traceable(dtrace):
+            remaining[dname] = dtrace
+        else:
+            out[dname] = {
+                "circuit": None,
+                "step_match": 0.0,
+                "r": 0.0,
+                "containment": 0.0,
+                "margin": 0.0,
+                "reason": "no transition in window",
+            }
     order = 0
 
     while remaining:
