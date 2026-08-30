@@ -1,20 +1,14 @@
 """Fixtures for the Home Assistant layer tests.
 
-⚠⚠ THE TESTS IN THIS DIRECTORY HAVE NEVER BEEN EXECUTED. ⚠⚠
+These run against Home Assistant, on Linux, in CI - not on a developer's
+Windows box, where the harness blocks sockets and the ProactorEventLoop needs a
+local socket pair for its own self-pipe. That is expected; HA supports Linux,
+macOS and the devcontainer for development.
 
-`pytest-homeassistant-custom-component` does not run on Windows: the harness
-blocks sockets during tests, and the Windows ProactorEventLoop builds its own
-self-pipe from a local socket pair, so the block kills the event loop before any
-test starts. Home Assistant supports Linux, macOS and the devcontainer for
-development, and this repository was written on Windows.
-
-They are also not covered by CI, because GitHub Actions is unavailable on this
-account (spend cap) - see PUBLISHING.md.
-
-So: treat these as UNVERIFIED. They express what the integration is supposed to
-do, they will run the moment this lands on Linux, and they are skipped when the
-harness is absent so the default `pytest tests/` run does not imply otherwise.
-Expect some to need fixing the first time they actually execute.
+They have not been executed yet, so expect some to need fixing the first time
+they do. They skip when the harness is absent, so the pure-module suite one
+level up still runs on a bare checkout and the default run does not imply
+coverage that does not exist.
 
 ⛔ THIS CONFTEST LIVES IN ITS OWN DIRECTORY ON PURPOSE.
 

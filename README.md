@@ -389,8 +389,9 @@ The analysis, fingerprint, attribution and verify modules import nothing from
 Home Assistant, so the bulk of the suite runs on a bare checkout.
 
 `tests/ha/` covers the Home Assistant layer and is **skipped unless
-`pytest-homeassistant-custom-component` is installed**. ⚠ It has never been
-executed — see [PUBLISHING.md](PUBLISHING.md) for why.
+`pytest-homeassistant-custom-component` is installed**. It runs in CI against
+Home Assistant on Linux, which is where it belongs — see
+[PUBLISHING.md](PUBLISHING.md).
 
 ## Licence
 

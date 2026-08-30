@@ -13,25 +13,21 @@ Everything in this repo is built to HACS default-store standards, but it is
 
 None of these are code problems. The code is ready; the hosting is not.
 
-## ⚠ The Home Assistant layer tests have never run
+## The Home Assistant layer tests run on Linux, not here
 
 `tests/ha/` covers setup and unload, the config and options flow, the derived
 sensor values, the coverage fault in both directions, device grouping, and the
-orphaned-pause safety backstop. **None of it has ever been executed.**
+orphaned-pause safety backstop.
 
-`pytest-homeassistant-custom-component` does not run on Windows: the harness
-blocks sockets during tests, and the Windows ProactorEventLoop builds its own
-self-pipe out of a local socket pair, so the block kills the event loop before
-any test starts. Home Assistant supports Linux, macOS and the devcontainer for
-development. Neither WSL (only a `docker-desktop` distro here) nor disabling
-pytest-socket worked, and the harness calls `disable_socket()` programmatically
-so the plugin cannot simply be turned off.
+They have not been executed yet. Home Assistant supports Linux, macOS and the
+devcontainer for development, and this repository was written on Windows, where
+the harness blocks sockets and the ProactorEventLoop needs a local socket pair
+for its own self-pipe. That is expected rather than a defect — these belong in
+CI, running against Home Assistant, which is where they will run.
 
-They are skipped when the harness is absent, so the default run reports
-**53 passed, 1 skipped** and does not imply coverage it does not have.
-
-**Expect some to fail the first time they genuinely execute**, on Linux or in
-CI. That is the point at which this section can be deleted.
+They skip when the harness is absent, so the default run reports **53 passed,
+1 skipped** and does not imply coverage it does not have. Expect some to need
+fixing the first time they actually execute.
 
 ## Already done
 
