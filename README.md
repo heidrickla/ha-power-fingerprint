@@ -299,6 +299,31 @@ about it:
   reports any that fired. A result with interference is graded `suspect` and the
   automation is named, rather than being silently trusted or silently discarded.
 
+### What a real sweep taught, 2026-08-30
+
+Eighteen devices probed across seven rooms in one night. Three findings, in
+order of how badly each would have bitten someone:
+
+⛔ **A "lights only" filter does not make a sweep safe.** The target list
+contained `light.living_room_logans_computer` — a desktop's power feed, exposed
+as a `light` entity. Domain filtering did nothing. The measured
+carrying-load guard is what refused it, along with eleven other live loads.
+
+⛔ **`probes: 1` produces confident garbage.** The whole defence against
+coincidence is that independent probes must agree, and with one probe that is
+vacuously true. Every placement came back `measured`, including six devices
+from five unrelated areas on one busy circuit, and a dining-room chandelier on
+an air-conditioner circuit. Re-probed at `probes: 3`, **six of seven collapsed
+to `unknown`**. `grade()` now caps a single probe at `inferred`.
+
+⭐ **Attach the device's own meter, or the answer is always the air
+conditioning.** With it, ranking requires the circuit's step to match the
+magnitude the device reported. Without it, ranking falls back to "which circuit
+moved most" — and a cycling 3 kW compressor out-moves a 10 W lamp on every axis
+that does not check magnitude. The same two AC circuits appeared in nearly
+every disagreement above. The probe now discovers the device's own power sensor
+automatically instead of expecting the caller to name it.
+
 ### Field results, 2026-08-30
 
 First live run, three devices, two probes each, on a 27-circuit panel at 01:00.
