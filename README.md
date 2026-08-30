@@ -249,6 +249,33 @@ change the mains or circuit list after re-clamping a panel, or **Configure**
 for the same fields plus price, tolerance and contradiction pairs. Both run the
 same validation as setup.
 
+## Naming what was learned
+
+Clustering finds the recurring shapes and genuinely cannot name them. But a lot
+of the time **the name is already written down somewhere**, and reading it back
+is free and certain:
+
+```yaml
+action: power_fingerprint.autolabel
+```
+
+⭐ **Not inference — reading.** Two sources, both things a person typed:
+the circuit sensor's own title ("EmporiaVue Circuit 15 **Dish Washer** Power")
+and, preferred because it is more curated, the name on the **energy dashboard**
+("Circuit 25 **Garage**", "Circuit 26 **Microwave**"). Meter firmware names
+breakers; people name appliances.
+
+⛔ **It refuses in exactly two cases**, and both refusals matter more than the
+names it applies:
+
+| Situation | What it does |
+|---|---|
+| The circuit has **more than one shape** | Refuses, and reports the suggestion for you to apply. Naming the biggest shape would be a guess wearing a fact's clothes. |
+| The circuit's name is only a number | Refuses. "Circuit 30" names a breaker, not an appliance. |
+
+It never overwrites a name a human gave. On the development install it named 12
+of 21 circuits outright and handed back 8 with suggestions attached.
+
 ## Learning fingerprints
 
 Two services. The split matters: clustering finds the recurring shapes and

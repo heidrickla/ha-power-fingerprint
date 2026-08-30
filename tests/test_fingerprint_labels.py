@@ -75,3 +75,50 @@ def test_match_refuses_rather_than_guessing():
     matched, dist = fp.match(nothing_like_it, library)
     assert matched is None
     assert dist > 1.0
+
+
+# --- reading the name off the circuit ---------------------------------------
+
+
+def test_a_named_circuit_yields_its_appliance():
+    assert fp.suggest_label("EmporiaVue Circuit 15 Dish Washer Power") == "Dish Washer"
+    assert fp.suggest_label("EmporiaVue Circuit 11 Furnace Central Power") == (
+        "Furnace Central"
+    )
+
+
+def test_a_multi_breaker_designation_is_stripped():
+    """ "Circuit 6 & 8" is an address, not part of the appliance's name."""
+    assert (
+        fp.suggest_label("EmporiaVue Circuit 6 & 8 Air Conditioner Bedrooms Power")
+        == "Air Conditioner Bedrooms"
+    )
+
+
+def test_an_unnamed_circuit_returns_none_rather_than_a_number():
+    """⛔ "Circuit 25" names a breaker. Guessing an appliance from it would be
+    exactly the confident nonsense this project keeps deleting."""
+    assert fp.suggest_label("EmporiaVueSecondary Circuit 25 Power") is None
+    assert fp.suggest_label("EmporiaVue Circuit 16 Power") is None
+
+
+def test_the_secondary_unit_prefix_is_stripped_too():
+    assert fp.suggest_label("EmporiaVueSecondary Circuit 21 Washer Power") == "Washer"
+
+
+def test_a_dashboard_style_name_yields_the_room_or_appliance():
+    """The energy dashboard is where the good names live.
+
+    Entity titles come from the meter's firmware; these come from a person.
+    """
+    assert fp.suggest_label("Circuit 25 Garage") == "Garage"
+    assert fp.suggest_label("Circuit 26 Microwave") == "Microwave"
+    assert fp.suggest_label("Circuit 1 & 3 Oven") == "Oven"
+    assert fp.suggest_label("Circuit 18 Breakfast, Kitchen Lights") == (
+        "Breakfast, Kitchen Lights"
+    )
+
+
+def test_a_dashboard_name_that_is_only_a_number_still_returns_none():
+    assert fp.suggest_label("Circuit 30") is None
+    assert fp.suggest_label("Circuit 32") is None

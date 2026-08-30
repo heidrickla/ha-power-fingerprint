@@ -134,6 +134,11 @@
           "description": "Lower places more devices and places more of them wrongly."
         }
       }
+    },
+    "autolabel": {
+      "name": "Name the obvious ones",
+      "description": "Name every learned shape whose circuit already says what it is - a circuit titled 'Dish Washer' with a single recurring shape. Circuits with several shapes, or with no appliance name, are listed for you rather than guessed at.",
+      "fields": {}
     }
   },
   "options": {

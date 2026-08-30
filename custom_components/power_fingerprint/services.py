@@ -39,7 +39,15 @@ from .coordinator import (
     PowerFingerprintConfigEntry,
     PowerFingerprintData,
 )
-from .fingerprint import cluster, normalize, summarize
+from .dashboard import async_circuit_names
+from .fingerprint import (
+    Fingerprint,
+    cluster,
+    is_named,
+    normalize,
+    suggest_label,
+    summarize,
+)
 from .verify import (
     agree,
     decide,
@@ -58,6 +66,7 @@ SERVICE_LEARN = "learn"
 SERVICE_LABEL = "label"
 SERVICE_VERIFY = "verify_circuit"
 SERVICE_MAP = "map_devices"
+SERVICE_AUTOLABEL = "autolabel"
 
 LEARN_SCHEMA = vol.Schema(
     {
@@ -792,7 +801,71 @@ def async_setup_services(hass: HomeAssistant) -> None:
             "circuits_claiming_three_or_more_areas": suspect,
         }
 
+    async def _autolabel(call: ServiceCall) -> ServiceResponse:
+        """Name every shape whose circuit already says what it is.
+
+        ⭐ ONLY WHERE THERE IS NOTHING TO GUESS. Two conditions, both strict:
+        the circuit's own title must contain an appliance name somebody typed,
+        and the circuit must have exactly ONE learned shape. A circuit called
+        "Dish Washer" with a single recurring shape has one answer. A circuit
+        called "Circuit 25" has none, and a circuit with three shapes needs a
+        human to say which is which - naming the biggest would be a guess
+        wearing a fact's clothes.
+
+        Never overwrites a name a person gave.
+        """
+        runtime = _runtime(hass)
+        store = runtime.store
+        # The energy dashboard's names beat the entity titles: they are what a
+        # person typed rather than what the firmware shipped.
+        dashboard_names = await async_circuit_names(hass)
+        by_circuit: dict[str, list[Fingerprint]] = {}
+        for fp in store.fingerprints:
+            by_circuit.setdefault(fp.circuit, []).append(fp)
+
+        applied: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        for circuit, shapes in sorted(by_circuit.items()):
+            state = hass.states.get(circuit)
+            title = dashboard_names.get(circuit) or (
+                str(state.attributes.get("friendly_name", "")) if state else ""
+            )
+            suggestion = suggest_label(title) if title else None
+            unnamed = [f for f in shapes if not is_named(f)]
+            if suggestion is None:
+                skipped.append(
+                    {"circuit": circuit, "why": "circuit has no appliance name"}
+                )
+                continue
+            if len(shapes) != 1:
+                skipped.append(
+                    {
+                        "circuit": circuit,
+                        "why": (
+                            f"{len(shapes)} shapes - a human must say which is which"
+                        ),
+                        "suggestion": suggestion,
+                    }
+                )
+                continue
+            if not unnamed:
+                skipped.append({"circuit": circuit, "why": "already named"})
+                continue
+            ok = await store.async_relabel(circuit, unnamed[0].label, suggestion)
+            if ok:
+                applied.append({"circuit": circuit, "named": suggestion})
+
+        if applied:
+            await runtime.coordinator.async_request_refresh()
+        return {"named": applied, "left_for_you": skipped}
+
     hass.services.async_register(DOMAIN, SERVICE_LABEL, _label, schema=LABEL_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_AUTOLABEL,
+        _autolabel,
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_MAP,

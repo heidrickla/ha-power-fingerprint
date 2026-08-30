@@ -162,3 +162,5 @@ map_devices:
           step: 0.05
           mode: box
       default: 0.5
+
+autolabel:
