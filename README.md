@@ -57,12 +57,26 @@ Settings → Devices & Services → Add Integration → Power Fingerprint.
 
 ## Design notes
 
-Three things in `analysis.py` exist because the obvious approach failed first.
+Four things in `analysis.py` exist because the obvious approach failed first,
+and each has a regression test.
 
-**Thresholds are per-circuit and percentile-based.** A first pass used
-`idle × 3` as the on-threshold. It scored zero runs on two circuits drawing
-663 W and 353 W continuously, because on a circuit with a high constant
-baseline that lands above the 99th percentile.
+**Thresholds make no duty-cycle assumption.** A first pass used `idle × 3`,
+which scored zero runs on two circuits drawing 663 W and 353 W continuously —
+on a high-baseline circuit that lands above the 99th percentile. Switching to a
+fixed percentile was no better: the 40th percentile assumes a circuit is mostly
+off, and on a furnace at a **68% duty cycle** it lands *inside* a run, reporting
+zero runs across 98,849 samples. Both failures are silent. Otsu's method is used
+instead, because it assumes nothing about how often a load is on.
+
+**An event keeps its own dips.** If an event held only its above-threshold
+samples, the floor would be pinned at the threshold by construction and could
+never be low — destroying the very feature below. Events retain every sample
+inside their time span.
+
+**Duration does not decide identity.** Weighted into the clustering, it split
+one furnace into four clusters that were identical in power (156 W peak, 110 W
+floor, 2 plateaus) and differed only in how long each run happened to last. A
+machine is identified by the power it draws.
 
 **Minimum run length is configurable and defaults low.** The same pass silently
 discarded a garbage disposal with a 423 W peak, because it used a two-minute
