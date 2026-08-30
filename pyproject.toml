@@ -1,0 +1,36 @@
+[project]
+name = "ha-power-fingerprint"
+version = "0.2.0"
+description = "Identify what is running on a circuit from the shape of its load."
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = ["custom_components/power_fingerprint/brand"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "W",    # warnings
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "RUF",
+]
+ignore = [
+    # The tools deliberately load integration modules by path rather than by
+    # package import, because the package __init__ pulls in Home Assistant and
+    # these run on a workstation without it. That means imports after code.
+    "E402",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests load modules by path before importing them, and assert on constants.
+"tests/*" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -11,10 +11,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import FingerprintCoordinator
+from .entity import FingerprintEntity
 
 
 async def async_setup_entry(
@@ -30,12 +30,8 @@ async def async_setup_entry(
     )
 
 
-class _Base(CoordinatorEntity[FingerprintCoordinator], SensorEntity):
-    _attr_has_entity_name = True
-
-    def __init__(self, coordinator: FingerprintCoordinator, key: str) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{key}"
+class _Base(FingerprintEntity, SensorEntity):
+    """Sensor flavour of the shared base."""
 
 
 class UnmonitoredLoadSensor(_Base):

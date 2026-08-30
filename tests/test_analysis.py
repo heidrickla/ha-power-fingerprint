@@ -8,7 +8,7 @@ by path here rather than as part of the integration package - the package
 import importlib.util
 import pathlib
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 _PATH = (
     pathlib.Path(__file__).resolve().parents[1]
@@ -21,7 +21,7 @@ pf = importlib.util.module_from_spec(_spec)
 sys.modules["pf_analysis"] = pf  # dataclass needs the module resolvable
 _spec.loader.exec_module(pf)
 
-T0 = datetime(2026, 8, 28, 2, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 8, 28, 2, 0, tzinfo=UTC)
 
 
 def trace(values, step_s=12):
@@ -78,13 +78,13 @@ def test_floor_while_running_separates_dryer_from_washer():
     Both appliances share one circuit and have near-identical peaks. Only the
     minimum while running tells them apart.
     """
-    dryer = pf.segment(trace([1.0] * 5 + [380.0, 400.0, 830.0, 385.0, 375.0] + [1.0] * 5),
-                       min_duration_s=0)[0]
-    washer = pf.segment(trace([1.0] * 5 + [820.0, 60.0, 90.0, 800.0, 70.0] + [1.0] * 5),
-                        min_duration_s=0)[0]
+    dryer_trace = trace([1.0] * 5 + [380.0, 400.0, 830.0, 385.0, 375.0] + [1.0] * 5)
+    washer_trace = trace([1.0] * 5 + [820.0, 60.0, 90.0, 800.0, 70.0] + [1.0] * 5)
+    dryer = pf.segment(dryer_trace, min_duration_s=0)[0]
+    washer = pf.segment(washer_trace, min_duration_s=0)[0]
 
-    assert abs(dryer.peak_w - washer.peak_w) < 50      # peaks do NOT separate them
-    assert dryer.floor_w > 300                          # floors do
+    assert abs(dryer.peak_w - washer.peak_w) < 50  # peaks do NOT separate them
+    assert dryer.floor_w > 300  # floors do
     assert washer.floor_w < 100
 
 

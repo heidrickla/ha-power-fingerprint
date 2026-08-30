@@ -80,7 +80,7 @@ def _dist(a: list[float], b: list[float]) -> float:
     appliances stop looking like one appliance under varying load.
     """
     return math.sqrt(
-        sum(w * (x - y) ** 2 for x, y, w in zip(a, b, _WEIGHTS))
+        sum(w * (x - y) ** 2 for x, y, w in zip(a, b, _WEIGHTS, strict=True))
     )
 
 
@@ -160,7 +160,7 @@ class Fingerprint:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Fingerprint":
+    def from_dict(cls, d: dict) -> Fingerprint:
         return cls(
             label=d["label"],
             circuit=d["circuit"],
@@ -176,7 +176,7 @@ def summarize(
     """Turn clustered events into one Fingerprint per cluster."""
     out: list[Fingerprint] = []
     for cid in sorted(set(labels)):
-        members = [f for f, lb in zip(feature_rows, labels) if lb == cid]
+        members = [f for f, lb in zip(feature_rows, labels, strict=True) if lb == cid]
         if not members:
             continue
         centroid, spread = {}, {}
@@ -212,7 +212,7 @@ def match(
     rows = normalize([fp.centroid for fp in library] + [features])
     target = rows[-1]
     best, best_d = None, float("inf")
-    for fp, row in zip(library, rows[:-1]):
+    for fp, row in zip(library, rows[:-1], strict=True):
         d = _dist(row, target)
         if d < best_d:
             best_d, best = d, fp

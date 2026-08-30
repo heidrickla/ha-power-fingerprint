@@ -9,10 +9,10 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import FingerprintCoordinator
+from .entity import FingerprintEntity
 
 
 async def async_setup_entry(
@@ -22,13 +22,8 @@ async def async_setup_entry(
     async_add_entities([CoverageFault(coordinator), Contradiction(coordinator)])
 
 
-class _Base(CoordinatorEntity[FingerprintCoordinator], BinarySensorEntity):
-    _attr_has_entity_name = True
+class _Base(FingerprintEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
-
-    def __init__(self, coordinator: FingerprintCoordinator, key: str) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{DOMAIN}_{key}"
 
 
 class CoverageFault(_Base):

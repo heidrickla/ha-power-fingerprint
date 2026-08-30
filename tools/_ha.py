@@ -17,6 +17,7 @@ trap cannot come back one file at a time.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -24,7 +25,7 @@ import ssl
 import sys
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 Sample = tuple[datetime, float]
 
@@ -43,7 +44,10 @@ def load_module(name: str):
     """
     path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        "..", "custom_components", "power_fingerprint", f"{name}.py",
+        "..",
+        "custom_components",
+        "power_fingerprint",
+        f"{name}.py",
     )
     spec = importlib.util.spec_from_file_location(f"pf_{name}", path)
     mod = importlib.util.module_from_spec(spec)
@@ -61,7 +65,7 @@ def api(path: str):
 
 
 def window(days: int) -> tuple[datetime, datetime]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return now - timedelta(days=days), now
 
 
@@ -73,13 +77,14 @@ def history(entity: str, days: int) -> list[Sample]:
         f"&filter_entity_id={urllib.parse.quote(entity)}&minimal_response"
     )
     out: list[Sample] = []
-    for row in (data[0] if data else []):
-        try:
+    for row in data[0] if data else []:
+        # Rows with a non-numeric state (unavailable, unknown) are skipped
+        # rather than defaulted - a fabricated zero would look like a real
+        # reading of nothing.
+        with contextlib.suppress(ValueError, TypeError, KeyError):
             out.append(
                 (datetime.fromisoformat(row["last_changed"]), float(row["state"]))
             )
-        except (ValueError, TypeError, KeyError):
-            pass
     return out
 
 
@@ -93,3 +98,16 @@ def power_sensors(exclude: str | None = None) -> list[str]:
         and s.get("attributes", {}).get("state_class") == "measurement"
         and (exclude is None or exclude not in s["entity_id"])
     )
+
+
+def template(tpl: str) -> str:
+    """Render a Jinja template server-side. Used to read area assignments,
+    which are registry data and not exposed as plain states."""
+    url = os.environ["HA_URL"].rstrip("/") + "/api/template"
+    req = urllib.request.Request(
+        url, data=json.dumps({"template": tpl}).encode(), method="POST"
+    )
+    req.add_header("Authorization", "Bearer " + os.environ["HA_TOKEN"])
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=60, context=CTX) as resp:
+        return resp.read().decode().strip()

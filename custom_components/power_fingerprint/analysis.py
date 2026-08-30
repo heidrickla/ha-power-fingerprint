@@ -38,7 +38,7 @@ unreliably or not at all. That is a property of the meter, not of the code.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 
 Sample = tuple[datetime, float]
 

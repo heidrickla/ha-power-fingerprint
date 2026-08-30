@@ -54,13 +54,14 @@ def _as_float(state) -> float | None:
 class FingerprintCoordinator(DataUpdateCoordinator):
     """Maintains a rolling sample window and derives the label-free checks."""
 
-    def __init__(self, hass: HomeAssistant, options: dict) -> None:
+    def __init__(self, hass: HomeAssistant, options: dict, entry_id: str) -> None:
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=POLL_SECONDS),
         )
+        self.entry_id = entry_id
         self.mains: str = options[CONF_MAINS]
         self.circuits: list[str] = list(options[CONF_CIRCUITS])
         self.price: float = float(options.get(CONF_PRICE, DEFAULT_PRICE))
@@ -82,13 +83,17 @@ class FingerprintCoordinator(DataUpdateCoordinator):
 
         def _fetch():
             return history.state_changes_during_period(
-                self.hass, start, dt_util.utcnow(), entity_id=None,
-                include_start_time_state=False, no_attributes=True,
+                self.hass,
+                start,
+                dt_util.utcnow(),
+                entity_id=None,
+                include_start_time_state=False,
+                no_attributes=True,
             )
 
         try:
             data = await get_instance(self.hass).async_add_executor_job(_fetch)
-        except Exception as err:  # noqa: BLE001 - seeding is best-effort
+        except Exception as err:
             _LOGGER.debug("Could not seed window from recorder: %s", err)
             self._seeded = True
             return
@@ -140,7 +145,8 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         # fault: an unused circuit legitimately reads zero forever, so this is
         # information rather than an alarm.
         silent = [
-            e for e in self.circuits
+            e
+            for e in self.circuits
             if self._window[e] and max(w for _, w in self._window[e]) < 5.0
         ]
 
@@ -148,10 +154,14 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             "coverage": cov,
             "standby": ranking,
             "standby_total_w": round(sum(floors.values()), 1),
-            "standby_annual_cost": round(
-                sum(floors.values()) * 8.766 * self.price, 2
-            ),
+            "standby_annual_cost": round(sum(floors.values()) * 8.766 * self.price, 2),
             "contradictions": clashes,
             "silent_circuits": silent,
             "tolerance_pct": self.tolerance,
         }
+
+    def window_sizes(self) -> dict[str, int]:
+        """How many samples each circuit has accumulated. Used by diagnostics
+        to show whether the rolling window has actually filled - a standby
+        figure from a nearly empty window is not yet meaningful."""
+        return {e: len(self._window[e]) for e in self.circuits}

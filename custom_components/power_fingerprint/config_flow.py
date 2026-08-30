@@ -52,9 +52,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             # this is easier to review than a nested repeating form.
             vol.Optional(
                 CONF_PAIRS, default=defaults.get(CONF_PAIRS, "")
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(multiline=True)
-            ),
+            ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
         }
     )
 
