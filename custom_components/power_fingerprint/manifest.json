@@ -1,0 +1,17 @@
+{
+  "domain": "power_fingerprint",
+  "name": "Power Fingerprint",
+  "version": "0.1.0",
+  "documentation": "https://github.com/heidrickla/ha-power-fingerprint",
+  "issue_tracker": "https://github.com/heidrickla/ha-power-fingerprint/issues",
+  "codeowners": [
+    "@lewis"
+  ],
+  "config_flow": true,
+  "iot_class": "calculated",
+  "integration_type": "service",
+  "dependencies": [
+    "recorder"
+  ],
+  "requirements": []
+}
