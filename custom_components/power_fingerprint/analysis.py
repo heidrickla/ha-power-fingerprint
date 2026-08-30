@@ -6,12 +6,14 @@ unit-tested without Home Assistant.
 Three design decisions are baked in, each one learned from a real failure while
 prototyping this against a live 36-circuit Emporia Vue install:
 
-1.  THRESHOLDS MUST BE PER-CIRCUIT AND PERCENTILE-BASED.
-    A first pass used `idle * 3` as the "appliance is on" threshold. It scored
-    zero runs on two circuits that were drawing 663 W and 353 W continuously,
-    because on a circuit with a high constant baseline that threshold lands
-    above the 99th percentile. Anything absolute, or any fixed multiple of the
-    floor, breaks on always-on circuits.
+1.  THRESHOLDS MUST BE PER-CIRCUIT AND MAKE NO DUTY-CYCLE ASSUMPTION.
+    A first pass used `idle * 3`, which scored zero runs on two circuits
+    drawing 663 W and 353 W continuously - on a high-baseline circuit that
+    lands above the 99th percentile. The fix to a fixed percentile was no
+    better: the 40th percentile assumes a circuit is mostly off, and on a
+    furnace at a 68% duty cycle it lands INSIDE a run, reporting zero runs
+    across 98,849 samples. Both failures are silent. Otsu's method is used
+    instead because it assumes nothing about how often the load is on.
 
 2.  MINIMUM RUN LENGTH MUST NOT BE A GLOBAL CONSTANT.
     The same pass discarded a garbage disposal with a 423 W peak because it
@@ -64,13 +66,55 @@ def circuit_floor(samples: list[Sample], pct: float = 5.0) -> float:
 def on_threshold(samples: list[Sample], margin_w: float = 15.0) -> float:
     """Where "off" ends and "an appliance is running" begins, for THIS circuit.
 
-    Sits above the circuit's own quiet band rather than at a fixed multiple of
-    it, so a circuit with a 663 W always-on baseline still gets a usable
-    threshold instead of one above its own p99. See design note 1.
+    Uses Otsu's method - the split that minimises variance within the two
+    resulting groups - rather than any fixed percentile.
+
+    ⛔ A PERCENTILE DOES NOT WORK HERE AND THE FAILURE IS SILENT. An earlier
+    version used the 40th percentile as "quiet", which assumes a circuit is off
+    most of the time. On a furnace running a 68% duty cycle the 40th percentile
+    lands *inside* a run, so the threshold sat above the load and the circuit
+    reported ZERO runs across 98,849 samples. Otsu makes no assumption about
+    duty cycle, which is exactly the property needed: the same code has to work
+    for a dishwasher at 3% and a furnace at 68%.
     """
-    floor = circuit_floor(samples)
-    quiet = percentile([w for _, w in samples], 40.0)
-    return max(floor + margin_w, quiet + margin_w)
+    values = [w for _, w in samples]
+    if not values:
+        return margin_w
+    lo, hi = min(values), max(values)
+    if hi - lo < margin_w:
+        # Effectively flat: nothing here is switching on and off.
+        return hi + margin_w
+
+    bins = 64
+    width = (hi - lo) / bins
+    hist = [0] * bins
+    for w in values:
+        hist[min(int((w - lo) / width), bins - 1)] += 1
+
+    total = len(values)
+    best_split, best_var = 0, -1.0
+    w_bg = 0
+    sum_bg = 0.0
+    sum_all = sum(i * hist[i] for i in range(bins))
+    for i in range(bins):
+        w_bg += hist[i]
+        if w_bg == 0:
+            continue
+        w_fg = total - w_bg
+        if w_fg == 0:
+            break
+        sum_bg += i * hist[i]
+        mean_bg = sum_bg / w_bg
+        mean_fg = (sum_all - sum_bg) / w_fg
+        # Between-class variance; maximising it minimises within-class variance.
+        var = w_bg * w_fg * (mean_bg - mean_fg) ** 2
+        if var > best_var:
+            best_var, best_split = var, i
+
+    otsu = lo + (best_split + 1) * width
+    # Never sit below the circuit's own standby floor, or an always-on circuit
+    # would report itself as permanently running.
+    return max(otsu, circuit_floor(samples) + margin_w)
 
 
 @dataclass
@@ -144,33 +188,50 @@ def segment(
     `gap_tolerance_s` bridges brief dips below threshold so a washer's soak
     phase does not shatter one wash into fifteen "events". `min_duration_s`
     defaults low enough to keep short loads - see design note 2.
+
+    ⛔ AN EVENT KEEPS EVERY SAMPLE INSIDE ITS TIME SPAN, INCLUDING THE ONES
+    BELOW THRESHOLD. This matters more than it looks. If an event held only its
+    above-threshold samples, `floor_w` would be pinned at the threshold by
+    construction and could never be low - which would destroy the one feature
+    that separates a washer from a dryer (design note 3). A test asserts this:
+    a washer dipping to 60 W between phases must report a 60 W floor, not a
+    threshold-shaped one.
     """
     if not samples:
         return []
     thr = on_threshold(samples) if threshold_w is None else threshold_w
 
     events: list[Event] = []
-    cur_start: datetime | None = None
-    cur_vals: list[float] = []
-    last_on: datetime | None = None
+    start_i: int | None = None
+    last_on_i: int | None = None
 
-    for ts, w in samples:
+    for i, (ts, w) in enumerate(samples):
         if w > thr:
-            if cur_start is None:
-                cur_start = ts
-                cur_vals = []
-            cur_vals.append(w)
-            last_on = ts
-        elif cur_start is not None and last_on is not None:
-            if (ts - last_on).total_seconds() > gap_tolerance_s:
-                if (last_on - cur_start).total_seconds() >= min_duration_s:
-                    events.append(Event(cur_start, last_on, cur_vals))
-                cur_start, cur_vals, last_on = None, [], None
+            if start_i is None:
+                start_i = i
+            last_on_i = i
+        elif start_i is not None and last_on_i is not None:
+            if (ts - samples[last_on_i][0]).total_seconds() > gap_tolerance_s:
+                _emit(events, samples, start_i, last_on_i, min_duration_s)
+                start_i, last_on_i = None, None
 
-    if cur_start is not None and last_on is not None:
-        if (last_on - cur_start).total_seconds() >= min_duration_s:
-            events.append(Event(cur_start, last_on, cur_vals))
+    if start_i is not None and last_on_i is not None:
+        _emit(events, samples, start_i, last_on_i, min_duration_s)
     return events
+
+
+def _emit(
+    events: list[Event],
+    samples: list[Sample],
+    start_i: int,
+    end_i: int,
+    min_duration_s: float,
+) -> None:
+    start, end = samples[start_i][0], samples[end_i][0]
+    if (end - start).total_seconds() < min_duration_s:
+        return
+    # Inclusive slice of the whole span - see the note in segment().
+    events.append(Event(start, end, [w for _, w in samples[start_i : end_i + 1]]))
 
 
 # --------------------------------------------------------------------------
