@@ -37,6 +37,7 @@ from .verify import (
     interference,
     may_probe,
     rank_deltas,
+    safe_to_pause,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ VERIFY_SCHEMA = vol.Schema(
         vol.Optional("power_sensor"): cv.entity_id,
         vol.Optional("probes", default=2): vol.All(int, vol.Range(min=1, max=5)),
         vol.Optional("settle", default=30): vol.All(int, vol.Range(min=10, max=120)),
+        vol.Optional("pause_automations", default=False): cv.boolean,
     }
 )
 
@@ -162,6 +164,48 @@ def _watchers(hass: HomeAssistant, entities: list[str]) -> dict[str, str | None]
     return snapshot
 
 
+def _pausable(
+    hass: HomeAssistant, entities: list[str]
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Which watching automations may safely be switched off for a probe.
+
+    Returns (pausable, refused-with-reasons). Refusals are returned rather than
+    swallowed, because "we left three automations running" changes how much to
+    trust the measurement and the caller should see it.
+    """
+    pausable: list[str] = []
+    refused: list[dict[str, str]] = []
+    component = hass.data.get("automation")
+    if component is None:
+        return pausable, refused
+
+    targets = set(entities)
+    for auto in component.entities:
+        try:
+            referenced = set(auto.referenced_entities)
+        except AttributeError:
+            continue
+        if not (targets & referenced):
+            continue
+        state = hass.states.get(auto.entity_id)
+        if state is None or state.state != "on":
+            continue  # already off; leave it alone and do not re-enable it later
+        classes = {
+            e: (
+                hass.states.get(e).attributes.get("device_class")
+                if hass.states.get(e)
+                else None
+            )
+            for e in referenced
+        }
+        ok, why = safe_to_pause(referenced, classes)
+        if ok:
+            pausable.append(auto.entity_id)
+        else:
+            refused.append({"automation": auto.entity_id, "reason": why})
+    return sorted(pausable), refused
+
+
 async def async_register(hass: HomeAssistant, entry_id: str) -> None:
     """Register the services once, on the first config entry."""
 
@@ -234,7 +278,29 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
 
         # Watch every automation that touches the device OR any circuit, so
         # interference is detected rather than inferred.
-        watched_before = _watchers(hass, [device, *coordinator.circuits])
+        watching = [device, *coordinator.circuits]
+        watched_before = _watchers(hass, watching)
+
+        store = hass.data[DOMAIN][entry_id]["store"]
+        paused: list[str] = []
+        refused: list[dict[str, str]] = []
+        if call.data["pause_automations"]:
+            paused, refused = _pausable(hass, watching)
+            # ⛔ RECORD BEFORE SWITCHING OFF, NOT AFTER. If the process dies
+            # between the two, a stale record restores something already
+            # running, which is harmless. The other order leaves automations
+            # off with nothing aware of it.
+            await store.async_record_paused(paused)
+            for entity in paused:
+                await hass.services.async_call(
+                    "automation", "turn_off", {"entity_id": entity}, blocking=True
+                )
+            _LOGGER.info(
+                "Paused %d automations for a probe of %s (%d refused as unsafe)",
+                len(paused),
+                device,
+                len(refused),
+            )
 
         try:
             for _ in range(probes):
@@ -302,6 +368,12 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
                 {"entity_id": device},
                 blocking=True,
             )
+            for entity in paused:
+                await hass.services.async_call(
+                    "automation", "turn_on", {"entity_id": entity}, blocking=True
+                )
+            if paused:
+                await store.async_clear_paused()
 
         measured, agree_reason = agree(observations)
         fired = interference(
@@ -318,6 +390,8 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
             "confidence": confidence,
             "reason": agree_reason,
             "automations_fired_during_probe": fired,
+            "automations_paused": paused,
+            "automations_refused_as_unsafe": refused,
             "device_metered": device_metered,
             "probes": detail,
         }

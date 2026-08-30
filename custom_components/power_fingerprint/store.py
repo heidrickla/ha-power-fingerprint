@@ -34,6 +34,10 @@ class FingerprintStore:
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry_id}"
         )
         self._fingerprints: list[Fingerprint] = []
+        # Automations this integration switched off for a probe. Persisted so a
+        # crash or restart mid-probe cannot leave them off silently - see
+        # async_take_orphaned_pauses().
+        self._paused: list[str] = []
         self._loaded = False
 
     @property
@@ -61,13 +65,45 @@ class FingerprintStore:
             self._fingerprints = [
                 Fingerprint.from_dict(d) for d in data.get("fingerprints", [])
             ]
+            self._paused = list(data.get("paused_automations", []))
         self._loaded = True
         _LOGGER.debug("Loaded %d fingerprints", len(self._fingerprints))
 
     async def async_save(self) -> None:
         await self._store.async_save(
-            {"fingerprints": [fp.to_dict() for fp in self._fingerprints]}
+            {
+                "fingerprints": [fp.to_dict() for fp in self._fingerprints],
+                "paused_automations": self._paused,
+            }
         )
+
+    async def async_record_paused(self, entities: list[str]) -> None:
+        """Write down what is about to be switched off, BEFORE switching it off.
+
+        Order matters. If the record is written after the pause and the process
+        dies in between, the automations are off and nothing knows. Written
+        first, the worst case is a stale record that restores something already
+        running, which is harmless.
+        """
+        self._paused = list(entities)
+        await self.async_save()
+
+    async def async_clear_paused(self) -> None:
+        self._paused = []
+        await self.async_save()
+
+    async def async_take_orphaned_pauses(self) -> list[str]:
+        """Anything still recorded as paused from a previous run.
+
+        Called at setup. A non-empty list here means a probe did not finish -
+        the process was killed, Home Assistant restarted, the host lost power -
+        and these automations have been switched off ever since without anyone
+        being told.
+        """
+        orphaned = list(self._paused)
+        if orphaned:
+            await self.async_clear_paused()
+        return orphaned
 
     async def async_replace_circuit(
         self, circuit: str, fingerprints: list[Fingerprint]
