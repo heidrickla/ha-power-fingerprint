@@ -1,0 +1,68 @@
+learn:
+  name: Learn fingerprints
+  description: >-
+    Read history for each circuit, group the appliance runs it finds by shape,
+    and store them as candidates. Returns a description of every shape found so
+    you can tell which is which. Labels you have already applied are kept.
+  fields:
+    circuits:
+      name: Circuits
+      description: Limit to these power sensors. Defaults to all configured circuits.
+      required: false
+      selector:
+        entity:
+          domain: sensor
+          device_class: power
+          multiple: true
+    days:
+      name: Days of history
+      description: How far back to read. More data gives steadier clusters.
+      required: false
+      default: 7
+      selector:
+        number:
+          min: 1
+          max: 30
+          unit_of_measurement: days
+          mode: slider
+    threshold:
+      name: Cluster threshold
+      description: >-
+        How different two runs must be to count as different appliances, in
+        weighted log-power space. Lower splits more. 0.9 is a good start.
+      required: false
+      default: 0.9
+      selector:
+        number:
+          min: 0.1
+          max: 5.0
+          step: 0.1
+          mode: box
+
+label:
+  name: Name a fingerprint
+  description: >-
+    Turn a candidate into an identification. Clustering finds the recurring
+    shapes but cannot name them - that needs someone who knows what is plugged
+    in. Only named fingerprints are used to drive anything.
+  fields:
+    circuit:
+      name: Circuit
+      description: The power sensor the fingerprint was learned on.
+      required: true
+      selector:
+        entity:
+          domain: sensor
+          device_class: power
+    current_label:
+      name: Current label
+      description: The existing label, for example unnamed_0.
+      required: true
+      selector:
+        text:
+    new_label:
+      name: New label
+      description: What this appliance actually is, for example Dryer.
+      required: true
+      selector:
+        text:

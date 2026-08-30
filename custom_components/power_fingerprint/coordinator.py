@@ -54,7 +54,13 @@ def _as_float(state) -> float | None:
 class FingerprintCoordinator(DataUpdateCoordinator):
     """Maintains a rolling sample window and derives the label-free checks."""
 
-    def __init__(self, hass: HomeAssistant, options: dict, entry_id: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        options: dict,
+        entry_id: str,
+        store: object | None = None,
+    ) -> None:
         super().__init__(
             hass,
             _LOGGER,
@@ -62,6 +68,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=POLL_SECONDS),
         )
         self.entry_id = entry_id
+        self.store = store
         self.mains: str = options[CONF_MAINS]
         self.circuits: list[str] = list(options[CONF_CIRCUITS])
         self.price: float = float(options.get(CONF_PRICE, DEFAULT_PRICE))
@@ -158,6 +165,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             "contradictions": clashes,
             "silent_circuits": silent,
             "tolerance_pct": self.tolerance,
+            "labelled_fingerprints": (len(self.store.labelled()) if self.store else 0),
         }
 
     def window_sizes(self) -> dict[str, int]:

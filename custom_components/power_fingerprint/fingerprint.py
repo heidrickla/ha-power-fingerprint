@@ -230,3 +230,31 @@ def load_library(path: str) -> list[Fingerprint]:
             return [Fingerprint.from_dict(d) for d in json.load(fh)]
     except (OSError, ValueError):
         return []
+
+
+def is_named(fp: Fingerprint) -> bool:
+    """A candidate is not an identification.
+
+    `unnamed_N` means clustering found a recurring shape and nobody has said
+    what it is. Reporting "unnamed_2 is running" is worse than reporting
+    nothing, so everything user-facing filters on this.
+    """
+    return not fp.label.startswith("unnamed_")
+
+
+def carry_labels(old: list[Fingerprint], new: list[Fingerprint]) -> list[Fingerprint]:
+    """Preserve human-applied labels across a re-learn, by position.
+
+    Re-learning over more data must not silently discard naming work. Position
+    is the carrier because clustering returns clusters largest-first and a
+    re-run over a superset usually preserves that order.
+
+    It is not guaranteed to. When the order does shift, a label lands on the
+    wrong shape and the user can see that and fix it. That is the deliberate
+    trade: a visible wrong label beats silently throwing the labels away, and
+    beats pretending a positional match is an identity match.
+    """
+    for idx, fp in enumerate(new):
+        if idx < len(old) and is_named(old[idx]):
+            fp.label = old[idx].label
+    return new

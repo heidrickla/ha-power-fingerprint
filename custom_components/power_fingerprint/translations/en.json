@@ -14,5 +14,43 @@
     "abort": {
       "single_instance_allowed": "Power Fingerprint is already configured."
     }
+  },
+  "services": {
+    "learn": {
+      "name": "Learn fingerprints",
+      "description": "Read history for each circuit, group the appliance runs it finds by shape, and store them as candidates.",
+      "fields": {
+        "circuits": {
+          "name": "Circuits",
+          "description": "Limit to these power sensors."
+        },
+        "days": {
+          "name": "Days of history",
+          "description": "How far back to read."
+        },
+        "threshold": {
+          "name": "Cluster threshold",
+          "description": "Lower splits more."
+        }
+      }
+    },
+    "label": {
+      "name": "Name a fingerprint",
+      "description": "Turn a candidate into an identification.",
+      "fields": {
+        "circuit": {
+          "name": "Circuit",
+          "description": "The power sensor it was learned on."
+        },
+        "current_label": {
+          "name": "Current label",
+          "description": "The existing label."
+        },
+        "new_label": {
+          "name": "New label",
+          "description": "What this appliance actually is."
+        }
+      }
+    }
   }
 }
