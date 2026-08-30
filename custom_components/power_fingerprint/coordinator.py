@@ -400,6 +400,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             "silent_circuits": silent,
             "tolerance_pct": self.tolerance,
             "labelled_fingerprints": (len(self.store.labelled()) if self.store else 0),
+            "candidates": self._candidates(),
             "running": running,
             "absent": [row for row in quiet if row["state"] == "overdue"],
             "absence_detail": quiet,
@@ -500,6 +501,31 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             return
         self._seen_dirty = False
         await self.store.async_record_seen(self._last_seen, now.isoformat())
+
+    def _candidates(self) -> list[dict[str, Any]]:
+        """Un-named shapes, described in plain English and ready to name.
+
+        Ordered by how often each ran, because the shape that occurred 116
+        times is both the easiest to recognise and the most useful to name.
+        """
+        if self.store is None:
+            return []
+        rows = []
+        for fp in self.store.unnamed():
+            rows.append(
+                {
+                    "circuit": fp.circuit,
+                    "candidate": fp.label,
+                    "runs": fp.count,
+                    "looks_like": fp.describe(),
+                    "every_hours": (
+                        round(float(fp.cadence["median_gap_s"]) / 3600.0, 1)
+                        if fp.cadence
+                        else None
+                    ),
+                }
+            )
+        return sorted(rows, key=lambda r: -int(r["runs"]))
 
     def window_hours(self) -> float:
         """How much wall-clock time the rolling window actually spans.

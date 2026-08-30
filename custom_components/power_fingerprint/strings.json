@@ -178,6 +178,12 @@
       },
       "standby_annual_cost": {
         "name": "Standby annual cost"
+      },
+      "candidates": {
+        "name": "Unnamed candidates"
+      },
+      "circuit": {
+        "name": "Circuit"
       }
     },
     "binary_sensor": {

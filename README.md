@@ -36,9 +36,40 @@ install it:
 | `binary_sensor.state_contradiction` | A switch reports `on` while its circuit draws nothing. |
 | `binary_sensor.silent_appliance` | A named appliance has stopped running when its own history says it should have. |
 
-Plus, once you have named at least one fingerprint on a circuit, an
-**appliance sensor** for that circuit reading `idle`, `starting`, the appliance
-name, or `unknown`.
+Plus `sensor.unnamed_candidates` — how many learned shapes are waiting for a
+name, with each one's plain-English description in the attributes. ⛔ Without
+it the `learn` step had no visible output at all: the candidates lived only in
+`.storage` and in the action's response, so someone who ran `learn` and then
+opened the integration saw no sign anything had happened. On the development
+install that was **39 invisible shapes**.
+
+And once you have named at least one fingerprint on a circuit, an **appliance
+sensor** for that circuit reading `idle`, `starting`, the appliance name, or
+`unknown`.
+
+### The circuit shows up on the device itself
+
+⭐ Once a device has been mapped, a **Circuit** entity appears **on that
+device's own page** — not on this integration's service device. Open the front
+porch light in Home Assistant and its breaker is right there, next to its
+switch and its power reading.
+
+A circuit assignment filed under *Power Fingerprint* is a fact stored where you
+have to already know to look for it. On the device's page it is there when you
+open the thing to find out why it is behaving oddly, and it is there for
+whoever opens it next.
+
+The attributes say **how** it was established, because a passive correlation
+and a three-probe agreement are not the same claim:
+
+| `established_by` | Means |
+|---|---|
+| `probe` | The integration switched the device and watched a circuit move. |
+| `correlation` | It only observed the two moving together. |
+
+⛔ **A probe's answer is never overwritten by a passive one**, and a run that
+resolves nothing never erases a previous answer — "I could not tell this time"
+is not "it is not there".
 
 `unknown` is not a failure. It means the circuit is drawing power in a shape no
 named fingerprint accounts for — something new was plugged in, or an appliance

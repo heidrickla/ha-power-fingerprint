@@ -12,6 +12,12 @@
       },
       "standby_annual_cost": {
         "default": "mdi:cash-clock"
+      },
+      "candidates": {
+        "default": "mdi:tag-search"
+      },
+      "circuit": {
+        "default": "mdi:electric-switch"
       }
     },
     "binary_sensor": {
