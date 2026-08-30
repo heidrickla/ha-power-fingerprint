@@ -159,6 +159,24 @@ ways, and which one is not knowable from here. Reporting the conflict is
 information; silently preferring a method hides a real problem behind a
 confident answer.
 
+### What active probing cannot do
+
+Three limits, all found by running it against a real panel rather than reasoning
+about it:
+
+- **A device meter can be slower than the circuit meter.** A Z-Wave dimmer
+  reported no power change at all across a 25-second probe, while the circuit CT
+  reports every 12 seconds. Treated as *no reading* rather than a zero-watt
+  change, and the probe falls back to "which circuit moved most" and says it did.
+- **Very small loads are below the noise floor.** An RGB light drawing 1.1 W
+  cannot be picked out of a circuit's normal variation. The probe refuses rather
+  than guessing.
+- **An automation can move the device mid-probe and nothing in the power trace
+  reveals it.** So the probe snapshots `last_triggered` for every automation
+  that references the device or a circuit, either side of the measurement, and
+  reports any that fired. A result with interference is graded `suspect` and the
+  automation is named, rather than being silently trusted or silently discarded.
+
 ### Safety
 
 Active probing actuates real devices, so the rules are enforced in code:

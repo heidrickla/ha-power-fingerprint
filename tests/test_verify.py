@@ -108,9 +108,41 @@ def test_disagreeing_probes_return_nothing():
     assert circuit is None and "disagreed" in why
 
 
-def test_a_probe_that_found_nothing_blocks_agreement():
+def test_a_silent_probe_does_not_void_an_answer():
+    """Regression: demanding unanimity threw away a real confirmation.
+
+    Probing a Foyer light on a live panel, probe 1 returned nothing because the
+    device's Z-Wave meter had not reported yet and probe 2 cleanly identified
+    circuit 30, matching passive exactly. Silence is missing data, not a
+    contradiction."""
     circuit, why = v.agree(["sensor.c1", None])
-    assert circuit is None and "1/2" in why
+    assert circuit == "sensor.c1"
+    assert "1/2" in why
+
+
+def test_a_partial_answer_is_graded_down():
+    assert v.grade("sensor.c1", [], True, answered=1, total=2)[1] == v.INFERRED
+    assert v.grade("sensor.c1", [], True, answered=2, total=2)[1] == v.MEASURED
+
+
+def test_an_automation_firing_makes_the_probe_suspect():
+    circuit, level = v.grade("sensor.c1", ["automation.motion"], True, 2, 2)
+    assert circuit == "sensor.c1" and level == v.SUSPECT
+
+
+def test_interference_detects_a_moved_last_triggered():
+    before = {"automation.a": "01:00:00", "automation.b": None}
+    after = {"automation.a": "01:00:00", "automation.b": "01:01:10"}
+    assert v.interference(before, after) == ["automation.b"]
+
+
+def test_unmetered_ranking_falls_back_to_largest_mover():
+    """A Z-Wave dimmer whose meter never moved must not make the probe useless."""
+    ranked = v.rank_deltas(
+        {"a": 100.0, "b": 100.0}, {"a": 139.3, "b": 104.0}, expected_w=None
+    )
+    assert ranked[0]["circuit"] == "a"
+    assert ranked[0]["unmetered"] is True
 
 
 # ------------------------------------------- combining passive with active

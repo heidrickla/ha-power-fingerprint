@@ -30,7 +30,14 @@ from homeassistant.util import dt as dt_util
 from .analysis import segment
 from .const import DOMAIN
 from .fingerprint import cluster, normalize, summarize
-from .verify import agree, combine, decide, may_probe, rank_deltas
+from .verify import (
+    agree,
+    decide,
+    grade,
+    interference,
+    may_probe,
+    rank_deltas,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -128,6 +135,33 @@ def _read(hass: HomeAssistant, entity: str) -> float | None:
         return None
 
 
+def _watchers(hass: HomeAssistant, entities: list[str]) -> dict[str, str | None]:
+    """Snapshot `last_triggered` for every automation referencing these entities.
+
+    Uses Home Assistant's own `referenced_entities`, so it finds automations by
+    what they actually touch rather than by anyone maintaining a list. Comparing
+    the snapshot either side of a probe is the only reliable way to know whether
+    an automation moved the device mid-measurement - the power trace alone
+    cannot show it.
+    """
+    snapshot: dict[str, str | None] = {}
+    component = hass.data.get("automation")
+    if component is None:
+        return snapshot
+    targets = set(entities)
+    for auto in component.entities:
+        try:
+            referenced = auto.referenced_entities
+        except AttributeError:  # older core, or a blueprint that cannot resolve
+            continue
+        if targets & set(referenced):
+            state = hass.states.get(auto.entity_id)
+            snapshot[auto.entity_id] = (
+                state.attributes.get("last_triggered") if state else None
+            )
+    return snapshot
+
+
 async def async_register(hass: HomeAssistant, entry_id: str) -> None:
     """Register the services once, on the first config entry."""
 
@@ -198,6 +232,10 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
         observations: list[str | None] = []
         detail: list[dict] = []
 
+        # Watch every automation that touches the device OR any circuit, so
+        # interference is detected rather than inferred.
+        watched_before = _watchers(hass, [device, *coordinator.circuits])
+
         try:
             for _ in range(probes):
                 base_circuits = await _sample_circuits(
@@ -242,7 +280,7 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
                         "circuit": circuit,
                         "reason": reason,
                         "candidates": ranked[:3],
-                        "device_metered": meter is not None,
+                        "device_metered": expected is not None,
                     }
                 )
 
@@ -266,12 +304,21 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
             )
 
         measured, agree_reason = agree(observations)
-        verdict, confidence = combine(None, measured)
+        fired = interference(
+            watched_before, _watchers(hass, [device, *coordinator.circuits])
+        )
+        device_metered = any(d.get("device_metered") for d in detail)
+        answered = sum(1 for d in detail if d.get("circuit"))
+        verdict, confidence = grade(
+            measured, fired, device_metered, answered, len(detail)
+        )
         return {
             "device": device,
             "circuit": verdict,
             "confidence": confidence,
             "reason": agree_reason,
+            "automations_fired_during_probe": fired,
+            "device_metered": device_metered,
             "probes": detail,
         }
 

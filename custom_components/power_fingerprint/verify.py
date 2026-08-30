@@ -62,7 +62,7 @@ def may_probe(entity_id: str) -> tuple[bool, str]:
 def rank_deltas(
     baseline: dict[str, float],
     active: dict[str, float],
-    expected_w: float,
+    expected_w: float | None,
     tolerance: float = 0.45,
     noise_w: float = 3.0,
 ) -> list[dict[str, float | str]]:
@@ -72,6 +72,18 @@ def rank_deltas(
     step to match that magnitude - not merely to move in the right direction -
     is what stops an unrelated load that happened to switch during the probe
     from claiming the device.
+
+    ⚠ `expected_w` MAY BE None, AND THAT IS NOT AN ERROR. Measured on a live
+    panel: a Z-Wave dimmer's own power meter reported no change at all across a
+    25-second probe, because Z-Wave devices commonly report power on a slow
+    interval or only on significant change, while the circuit CT reports every
+    12 seconds. Insisting on the device's own figure made the probe useless for
+    exactly the devices most worth identifying.
+
+    With no expected magnitude, ranking falls back to "which circuit moved
+    most". That is weaker evidence - it cannot reject an unrelated load of
+    similar size - so callers should record that the device was unmetered and
+    weight the result accordingly.
     """
     rows: list[dict[str, float | str]] = []
     for circuit, before in baseline.items():
@@ -81,12 +93,26 @@ def rank_deltas(
         delta = after - before
         if abs(delta) < noise_w:
             continue
+        if expected_w is None:
+            # No magnitude to compare against; rank by size of movement.
+            rows.append(
+                {
+                    "circuit": circuit,
+                    "delta_w": round(delta, 1),
+                    "match": 0.0,
+                    "unmetered": True,
+                }
+            )
+            continue
         if delta * expected_w <= 0:
             continue  # moved the wrong way
         ratio = min(abs(delta), abs(expected_w)) / max(abs(delta), abs(expected_w))
         rows.append(
             {"circuit": circuit, "delta_w": round(delta, 1), "match": round(ratio, 3)}
         )
+    if expected_w is None:
+        rows.sort(key=lambda r: -abs(float(r["delta_w"])))
+        return rows
     rows.sort(key=lambda r: -float(r["match"]))
     return [r for r in rows if float(r["match"]) >= 1.0 - tolerance]
 
@@ -115,21 +141,28 @@ def decide(
 
 
 def agree(observations: list[str | None]) -> tuple[str | None, str]:
-    """Combine repeated probes. All of them must agree.
+    """Combine repeated probes. Every probe that ANSWERED must give the same
+    circuit, and at least one must have answered.
 
-    A single toggle can coincide with a fridge starting. Two or three that all
-    name the same circuit cannot, and requiring unanimity rather than a majority
-    keeps the failure mode honest: disagreement returns nothing rather than the
-    most popular guess.
+    ⛔ SILENCE IS NOT DISAGREEMENT, AND CONFLATING THEM DISCARDS GOOD DATA.
+    An earlier version demanded unanimity across all probes including the
+    silent ones. Measured on a live panel: probing a Foyer light, the first
+    probe returned nothing because the device's own Z-Wave meter had not
+    reported yet, and the second cleanly identified circuit 30 - matching the
+    passive result exactly. Unanimity threw that confirmation away and reported
+    no answer at all.
+
+    A probe that produced no reading is MISSING DATA. A probe that named a
+    different circuit is a CONTRADICTION. Only the second should void the
+    result; the first should reduce confidence, which is what the caller does
+    with the returned counts.
     """
-    seen = [o for o in observations if o]
-    if not seen:
+    answered = [o for o in observations if o]
+    if not answered:
         return None, "no probe identified a circuit"
-    if len(seen) != len(observations):
-        return None, f"only {len(seen)}/{len(observations)} probes identified a circuit"
-    if len(set(seen)) != 1:
-        return None, f"probes disagreed: {sorted(set(seen))}"
-    return seen[0], f"{len(seen)}/{len(observations)} probes agreed"
+    if len(set(answered)) != 1:
+        return None, f"probes disagreed: {sorted(set(answered))}"
+    return answered[0], f"{len(answered)}/{len(observations)} probes agreed"
 
 
 # Confidence levels, strongest first. Passive and active are complementary
@@ -165,3 +198,61 @@ def combine(passive: str | None, active: str | None) -> tuple[str | None, str]:
     if passive:
         return passive, INFERRED
     return None, UNKNOWN
+
+
+SUSPECT = "suspect"  # probes agreed, but an automation moved during the window
+
+
+def interference(
+    before: dict[str, str | None], after: dict[str, str | None]
+) -> list[str]:
+    """Automations whose `last_triggered` moved while the probe was running.
+
+    ⛔ THE PROBE CANNOT SEE THIS FROM THE POWER TRACE ALONE, AND IT MATTERS.
+    The devices most worth identifying are usually motion lights, which are
+    exactly the devices an automation is most likely to switch mid-probe. If
+    that happens the circuit step vanishes or doubles and the reading is wrong
+    rather than missing.
+
+    Observed on a live install: probing a Foyer light at 01:00, its own motion
+    automation fired 70 seconds into the probe. Nothing in the power data would
+    have revealed that.
+
+    Comparing `last_triggered` either side of the probe catches it directly,
+    which is better than inferring it. Any automation that references the
+    probed device or a circuit is worth watching.
+    """
+    moved = []
+    for entity, was in before.items():
+        now = after.get(entity)
+        if now != was:
+            moved.append(entity)
+    return sorted(moved)
+
+
+def grade(
+    circuit: str | None,
+    fired: list[str],
+    device_metered: bool,
+    answered: int = 1,
+    total: int = 1,
+) -> tuple[str | None, str]:
+    """Final verdict for one active probe, given what else happened.
+
+    An automation firing during the window does not automatically invalidate
+    the answer - it may have had nothing to do with the probed circuit - but it
+    does mean the result should not be treated as measured. Downgrading to
+    `suspect` and naming the automation lets a person judge, which is more
+    useful than either silently trusting it or silently discarding it.
+    """
+    if circuit is None:
+        return None, UNKNOWN
+    if fired:
+        return circuit, SUSPECT
+    if not device_metered:
+        return circuit, INFERRED  # only "which circuit moved most"
+    if answered < total:
+        # Agreed, but some probes were silent - real, and worth less than a
+        # clean sweep.
+        return circuit, INFERRED
+    return circuit, MEASURED
