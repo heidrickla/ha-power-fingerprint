@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfPower
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -22,6 +22,8 @@ async def async_setup_entry(
 ) -> None:
     entry_data = hass.data[DOMAIN][entry.entry_id]
     coordinator: FingerprintCoordinator = entry_data["coordinator"]
+    store = entry_data["store"]
+
     async_add_entities(
         [
             UnmonitoredLoadSensor(coordinator),
@@ -30,9 +32,62 @@ async def async_setup_entry(
         ]
     )
 
+    # An appliance sensor is only meaningful once a circuit has at least one
+    # NAMED fingerprint, so they are added as labelling happens rather than
+    # creating one per configured circuit up front. On a 27-circuit panel that
+    # would be 27 entities permanently reading "unknown", which is entity spam
+    # dressed up as a feature.
+    known: set[str] = set()
+
+    @callback
+    def _add_new_circuits() -> None:
+        new = [c for c in store.circuits() if c not in known]
+        if not new:
+            return
+        known.update(new)
+        async_add_entities(ApplianceSensor(coordinator, c) for c in new)
+
+    _add_new_circuits()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_circuits))
+
 
 class _Base(FingerprintEntity, SensorEntity):
     """Sensor flavour of the shared base."""
+
+
+class ApplianceSensor(FingerprintEntity, SensorEntity):
+    """What is running on one circuit right now.
+
+    States are `idle`, `starting`, an appliance name, or `unknown`. The last
+    is not a failure - it means the circuit is drawing power in a shape no
+    named fingerprint accounts for, which is worth surfacing rather than
+    forcing into the nearest bucket.
+    """
+
+    _attr_icon = "mdi:fingerprint"
+
+    def __init__(self, coordinator: FingerprintCoordinator, circuit: str) -> None:
+        super().__init__(coordinator, f"appliance_{circuit}")
+        self._circuit = circuit
+        pretty = circuit.split(".", 1)[-1].replace("_", " ")
+        self._attr_name = f"{pretty} appliance"
+
+    @property
+    def _info(self) -> dict:
+        return ((self.coordinator.data or {}).get("running") or {}).get(
+            self._circuit
+        ) or {}
+
+    @property
+    def native_value(self) -> str | None:
+        return self._info.get("state")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        info = dict(self._info)
+        info.pop("state", None)
+        info["circuit"] = self._circuit
+        return info
 
 
 class UnmonitoredLoadSensor(_Base):

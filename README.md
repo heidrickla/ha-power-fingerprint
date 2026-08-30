@@ -34,7 +34,21 @@ install it:
 | `sensor.standby_annual_cost` | What that costs per year at your price. |
 | `binary_sensor.state_contradiction` | A switch reports `on` while its circuit draws nothing. |
 
-The last one is worth explaining. It catches a welded relay, a dead lamp, a
+Plus, once you have named at least one fingerprint on a circuit, an
+**appliance sensor** for that circuit reading `idle`, `starting`, the appliance
+name, or `unknown`.
+
+`unknown` is not a failure. It means the circuit is drawing power in a shape no
+named fingerprint accounts for — something new was plugged in, or an appliance
+changed behaviour. Forcing that into the nearest bucket would throw away the
+most interesting reading the integration produces.
+
+Matching runs on the samples seen *so far*, not on a completed run, so an
+automation can react while the appliance is still going. That is only possible
+because duration and energy carry zero weight for identity — every feature that
+counts is computable mid-run.
+
+The contradiction sensor is worth explaining. It catches a welded relay, a dead lamp, a
 smart plug that reports state without actually switching, and a breaker that
 tripped under a device still showing its last known state. It is *verify by
 effect* as a background service: the state machine says one thing, the current
