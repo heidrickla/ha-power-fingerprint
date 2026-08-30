@@ -332,11 +332,27 @@ def grade(
     does mean the result should not be treated as measured. Downgrading to
     `suspect` and naming the automation lets a person judge, which is more
     useful than either silently trusting it or silently discarding it.
+
+    ⛔ A SINGLE PROBE CANNOT BE `measured`, AND CALLING IT THAT PRODUCES
+    CONFIDENT GARBAGE. The whole defence against coincidence here is that
+    independent probes must agree; with one probe, "all probes agreed" is
+    vacuously true and the verdict rests on a single coincident step.
+
+    Measured on a real house, sweeping 18 devices at `probes: 1`: a busy
+    circuit with a 652 W floor collected six devices from five unrelated areas,
+    a dining room chandelier landed on an air-conditioner circuit, and the
+    front porch light contradicted a passive placement that had scored 0.81 on
+    a different circuit. Every one of those came back labelled `measured`. A
+    circuit that is busy is not more likely to carry your device - it is more
+    likely to contain a step that happens to match, and one probe cannot tell
+    the difference.
     """
     if circuit is None:
         return None, UNKNOWN
     if fired:
         return circuit, SUSPECT
+    if total < 2:
+        return circuit, INFERRED  # one probe proves nothing on its own
     if not device_metered:
         return circuit, INFERRED  # only "which circuit moved most"
     if answered < total:

@@ -245,6 +245,32 @@ def _pausable(
     return sorted(pausable), refused
 
 
+def _own_meter(hass: HomeAssistant, entity_id: str) -> str | None:
+    """The device's own power sensor, if it has one.
+
+    ⭐ THE SINGLE BIGGEST ACCURACY LEVER IN ACTIVE PROBING, AND ASKING THE USER
+    TO SUPPLY IT WAS A FOOTGUN. With the device's own reading, `rank_deltas`
+    requires the circuit's step to MATCH THE MAGNITUDE the device reported.
+    Without it, ranking falls back to "which circuit moved most", and on a
+    house with air conditioning the answer is always the air conditioning.
+
+    Measured: seven disputed placements re-probed three times each with no
+    meter attached. Six collapsed to `unknown` with the probes disagreeing, and
+    the same two AC circuits appeared in nearly every disagreement - not
+    because those lights are on them, but because a cycling 3 kW compressor
+    out-moves a 10 W lamp on every axis that does not check magnitude.
+
+    Picks the smallest-numbered candidate deterministically so repeat probes of
+    the same device use the same meter and are actually comparable.
+    """
+    candidates = [
+        entity
+        for entity, device_class in _device_siblings(hass, entity_id).items()
+        if device_class == "power" and hass.states.get(entity) is not None
+    ]
+    return sorted(candidates)[0] if candidates else None
+
+
 def _device_siblings(hass: HomeAssistant, entity_id: str) -> dict[str, str | None]:
     """device_class of every entity sharing a device with this one.
 
@@ -352,7 +378,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
         runtime = _runtime(hass)
         coordinator = runtime.coordinator
         device = call.data["device"]
-        meter = call.data.get("power_sensor")
+        # Fall back to the device's own power sensor when one was not given.
+        # See _own_meter - this is what lets the ranking check magnitude rather
+        # than just direction, and it is the difference between an answer and
+        # the air conditioner.
+        meter = call.data.get("power_sensor") or _own_meter(hass, device)
         probes = call.data["probes"]
         settle = call.data["settle"]
 
@@ -531,6 +561,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
         )
         return {
             "device": device,
+            "power_sensor": meter,
+            "power_sensor_source": (
+                "given"
+                if call.data.get("power_sensor")
+                else (
+                    "discovered" if meter else "none - ranking cannot check magnitude"
+                )
+            ),
             "circuit": verdict,
             "confidence": confidence,
             "reason": agree_reason,

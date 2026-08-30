@@ -299,3 +299,26 @@ def test_turning_an_idle_device_ON_is_never_gated():
     """The asymmetry is deliberate - powering something up is recoverable."""
     assert v.safe_to_switch_off("off", 0.0)[0]
     assert v.safe_to_switch_off("off", 500.0)[0]
+
+
+def test_one_probe_can_never_be_measured():
+    """⛔ The regression from a real 18-device sweep at probes: 1.
+
+    Every placement came back `measured`, including a chandelier on an
+    air-conditioner circuit and six devices from five unrelated areas on one
+    busy circuit. With a single probe "all probes agreed" is vacuously true, so
+    the verdict rests on one coincident step.
+    """
+    circuit, conf = v.grade("sensor.circuit_16", [], True, answered=1, total=1)
+    assert circuit == "sensor.circuit_16"
+    assert conf == v.INFERRED
+
+
+def test_two_agreeing_probes_on_a_metered_device_are_measured():
+    _c, conf = v.grade("sensor.circuit_16", [], True, answered=2, total=2)
+    assert conf == v.MEASURED
+
+
+def test_interference_still_outranks_probe_count():
+    _c, conf = v.grade("sensor.circuit_16", ["automation.x"], True, answered=3, total=3)
+    assert conf == v.SUSPECT
