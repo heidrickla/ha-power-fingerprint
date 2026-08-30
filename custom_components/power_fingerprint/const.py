@@ -5,7 +5,7 @@ MANUFACTURER = "Power Fingerprint"
 # Must match manifest.json. HACS surfaces the release TAG while Home Assistant
 # reports the MANIFEST version, so a mismatch is a defect users see as a wrong
 # version number. Bump both together.
-VERSION = "0.10.1"
+VERSION = "0.11.0"
 
 CONF_MAINS = "mains"
 CONF_CIRCUITS = "circuits"
@@ -13,6 +13,10 @@ CONF_PRICE = "price_per_kwh"
 CONF_TOLERANCE = "coverage_tolerance_pct"
 CONF_PAIRS = "contradiction_pairs"
 
+# ⭐ ONLY A LAST RESORT. `price.async_dashboard_price` is asked first, because a
+# second place to type your tariff is a second place for it to be wrong, and the
+# wrong one is always the one nobody looks at. Measured: a dashboard holding
+# $0.145/kWh against this constant made every standby cost read 11% low.
 DEFAULT_PRICE = 0.13
 # A well-clamped panel sums to within a few percent of its mains. Measured on
 # the development install: 27 circuits summed to 6527 W against a 6556 W mains
