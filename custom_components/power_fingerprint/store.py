@@ -5,7 +5,7 @@ with the rest of the config, survives restarts, and is included in a Home
 Assistant backup without anything extra.
 
 Only the learned CENTROIDS are persisted, never the raw events. A week of
-12-second samples across 27 circuits is on the order of a million readings; the
+6-second samples across 27 circuits runs to several million readings; the
 library that summarises it is a few kilobytes. The recorder already keeps the
 raw data and is the right place for it.
 """

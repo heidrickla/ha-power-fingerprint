@@ -27,6 +27,35 @@ def _anon(entity_id: str) -> str:
     return f"{domain}.redacted_{digest}"
 
 
+def _source(profile: dict[str, Any]) -> dict[str, Any]:
+    """Anonymise the entity ids in the source profile, keep the measurements.
+
+    The units and cadences are the diagnostic value here and identify nobody;
+    the entity ids naming rooms and appliances still have to go.
+    """
+    return {
+        **profile,
+        "units": _unit_histogram(profile.get("units", {})),
+        "rejected_non_power_units": [
+            _anon(e) for e in profile.get("rejected_non_power_units", [])
+        ],
+        "per_circuit_interval_s": {
+            _anon(entity): (round(seconds, 1) if seconds else None)
+            for entity, seconds in profile.get("per_circuit_interval_s", {}).items()
+        },
+    }
+
+
+def _unit_histogram(units: dict[str, str | None]) -> dict[str, int]:
+    """How many sources report in each unit. A mixed panel - some circuits in
+    W and some in kW - is a real configuration and shows up here as two keys."""
+    counts: dict[str, int] = {}
+    for unit in units.values():
+        key = unit if unit else "(none declared)"
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -72,4 +101,8 @@ async def async_get_config_entry_diagnostics(
             _anon(entity): len(samples)
             for entity, samples in coordinator.window_sizes().items()
         },
+        # The meter itself. This integration was developed against one brand of
+        # per-circuit monitor, and unit and cadence are where another one will
+        # differ - so report both rather than making a maintainer ask.
+        "source": _source(coordinator.source_profile()),
     }

@@ -16,8 +16,10 @@ None of these are code problems. The code is ready; the hosting is not.
 ## The Home Assistant layer tests run on Linux, not here
 
 `tests/ha/` covers setup and unload, the config and options flow, the derived
-sensor values, the coverage fault in both directions, device grouping, and the
-orphaned-pause safety backstop.
+sensor values, the coverage fault in both directions, device grouping, the
+orphaned-pause safety backstop, and unit conversion at ingestion — including
+the kilowatt-mains-against-watt-circuits case that was found on the development
+install itself.
 
 They have not been executed yet. Home Assistant supports Linux, macOS and the
 devcontainer for development, and this repository was written on Windows, where
@@ -25,7 +27,7 @@ the harness blocks sockets and the ProactorEventLoop needs a local socket pair
 for its own self-pipe. That is expected rather than a defect — these belong in
 CI, running against Home Assistant, which is where they will run.
 
-They skip when the harness is absent, so the default run reports **53 passed,
+They skip when the harness is absent, so the default run reports **66 passed,
 1 skipped** and does not imply coverage it does not have. Expect some to need
 fixing the first time they actually execute.
 

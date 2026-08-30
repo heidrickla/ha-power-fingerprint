@@ -2,9 +2,10 @@
 
 Identify what is running on a circuit from the shape of its load.
 
-Home Assistant integration for panels with per-circuit power monitoring
-(developed against an Emporia Vue, but nothing here is vendor-specific — it
-works with any `device_class: power` sensors).
+Home Assistant integration for panels with per-circuit power monitoring. It
+takes `device_class: power` sensors and does not care where they come from —
+but see **[What it has actually been tested against](#what-it-has-actually-been-tested-against)**
+before assuming that means yours.
 
 ## Why this is not NILM
 
@@ -166,7 +167,7 @@ about it:
 
 - **A device meter can be slower than the circuit meter.** A Z-Wave dimmer
   reported no power change at all across a 25-second probe, while the circuit CT
-  reports every 12 seconds. Treated as *no reading* rather than a zero-watt
+  reports every few seconds. Treated as *no reading* rather than a zero-watt
   change, and the probe falls back to "which circuit moved most" and says it did.
 - **Very small loads are below the noise floor.** An RGB light drawing 1.1 W
   cannot be picked out of a circuit's normal variation. The probe refuses rather
@@ -317,10 +318,58 @@ a steady 350–400 W floor. Most published feature sets omit this.
 
 ### Known limit
 
-At the ~12 s sample interval an Emporia Vue reports, a 30-second appliance is
-two or three data points. Kettles, microwaves and disposals sit at or below the
-resolution limit. That is a property of the meter, not something more code
-fixes.
+An appliance shorter than a few reporting intervals is two or three data
+points, and cannot be fingerprinted. At the ~6 s the development install
+publishes, that puts kettles, microwaves and disposals at or below the
+resolution limit; a 1-second meter would resolve all three. That is a property of your meter, not
+something more code fixes — and it is why the cadence is measured and reported
+rather than assumed.
+
+## What it has actually been tested against
+
+**One meter: an ESPHome-flashed Emporia Vue, 2 units, 27 circuits, publishing
+every ~6 s.**
+Everything in the field results below comes from that install. Nothing here is
+written against a vendor API — the integration only ever sees
+`device_class: power` sensors — but "no vendor code" is not the same claim as
+"tested elsewhere", and it would be dishonest to make the second one.
+
+Two properties of a meter are what actually matter, and both used to be
+assumed. Both are now measured, and both appear in the diagnostics download:
+
+| Property | Why it matters | What happens now |
+|---|---|---|
+| **Unit** | Every threshold here is in watts. `device_class: power` does not constrain the unit — Vue, Shelly EM and IotaWatt report W; SolarEdge, Powerwall and most Modbus meters report kW. | Converted once at ingestion (W, kW, MW, GW, mW, BTU/h). A sensor whose unit is not power is dropped and **named in the log**, once. |
+| **Reporting cadence** | Sets the step-matching window in attribution: too wide and chance coincidences match, too narrow and real ones fall between cells. | Measured from your own history as the median inter-sample gap. `tools/attribute.py --step` overrides it; the default no longer names a cadence. |
+
+⛔ **A kilowatt meter used to fail silently, and that is the failure mode to
+expect from any untested assumption here.** Feeding kW into a 15 W margin puts
+the threshold above every reading, so every circuit reported **zero runs
+forever** — no error, no warning, just an empty result that looks like a quiet
+house. `test_kilowatt_circuit_is_detectable_only_after_conversion` pins it.
+
+### Both assumptions were wrong on the install they came from
+
+Measured 2026-08-30, on the same Vue everything above was developed against.
+Neither of these was visible from the outside, which is the point.
+
+- ⛔ **The mains sensor reports kilowatts while all 27 circuits report watts.**
+  Same brand, same integration, three whole-panel sensors, two different units:
+  `emporiavue_total_power` is kW, `emporiavuesecondary_total_power` and
+  `whole_panel_total_power` are W. Configure the kW one as mains and coverage
+  compared **1.38 against 2,316** — a permanent −2,314 W fault on a panel that
+  is actually fine. Converted, the same reading is 1,380 W, and the remaining
+  −936 W correctly points at the *second* panel rather than at a fault.
+- ⛔ **The cadence is ~6.1 s, not the 12 s written throughout this repo.**
+  Measured two independent ways on two circuits: 14,141 rows over 86,395 s =
+  6.11 s/row, median inter-sample gap 6.18 s. Because Home Assistant does not
+  restamp an unchanged value, both are *upper* bounds — the meter is at least
+  that fast. The attribution grid had been running at roughly double the real
+  interval, which is the direction that lets chance coincidences match.
+
+If you run this on something other than a Vue, the diagnostics download names
+your unit and your measured cadence in the `source` block. That is the useful
+thing to paste into an issue.
 
 ## Self-metering devices
 
@@ -342,10 +391,29 @@ watts. Step matching — does the circuit show a coincident step of matching
 to beat the runner-up then correctly refused four office lights that always
 switch together and so score identically everywhere.
 
-But checked against Home Assistant's own area assignments, one busy circuit
-still claims devices from three unrelated areas. Only assignments with a high
-step match *and* a clear margin should be trusted, and the tool prints both so
-you can judge. Verifying against area data is the next piece of work.
+Checked against Home Assistant's own area assignments, one busy circuit was
+still claiming devices from three unrelated areas — and the cause turned out to
+be the grid, not the scoring. **The grid had been hardcoded at 12 s against a
+meter that actually publishes every ~6 s**, so every step-match window was
+about double the width it should have been, and on a busy circuit chance
+coincidences fit inside one. Measuring the cadence instead:
+
+| | 12 s grid (assumed) | 6 s grid (measured) |
+|---|---|---|
+| Devices placed | 13 of 21 | **8 of 21** |
+| Circuits claiming 3+ areas | 1 | **0** |
+
+Fewer answers, and that is the improvement: Master Bathroom, Guest Bathroom and
+Front Porch stopped being assigned to one circuit and are now honestly
+**ambiguous**. The four office lights that always switch together still land on
+circuit 16 together, which is consistent rather than suspicious, and the shared
+bathroom light lands on the circuit whose own label reads *"twins bedrooms,
+hallway and bath"* — a name the scorer never sees.
+
+⭐ **An over-wide correlation window buys placements by inventing them.** Only
+assignments with a high step match *and* a clear margin should be trusted; the
+tool prints both, and prints which grid it used and whether that grid was
+measured or given.
 
 ## Roadmap
 

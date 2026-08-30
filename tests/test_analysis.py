@@ -138,3 +138,112 @@ def test_standby_ranking_is_ordered_and_costed():
     rows = pf.standby_ranking({"a": 642.2, "b": 30.0}, 0.13)
     assert [r["circuit"] for r in rows] == ["a", "b"]
     assert rows[0]["annual_cost"] == round(642.2 * 8.766 * 0.13, 2)
+
+
+# --- units -----------------------------------------------------------------
+#
+# device_class: power says nothing about the unit, and a kW meter fed straight
+# into a watt-denominated threshold produces zero events forever rather than an
+# error. These tests exist because that is the same silent-empty failure the
+# percentile threshold produced, and it is not visible from the outside.
+
+
+def test_to_watts_passes_watts_through():
+    assert pf.to_watts(1234.0, "W") == 1234.0
+
+
+def test_to_watts_scales_kilowatts():
+    assert pf.to_watts(4.2, "kW") == 4200.0
+
+
+def test_to_watts_scales_milliwatts_and_megawatts():
+    assert pf.to_watts(2500.0, "mW") == 2.5
+    assert pf.to_watts(0.5, "MW") == 500_000.0
+
+
+def test_to_watts_converts_thermal_btu():
+    # UnitOfPower includes BTU/h; a heat pump integration really does use it.
+    assert round(pf.to_watts(10_000.0, "BTU/h")) == 2931
+
+
+def test_to_watts_treats_a_missing_unit_as_watts():
+    # Template sensors routinely omit the unit. Rejecting them would break
+    # working installs, and W-vs-kW is always declared where it matters.
+    assert pf.to_watts(60.0, None) == 60.0
+    assert pf.to_watts(60.0, "") == 60.0
+
+
+def test_to_watts_refuses_a_unit_that_is_not_power():
+    assert pf.to_watts(0.9, "%") is None
+    assert pf.to_watts(12.0, "A") is None
+
+
+def test_to_watts_tolerates_a_missing_value():
+    assert pf.to_watts(None, "kW") is None
+
+
+def test_kilowatt_circuit_is_detectable_only_after_conversion():
+    """The actual regression: a real load on a kW meter, end to end.
+
+    A 4 kW dryer against a 0.05 kW standby arrives as 4.0 and 0.05. Raw, the
+    whole circuit sits below the 15 W margin, so on_threshold reports a
+    threshold above every sample and the circuit shows zero runs. Converted, it
+    is an ordinary load.
+    """
+    base = datetime(2026, 8, 30, tzinfo=UTC)
+    raw = [50.0] * 40 + [4000.0] * 40  # what the meter means, in watts
+    kilowatts = [w / 1000.0 for w in raw]
+
+    unconverted = [
+        (base + timedelta(seconds=12 * i), kw) for i, kw in enumerate(kilowatts)
+    ]
+    converted = [
+        (base + timedelta(seconds=12 * i), pf.to_watts(kw, "kW"))
+        for i, kw in enumerate(kilowatts)
+    ]
+
+    assert max(w for _, w in unconverted) < pf.on_threshold(unconverted)
+    assert pf.segment(unconverted) == []
+
+    events = pf.segment(converted)
+    assert len(events) == 1
+    assert round(events[0].peak_w) == 4000
+
+
+# --- cadence ---------------------------------------------------------------
+
+
+def _at(base, seconds):
+    return [(base + timedelta(seconds=s), 100.0) for s in seconds]
+
+
+def test_sample_interval_measures_a_regular_meter():
+    base = datetime(2026, 8, 30, tzinfo=UTC)
+    assert pf.sample_interval(_at(base, range(0, 600, 12))) == 12.0
+
+
+def test_sample_interval_ignores_dropouts():
+    """The median, not the mean - a restart leaves an hour-long hole, and a
+    mean would put the grid far past anything the meter actually does."""
+    base = datetime(2026, 8, 30, tzinfo=UTC)
+    seconds = [*range(0, 240, 12), 3840, 3852, 3864]
+    measured = pf.sample_interval(_at(base, seconds))
+    assert measured == 12.0
+
+
+def test_sample_interval_handles_a_fast_meter():
+    base = datetime(2026, 8, 30, tzinfo=UTC)
+    assert pf.sample_interval(_at(base, range(0, 100))) == 1.0
+
+
+def test_sample_interval_needs_something_to_measure():
+    base = datetime(2026, 8, 30, tzinfo=UTC)
+    assert pf.sample_interval([]) is None
+    assert pf.sample_interval(_at(base, [0, 12])) is None
+
+
+def test_sample_interval_ignores_duplicate_timestamps():
+    """Two readings stamped identically are not a zero-second cadence."""
+    base = datetime(2026, 8, 30, tzinfo=UTC)
+    samples = _at(base, [0, 0, 12, 24, 24, 36])
+    assert pf.sample_interval(samples) == 12.0

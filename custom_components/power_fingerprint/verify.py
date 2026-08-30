@@ -97,7 +97,7 @@ def rank_deltas(
     panel: a Z-Wave dimmer's own power meter reported no change at all across a
     25-second probe, because Z-Wave devices commonly report power on a slow
     interval or only on significant change, while the circuit CT reports every
-    12 seconds. Insisting on the device's own figure made the probe useless for
+    few seconds. Insisting on the device's own figure made the probe useless for
     exactly the devices most worth identifying.
 
     With no expected magnitude, ranking falls back to "which circuit moved

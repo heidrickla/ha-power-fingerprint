@@ -27,7 +27,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from .analysis import segment
+from .analysis import segment, to_watts
 from .const import DOMAIN
 from .fingerprint import cluster, normalize, summarize
 from .verify import (
@@ -94,12 +94,19 @@ async def _history(hass: HomeAssistant, entity: str, days: int):
         )
 
     data = await get_instance(hass).async_add_executor_job(_fetch)
+    # `no_attributes=True` strips the unit from every row, so it comes from
+    # the live state and is applied to the whole window - the same approach
+    # the coordinator takes when it seeds from the recorder.
+    live = hass.states.get(entity)
+    unit = live.attributes.get("unit_of_measurement") if live else None
     out = []
     for state in data.get(entity, []):
         try:
-            out.append((state.last_changed, float(state.state)))
+            watts = to_watts(float(state.state), unit)
         except (TypeError, ValueError):
             continue  # unavailable/unknown - a fabricated zero would lie
+        if watts is not None:
+            out.append((state.last_changed, watts))
     return out
 
 
@@ -108,34 +115,42 @@ async def _sample_circuits(
 ) -> dict[str, float]:
     """Average each circuit over a window rather than taking one reading.
 
-    An Emporia reports about every 12 s, so a single snapshot can be up to a
-    full reporting interval stale and will disagree with itself between the
-    baseline and the active read. Averaging over the settle window removes that
-    and most of the noise from other loads.
+    A meter reports on its own schedule - every ~6 s on the Emporia Vue this
+    was developed against - so a single snapshot can be a full reporting
+    interval stale and will disagree with itself between the baseline and the
+    active read. Averaging over the settle window removes that and most of the
+    noise from other loads.
+
+    ⚠ THE SETTLE WINDOW HAS TO OUTLAST YOUR METER'S REPORTING INTERVAL. If it
+    does not, the circuit has not reported since the switch was thrown and the
+    probe reads a confident "no change" from stale values - a wrong answer that
+    looks like a clean one. The caller warns when the measured cadence says
+    this is happening; it cannot be fixed by sampling harder.
     """
     samples: dict[str, list[float]] = {c: [] for c in circuits}
     ticks = max(3, seconds // 5)
     for _ in range(ticks):
         for c in circuits:
-            state = hass.states.get(c)
-            if state is None:
-                continue
-            try:
-                samples[c].append(float(state.state))
-            except (TypeError, ValueError):
-                continue
+            watts = _read(hass, c)
+            if watts is not None:
+                samples[c].append(watts)
         await asyncio.sleep(seconds / ticks)
     return {c: sum(v) / len(v) for c, v in samples.items() if v}
 
 
 def _read(hass: HomeAssistant, entity: str) -> float | None:
+    """One reading in watts. Every caller of this is comparing against a
+    watt-denominated threshold, so the conversion cannot be optional: on a kW
+    meter the raw numbers are a thousand times too small and every probe delta
+    disappears under the noise floor as a confident "no change"."""
     state = hass.states.get(entity)
     if state is None:
         return None
     try:
-        return float(state.state)
+        value = float(state.state)
     except (TypeError, ValueError):
         return None
+    return to_watts(value, state.attributes.get("unit_of_measurement"))
 
 
 def _watchers(hass: HomeAssistant, entities: list[str]) -> dict[str, str | None]:
@@ -313,11 +328,28 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
         domain = device.split(".", 1)[0]
         observations: list[str | None] = []
         detail: list[dict] = []
+        notes: list[str] = []
 
         # Watch every automation that touches the device OR any circuit, so
         # interference is detected rather than inferred.
         watching = [device, *coordinator.circuits]
         watched_before = _watchers(hass, watching)
+
+        # ⚠ A settle window shorter than the meter's own reporting interval
+        # measures nothing: the circuit has not published since the switch was
+        # thrown, so both reads come from the same stale value and the probe
+        # returns a confident "no change". Say so rather than returning a
+        # clean-looking wrong answer. The cadence is measured from this
+        # install's own history, not assumed from any particular meter.
+        cadence = coordinator.source_profile().get("median_report_interval_s")
+        if cadence and settle < cadence * 2:
+            warning = (
+                f"settle={settle}s is short for a meter reporting every "
+                f"{cadence:.0f}s - a probe needs at least two reports after "
+                f"the switch. Re-run with settle={int(cadence * 2) + 1} or more."
+            )
+            _LOGGER.warning("%s: %s", device, warning)
+            notes.append(warning)
 
         store = hass.data[DOMAIN][entry_id]["store"]
         paused: list[str] = []
@@ -431,6 +463,10 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
             "automations_paused": paused,
             "automations_refused_as_unsafe": refused,
             "device_metered": device_metered,
+            # Anything that qualifies the result and is not a verdict. Returned
+            # rather than only logged, because whoever called the service is
+            # the one who needs to see it.
+            "notes": notes,
             "probes": detail,
         }
 

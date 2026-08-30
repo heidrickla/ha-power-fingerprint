@@ -56,6 +56,27 @@ def load_module(name: str):
     return mod
 
 
+class _Lazy:
+    """Defers loading `analysis` until something needs it.
+
+    Loading at import time would make every tool that only wants `api()` pay
+    for it, and would make an unrelated syntax error in `analysis` break the
+    tools that do not touch it.
+    """
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._mod = None
+
+    def __getattr__(self, attr: str):
+        if self._mod is None:
+            self._mod = load_module(self._name)
+        return getattr(self._mod, attr)
+
+
+_analysis = _Lazy("analysis")
+
+
 def api(path: str):
     url = os.environ["HA_URL"].rstrip("/") + path
     req = urllib.request.Request(url)
@@ -82,22 +103,45 @@ def history(entity: str, days: int) -> list[Sample]:
         # rather than defaulted - a fabricated zero would look like a real
         # reading of nothing.
         with contextlib.suppress(ValueError, TypeError, KeyError):
-            out.append(
-                (datetime.fromisoformat(row["last_changed"]), float(row["state"]))
-            )
+            # Converted to watts here, at the boundary, exactly as the
+            # integration does - so a kW meter does not quietly produce
+            # thresholds a thousand times too high and report zero runs.
+            watts = _analysis.to_watts(float(row["state"]), unit(entity))
+            if watts is not None:
+                out.append((datetime.fromisoformat(row["last_changed"]), watts))
     return out
+
+
+# Units seen while listing sensors, so `history` can convert without a second
+# round trip. `minimal_response` strips attributes from history rows, which is
+# most of why history is fast, so the unit has to come from the state list.
+_UNITS: dict[str, str | None] = {}
 
 
 def power_sensors(exclude: str | None = None) -> list[str]:
     """Every measurement-class power sensor, optionally excluding a substring."""
-    return sorted(
-        s["entity_id"]
-        for s in api("/api/states")
-        if s["entity_id"].startswith("sensor.")
-        and s.get("attributes", {}).get("device_class") == "power"
-        and s.get("attributes", {}).get("state_class") == "measurement"
-        and (exclude is None or exclude not in s["entity_id"])
-    )
+    out = []
+    for s in api("/api/states"):
+        attrs = s.get("attributes", {})
+        if (
+            s["entity_id"].startswith("sensor.")
+            and attrs.get("device_class") == "power"
+            and attrs.get("state_class") == "measurement"
+        ):
+            _UNITS[s["entity_id"]] = attrs.get("unit_of_measurement")
+            if exclude is None or exclude not in s["entity_id"]:
+                out.append(s["entity_id"])
+    return sorted(out)
+
+
+def unit(entity: str) -> str | None:
+    """The unit an entity reports in, if `power_sensors` has been called.
+
+    None also means "not seen yet", which `to_watts` treats as watts. That is
+    the same forgiving default the integration uses, and for the same reason:
+    the units that actually differ - kW against W - are always declared.
+    """
+    return _UNITS.get(entity)
 
 
 def template(tpl: str) -> str:
