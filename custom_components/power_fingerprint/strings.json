@@ -9,14 +9,16 @@
           "circuits": "Circuit power sensors",
           "price_per_kwh": "Electricity price per kWh",
           "coverage_tolerance_pct": "Coverage tolerance",
-          "contradiction_pairs": "Switch/circuit pairs"
+          "contradiction_pairs": "Switch/circuit pairs",
+          "confidence": "How sure do you want to be?"
         },
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
           "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
           "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
-          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
+          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing.",
+          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one."
         }
       },
       "reconfigure": {
@@ -27,14 +29,16 @@
           "circuits": "Circuit power sensors",
           "price_per_kwh": "Electricity price per kWh",
           "coverage_tolerance_pct": "Coverage tolerance",
-          "contradiction_pairs": "Switch/circuit pairs"
+          "contradiction_pairs": "Switch/circuit pairs",
+          "confidence": "How sure do you want to be?"
         },
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
           "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
           "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
-          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
+          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing.",
+          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one."
         }
       }
     },
@@ -169,14 +173,16 @@
           "circuits": "Circuit power sensors",
           "price_per_kwh": "Electricity price per kWh",
           "coverage_tolerance_pct": "Coverage tolerance",
-          "contradiction_pairs": "Switch/circuit pairs"
+          "contradiction_pairs": "Switch/circuit pairs",
+          "confidence": "How sure do you want to be?"
         },
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
           "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
           "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
-          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
+          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing.",
+          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one."
         }
       }
     },
@@ -245,6 +251,15 @@
     "bad_unit": {
       "title": "A configured sensor is not reporting power",
       "description": "{entity} reports in {unit}, which is not a power unit, so it has been excluded from every total. Every figure in Power Fingerprint is in watts. Either correct the sensor's unit, or remove it from the circuit list in the integration options."
+    }
+  },
+  "selector": {
+    "confidence": {
+      "options": {
+        "cautious": "Cautious - fewer answers, trust all of them",
+        "balanced": "Balanced - the measured default",
+        "eager": "Eager - more answers, some wrong (exploring a panel)"
+      }
     }
   }
 }

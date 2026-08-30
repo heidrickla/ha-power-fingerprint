@@ -274,6 +274,58 @@ change the mains or circuit list after re-clamping a panel, or **Configure**
 for the same fields plus price, tolerance and contradiction pairs. Both run the
 same validation as setup.
 
+## How sure do you want to be?
+
+⭐ **One dial, not twelve thresholds.** Every number in this integration was
+arrived at by measuring against a house with 27 real clamps to check answers
+against. Almost nobody installing it has that, so exposing `min_step_match` and
+`min_margin` as separate settings would hand over controls with no way to tell
+whether turning them helped. What a person *can* say is how they would rather
+be wrong.
+
+⛔ **The two ways to be wrong are not symmetric.** A missing answer is visible —
+the device simply has no circuit. A wrong answer is invisible: it looks exactly
+like a right one, gets written onto a device as a label, and is believed.
+
+| Setting | What it does |
+|---|---|
+| **Cautious** | Answers only where the evidence clearly beats coincidence. Roughly half as many placements, and you can trust them. |
+| **Balanced** | What every measurement in this README was taken with. |
+| **Eager** | ⚠ More placements, some wrong in ways you cannot see. Sound while exploring a panel, poor for driving automations. |
+
+It moves every threshold together — step match, margin, correlation, probes
+required to agree, cluster tightness, absence patience — so the setting stays
+coherent instead of becoming a half-tuned mixture. A profile name it does not
+recognise falls back to **balanced**, never to eager: a typo must not quietly
+loosen anything.
+
+## Every score carries its own control
+
+⛔ **A match rate without a control is not a result**, and this project learned
+that the expensive way three times in one night:
+
+- four "virtual circuits" each matched **both** air conditioners at 85–97%,
+  because those run 42% of the time and everything coincides with them;
+- a garage refrigerator scored **91%** — and **78%** when its runs were shifted
+  three hours into a time they did not happen;
+- an 18-device probe sweep at `probes: 1` returned every placement as
+  `measured`, and six of seven collapsed when three probes had to agree.
+
+Each was caught by a human remembering to check. **Nobody installing this has
+that human**, so the check is in the code: `analysis.control()` scores the real
+alignment, then scores it again at several offsets where the same events did not
+happen, and reports the gap.
+
+```
+measured 0.91   chance 0.40   lift 0.51   verdict: clear
+measured 0.95   chance 0.93   lift 0.02   verdict: chance
+```
+
+⭐ **Several offsets, and the lowest wins.** A three-hour shift still overlaps
+the house's own daily rhythm; nineteen hours does not. Taking the minimum across
+a spread is what stops autocorrelation being mistaken for signal — a single
+short offset would have called the refrigerator result far stronger than it is.
+
 ## Naming what was learned
 
 Clustering finds the recurring shapes and genuinely cannot name them. But a lot

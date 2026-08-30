@@ -325,3 +325,94 @@ def test_patience_scales_the_limit():
     silent = 9 * 3600
     assert pf.absence(c, silent, patience=2.0)[0] == "ok"  # limit 12 h
     assert pf.absence(c, silent, patience=1.0)[0] == "overdue"  # limit 6 h
+
+
+# --- evidence and its control ----------------------------------------------
+#
+# Every one of these thresholds exists because a real measurement fooled a
+# human first. The point is that the code now does the checking.
+
+
+def test_a_perfect_score_that_chance_also_achieves_is_chance():
+    """The four "virtual circuits" that each matched both air conditioners."""
+    ev = pf.control(lambda off: 0.95 if off == 0 else 0.93)
+    assert ev.verdict == "chance"
+    assert round(ev.lift, 2) == 0.02
+
+
+def test_the_refrigerator_case_reads_as_weak_not_clear():
+    """91% real, 78% at +3 h, 40% at +19 h. The lowest chance is what counts."""
+    scores = {0.0: 0.91, 3.0: 0.78, 7.0: 0.64, 13.0: 0.45, 19.0: 0.40}
+    ev = pf.control(lambda off: scores[off])
+    assert ev.chance == 0.40
+    assert round(ev.lift, 2) == 0.51
+    assert ev.verdict == "clear"
+
+
+def test_autocorrelation_alone_is_not_signal():
+    """A shift of a few hours still overlaps the house's daily rhythm, so a
+    single short offset would understate chance badly."""
+    scores = {0.0: 0.80, 3.0: 0.78, 7.0: 0.74, 13.0: 0.72, 19.0: 0.70}
+    ev = pf.control(lambda off: scores[off])
+    assert ev.verdict == "chance"
+
+
+def test_a_low_score_is_refused_however_big_the_lift():
+    """Beating chance is necessary, not sufficient - 30% is still 30%."""
+    ev = pf.control(lambda off: 0.30 if off == 0 else 0.01)
+    assert ev.verdict == "no"
+
+
+def test_a_clean_result_survives_its_control():
+    ev = pf.control(lambda off: 0.95 if off == 0 else 0.10)
+    assert ev.verdict == "clear"
+    assert ev.to_dict()["lift"] == 0.85
+
+
+# --- confidence profiles ----------------------------------------------------
+
+
+def _profiles():
+    import importlib.util
+    import pathlib
+
+    path = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "custom_components"
+        / "power_fingerprint"
+        / "const.py"
+    )
+    spec = importlib.util.spec_from_file_location("pf_const", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_profiles_are_ordered_not_just_different():
+    """⛔ A dial only means something if turning it moves every bar the same way.
+
+    Three profiles with thresholds that disagree about which is stricter would
+    be worse than one profile, because the user's mental model would be wrong.
+    """
+    c = _profiles()
+    strict, mid, loose = (
+        c.CONFIDENCE_PROFILES["cautious"],
+        c.CONFIDENCE_PROFILES["balanced"],
+        c.CONFIDENCE_PROFILES["eager"],
+    )
+    for key in ("min_step_match", "min_margin", "min_correlation", "min_lift"):
+        assert strict[key] > mid[key] > loose[key], key
+    assert strict["probes"] > mid["probes"] > loose["probes"]
+    # A tighter cluster threshold splits shapes more readily, so it inverts.
+    assert (
+        strict["cluster_threshold"]
+        < mid["cluster_threshold"]
+        < loose["cluster_threshold"]
+    )
+
+
+def test_an_unknown_profile_falls_back_to_balanced_not_to_eager():
+    """A typo must never quietly loosen the thresholds."""
+    c = _profiles()
+    assert c.profile("nonsense") == c.CONFIDENCE_PROFILES["balanced"]
+    assert c.profile(None) == c.CONFIDENCE_PROFILES["balanced"]

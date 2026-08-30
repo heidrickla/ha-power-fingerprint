@@ -74,7 +74,7 @@ LEARN_SCHEMA = vol.Schema(
     {
         vol.Optional("circuits"): cv.entity_ids,
         vol.Optional("days", default=7): vol.All(int, vol.Range(min=1, max=30)),
-        vol.Optional("threshold", default=0.9): vol.All(
+        vol.Optional("threshold"): vol.All(
             vol.Coerce(float), vol.Range(min=0.1, max=5.0)
         ),
     }
@@ -84,7 +84,7 @@ VERIFY_SCHEMA = vol.Schema(
     {
         vol.Required("device"): cv.entity_id,
         vol.Optional("power_sensor"): cv.entity_id,
-        vol.Optional("probes", default=2): vol.All(int, vol.Range(min=1, max=5)),
+        vol.Optional("probes"): vol.All(int, vol.Range(min=1, max=5)),
         vol.Optional("settle", default=30): vol.All(int, vol.Range(min=10, max=120)),
         vol.Optional("pause_automations", default=False): cv.boolean,
         vol.Optional("force", default=False): cv.boolean,
@@ -106,7 +106,7 @@ MAP_SCHEMA = vol.Schema(
     {
         vol.Optional("days", default=3): vol.All(int, vol.Range(min=1, max=14)),
         vol.Optional("step"): vol.All(int, vol.Range(min=1, max=300)),
-        vol.Optional("min_correlation", default=0.5): vol.All(
+        vol.Optional("min_correlation"): vol.All(
             vol.Coerce(float), vol.Range(min=0.0, max=1.0)
         ),
     }
@@ -375,7 +375,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
         circuits = call.data.get("circuits") or coordinator.circuits
         days = call.data["days"]
-        threshold = call.data["threshold"]
+        threshold = (
+            call.data.get("threshold") or coordinator.profile["cluster_threshold"]
+        )
 
         report: dict[str, list[dict[str, Any]]] = {}
         for entity in circuits:
@@ -432,7 +434,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         # than just direction, and it is the difference between an answer and
         # the air conditioner.
         meter = call.data.get("power_sensor") or _own_meter(hass, device)
-        probes = call.data["probes"]
+        probes = call.data.get("probes") or int(coordinator.profile["probes"])
         settle = call.data["settle"]
 
         # The entity's category comes from the registry, not the state - a
@@ -746,7 +748,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
             if trace:
                 devices[state.entity_id] = trace
 
-        result = assign(devices, ctraces, min_r=call.data["min_correlation"])
+        p = coordinator.profile
+        result = assign(
+            devices,
+            ctraces,
+            min_r=call.data.get("min_correlation") or p["min_correlation"],
+            min_step_match=p["min_step_match"],
+            min_margin=p["min_margin"],
+        )
 
         # Areas are REPORTED, NEVER SCORED. Circuit identity is what this is
         # trying to learn, so feeding Home Assistant's own area names back into

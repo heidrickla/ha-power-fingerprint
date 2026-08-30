@@ -41,6 +41,7 @@ from .analysis import (
 )
 from .const import (
     CONF_CIRCUITS,
+    CONF_CONFIDENCE,
     CONF_MAINS,
     CONF_PAIRS,
     CONF_PRICE,
@@ -50,6 +51,7 @@ from .const import (
     DOMAIN,
     POLL_SECONDS,
     WINDOW_HOURS,
+    profile,
 )
 from .fingerprint import match
 
@@ -116,6 +118,10 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         self.price: float = float(options.get(CONF_PRICE, DEFAULT_PRICE))
         self.tolerance: float = float(options.get(CONF_TOLERANCE, DEFAULT_TOLERANCE))
         self.pairs: list[tuple[str, str]] = parse_pairs(options.get(CONF_PAIRS, ""))
+        # Resolved once. Every threshold in the integration comes from here, so
+        # a user changing one setting changes them all coherently rather than
+        # leaving a half-tuned mixture.
+        self.profile: dict[str, float] = profile(options.get(CONF_CONFIDENCE))
         maxlen = int(WINDOW_HOURS * 3600 / POLL_SECONDS)
         self._window: dict[str, deque[Sample]] = defaultdict(
             lambda: deque(maxlen=maxlen)
@@ -481,7 +487,12 @@ class FingerprintCoordinator(DataUpdateCoordinator):
                 median_gap_s=float(fp.cadence.get("median_gap_s", 0.0)),
                 p90_gap_s=float(fp.cadence.get("p90_gap_s", 0.0)),
             )
-            state, why = absence(rhythm, silent_s, self._blind_s[fp.circuit])
+            state, why = absence(
+                rhythm,
+                silent_s,
+                self._blind_s[fp.circuit],
+                patience=self.profile["absence_patience"],
+            )
             out.append(
                 {
                     "appliance": fp.label,

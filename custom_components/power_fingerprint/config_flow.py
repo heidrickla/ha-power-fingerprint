@@ -17,10 +17,13 @@ from homeassistant.helpers import selector
 from .analysis import to_watts
 from .const import (
     CONF_CIRCUITS,
+    CONF_CONFIDENCE,
     CONF_MAINS,
     CONF_PAIRS,
     CONF_PRICE,
     CONF_TOLERANCE,
+    CONFIDENCE_PROFILES,
+    DEFAULT_CONFIDENCE,
     DEFAULT_PRICE,
     DEFAULT_TOLERANCE,
     DOMAIN,
@@ -69,6 +72,20 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_TOLERANCE, DEFAULT_TOLERANCE),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=50, step=0.5, mode="box")
+            ),
+            # ⭐ One dial the user can reason about. The individual
+            # thresholds are not exposed: almost nobody has 27 real clamps to
+            # check answers against, so numeric knobs would be controls with no
+            # feedback. What a person CAN say is how they would rather be wrong.
+            vol.Optional(
+                CONF_CONFIDENCE,
+                default=defaults.get(CONF_CONFIDENCE, DEFAULT_CONFIDENCE),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(CONFIDENCE_PROFILES),
+                    translation_key="confidence",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
             ),
             # One `switch.entity: sensor.circuit_power` per line. Kept as free
             # text because a config flow has no native pair-list selector, and
