@@ -25,11 +25,14 @@ from homeassistant.core import (
     State,
     SupportsResponse,
 )
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
-from .analysis import Sample, cadences_by_cluster, segment, to_watts
+from .analysis import Sample, cadences_by_cluster, sample_interval, segment, to_watts
+from .attribution import assign, resample
 from .const import DOMAIN
 from .coordinator import (
     PowerFingerprintConfigEntry,
@@ -45,6 +48,7 @@ from .verify import (
     may_probe,
     rank_deltas,
     safe_to_pause,
+    safe_to_switch_off,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,6 +56,7 @@ _LOGGER = logging.getLogger(__name__)
 SERVICE_LEARN = "learn"
 SERVICE_LABEL = "label"
 SERVICE_VERIFY = "verify_circuit"
+SERVICE_MAP = "map_devices"
 
 LEARN_SCHEMA = vol.Schema(
     {
@@ -70,6 +75,17 @@ VERIFY_SCHEMA = vol.Schema(
         vol.Optional("probes", default=2): vol.All(int, vol.Range(min=1, max=5)),
         vol.Optional("settle", default=30): vol.All(int, vol.Range(min=10, max=120)),
         vol.Optional("pause_automations", default=False): cv.boolean,
+        vol.Optional("force", default=False): cv.boolean,
+    }
+)
+
+MAP_SCHEMA = vol.Schema(
+    {
+        vol.Optional("days", default=3): vol.All(int, vol.Range(min=1, max=14)),
+        vol.Optional("step"): vol.All(int, vol.Range(min=1, max=300)),
+        vol.Optional("min_correlation", default=0.5): vol.All(
+            vol.Coerce(float), vol.Range(min=0.0, max=1.0)
+        ),
     }
 )
 
@@ -340,7 +356,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         probes = call.data["probes"]
         settle = call.data["settle"]
 
-        allowed, why = may_probe(device)
+        # The entity's category comes from the registry, not the state - a
+        # config switch looks exactly like a load switch in the state machine.
+        registry = er.async_get(hass)
+        entry_row = registry.async_get(device)
+        category = entry_row.entity_category if entry_row else None
+        allowed, why = may_probe(device, category.value if category else None)
         if not allowed:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
@@ -367,6 +388,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
             )
 
         prior = state.state
+        # ⛔ Refuse to cut a live load. See safe_to_switch_off - the domain
+        # allowlist cannot tell a lamp from a computer's power feed, and this
+        # install's living room contains both.
+        ok, why_not = safe_to_switch_off(prior, _read(hass, meter) if meter else None)
+        if not ok and not call.data["force"]:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="carrying_load",
+                translation_placeholders={"device": device, "reason": why_not},
+            )
         domain = device.split(".", 1)[0]
         observations: list[str | None] = []
         detail: list[dict[str, Any]] = []
@@ -521,7 +552,131 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schema=LEARN_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+
+    async def _map(call: ServiceCall) -> ServiceResponse:
+        """Work out which circuit each self-metering device sits on.
+
+        ⭐ THIS WAS TOOL-ONLY UNTIL NOW. The analysis lived in
+        `tools/attribute.py` and needed a workstation, a token and a shell,
+        which meant the one thing that turns a wall of numbered circuits into
+        named ones could not be run by the person who installed the
+        integration. It is the same code path; only the entry point is new.
+        """
+        runtime = _runtime(hass)
+        coordinator = runtime.coordinator
+        days = call.data["days"]
+        circuits = list(coordinator.circuits)
+
+        start = dt_util.utcnow() - timedelta(days=days)
+        end = dt_util.utcnow()
+
+        raw_circuits: dict[str, list[Sample]] = {}
+        for entity in circuits:
+            raw_circuits[entity] = await _history(hass, entity, days)
+
+        # ⛔ The grid must be about one reporting interval wide, and that is a
+        # property of the meter, not a constant. Measured from this install's
+        # own history unless the caller overrides it.
+        measured = [
+            v for v in (sample_interval(rows) for rows in raw_circuits.values()) if v
+        ]
+        measured.sort()
+        step = call.data.get("step") or (
+            max(1, round(measured[len(measured) // 2])) if measured else 12
+        )
+
+        ctraces = {
+            c: resample(rows, step, start, end) for c, rows in raw_circuits.items()
+        }
+        filled = sum(1 for t in ctraces.values() if t)
+        if not filled:
+            # Empty history is UNREAD, not "no matches". Say which.
+            raise HomeAssistantError(
+                f"The recorder returned no history for any of the {len(circuits)} "
+                "circuits, so nothing could be compared. This is an unread "
+                "result, not an absence of matches."
+            )
+
+        # Every power sensor that is not one of the circuits and not the mains.
+        known = {*circuits, coordinator.mains}
+        devices: dict[str, list[float]] = {}
+        for state in hass.states.async_all("sensor"):
+            if state.entity_id in known:
+                continue
+            attrs = state.attributes
+            if attrs.get("device_class") != "power":
+                continue
+            if attrs.get("state_class") != "measurement":
+                continue
+            trace = resample(
+                await _history(hass, state.entity_id, days), step, start, end
+            )
+            if trace:
+                devices[state.entity_id] = trace
+
+        result = assign(devices, ctraces, min_r=call.data["min_correlation"])
+
+        # Areas are REPORTED, NEVER SCORED. Circuit identity is what this is
+        # trying to learn, so feeding Home Assistant's own area names back into
+        # the scoring would be circular. They are here to make a wrong answer
+        # visible, which is exactly how an over-wide grid was caught.
+        registry = er.async_get(hass)
+        areas = ar.async_get(hass)
+
+        def _area(entity_id: str) -> str | None:
+            row = registry.async_get(entity_id)
+            if row is None or row.area_id is None:
+                return None
+            area = areas.async_get_area(row.area_id)
+            return area.name if area else None
+
+        placed, unplaced, quiet = [], [], []
+        for name, info in result.items():
+            row = {
+                "device": name,
+                "area": _area(name),
+                "circuit": info.get("circuit"),
+                "step_match": info.get("step_match"),
+                "correlation": info.get("r"),
+                "containment": info.get("containment"),
+                "margin": info.get("margin"),
+                "reason": info.get("reason"),
+            }
+            if info.get("circuit"):
+                placed.append(row)
+            elif str(info.get("reason", "")) == "no transition in window":
+                quiet.append(row)
+            else:
+                unplaced.append(row)
+
+        # A circuit claiming devices from three unrelated areas is a smell, and
+        # printing it is the only reason the over-wide grid was ever noticed.
+        per_circuit: dict[str, set[str]] = {}
+        for row in placed:
+            area_name = str(row["area"]) if row["area"] else "?"
+            per_circuit.setdefault(str(row["circuit"]), set()).add(area_name)
+        suspect = sorted(c for c, a in per_circuit.items() if len(a) >= 3)
+
+        return {
+            "grid_seconds": step,
+            "grid_source": "given" if call.data.get("step") else "measured",
+            "days": days,
+            "circuits_with_history": filled,
+            "devices_examined": len(devices),
+            "placed": sorted(placed, key=lambda r: -float(r["step_match"] or 0)),
+            "unplaced": sorted(unplaced, key=lambda r: str(r["device"])),
+            "no_transition_in_window": sorted(quiet, key=lambda r: str(r["device"])),
+            "circuits_claiming_three_or_more_areas": suspect,
+        }
+
     hass.services.async_register(DOMAIN, SERVICE_LABEL, _label, schema=LABEL_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_MAP,
+        _map,
+        schema=MAP_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_VERIFY,

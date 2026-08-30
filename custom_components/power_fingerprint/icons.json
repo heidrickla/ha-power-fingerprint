@@ -38,6 +38,7 @@
   "services": {
     "learn": "mdi:school",
     "label": "mdi:tag-text",
-    "verify_circuit": "mdi:check-decagram"
+    "verify_circuit": "mdi:check-decagram",
+    "map_devices": "mdi:sitemap"
   }
 }

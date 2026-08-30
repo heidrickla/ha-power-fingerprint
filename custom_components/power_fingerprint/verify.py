@@ -48,13 +48,81 @@ PROBE_ALLOWED_DOMAINS = frozenset({"switch", "light"})
 MIN_PROBE_WATTS = 5.0
 
 
-def may_probe(entity_id: str) -> tuple[bool, str]:
-    """Whether this entity is safe to switch for a measurement."""
+def may_probe(entity_id: str, entity_category: str | None = None) -> tuple[bool, str]:
+    """Whether this entity is safe to switch for a measurement.
+
+    ⛔ THE DOMAIN ALLOWLIST IS NOT ENOUGH ON ITS OWN, AND THIS ONE IS EASY TO
+    MISS. A Z-Wave dimmer publishes its settings as `switch` entities in the
+    same domain as the load: `switch.front_porch_light_smart_bulb_mode`,
+    `switch.front_porch_light_invert_switch`,
+    `switch.front_porch_light_local_protection`. On one real install a single
+    dimmer contributed eleven such switches and exactly one actual light.
+
+    Flipping one of those does not measure anything - nothing moves on the
+    circuit, so the probe learns nothing - and it silently RECONFIGURES the
+    device. `invert_switch` reverses the paddle. `local_protection` stops the
+    wall switch working. The probe restores the prior state afterwards, so the
+    damage is transient, but a crash mid-probe would leave a light switch that
+    no longer responds to being pressed, with nothing anywhere explaining why.
+
+    Home Assistant already marks these: entity category `config` for settings
+    and `diagnostic` for readouts. Neither is a load. Refuse both.
+    """
     domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
     if domain not in PROBE_ALLOWED_DOMAINS:
         return False, (
             f"{entity_id} is a {domain!r} entity; only "
             f"{sorted(PROBE_ALLOWED_DOMAINS)} may be probed"
+        )
+    if entity_category in ("config", "diagnostic"):
+        return False, (
+            f"{entity_id} is a {entity_category} entity - a device setting, not "
+            "a load. Switching it would reconfigure the device and move no "
+            "current at all"
+        )
+    return True, ""
+
+
+def safe_to_switch_off(
+    current_state: str, device_watts: float | None, threshold_w: float = 5.0
+) -> tuple[bool, str]:
+    """Whether switching this device OFF would cut something that is running.
+
+    ⛔ THE DOMAIN ALLOWLIST CANNOT CLOSE THIS GAP, BECAUSE A COMPUTER'S POWER
+    FEED AND A TABLE LAMP ARE THE SAME KIND OF ENTITY. Enumerating one real
+    install's living room produced `switch.living_room_logans_computer`,
+    `switch.living_room_subwolfer_outlet` and `switch.living_room_usp_strip_
+    outlet_1` alongside the lamps - a desktop, an amplifier and an outlet on a
+    rack power strip. Probing any of them means yanking power from something
+    mid-operation. A lost document is not an acceptable price for learning
+    which breaker an outlet is on.
+
+    ⭐ THE TEST IS MEASURED, NOT NAMED. Name heuristics fail in both directions
+    - `switch.living_room_near_office_outlet` says nothing about what is
+    plugged into it today. A device that is drawing a sustained load has
+    something running on it; that is the whole question, and the device's own
+    power meter answers it directly.
+
+    Only switching OFF is gated. Turning an idle device ON is recoverable: the
+    probe restores the prior state, and worst case something powers up briefly.
+    Cutting a live load is not symmetric with that.
+    """
+    if current_state != "on":
+        return True, ""
+    if device_watts is None:
+        # Unmetered and currently on. Cannot tell a lamp from a workstation,
+        # so say so rather than guessing - the caller can pass a power sensor
+        # or switch it off themselves first.
+        return False, (
+            "it is currently on and reports no power reading, so there is no "
+            "way to tell whether something is running on it. Give it a "
+            "power_sensor, or switch it off before probing"
+        )
+    if device_watts > threshold_w:
+        return False, (
+            f"it is currently drawing {device_watts:.1f} W, so something is "
+            "running on it. Switching it off to measure a circuit could "
+            "interrupt whatever that is"
         )
     return True, ""
 

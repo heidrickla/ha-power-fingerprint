@@ -241,3 +241,61 @@ def test_energy_or_current_also_prove_mains():
     assert not v.is_battery_powered(
         {"sensor.x_battery": "battery", "sensor.x_current": "current"}
     )
+
+
+def test_a_config_switch_may_not_be_probed():
+    """⛔ Found while picking probe targets on a real install.
+
+    One Z-Wave dimmer published eleven `switch` entities - smart bulb mode,
+    invert switch, local protection, double tap enabled - and one actual light.
+    All eleven pass a domain allowlist. Flipping `invert_switch` reverses the
+    paddle; flipping `local_protection` stops the wall switch working. None of
+    them move any current, so the probe would learn nothing either way.
+    """
+    ok, why = v.may_probe("switch.front_porch_light_invert_switch", "config")
+    assert not ok
+    assert "not a load" in why
+
+
+def test_a_diagnostic_switch_may_not_be_probed():
+    ok, why = v.may_probe(
+        "switch.front_porch_light_firmware_progress_led", "diagnostic"
+    )
+    assert not ok
+    assert "diagnostic" in why
+
+
+def test_a_real_light_is_still_probeable():
+    """The guard must not refuse the thing it exists to allow."""
+    assert v.may_probe("light.front_porch_light", None)[0]
+    assert v.may_probe("switch.playroom_outlet", None)[0]
+
+
+def test_a_live_load_is_not_switched_off_for_a_measurement():
+    """⛔ Found by enumerating a real living room before probing it.
+
+    `switch.living_room_logans_computer`, `switch.living_room_subwolfer_outlet`
+    and `switch.living_room_usp_strip_outlet_1` all pass a domain allowlist and
+    all mean yanking power from something mid-operation.
+    """
+    ok, why = v.safe_to_switch_off("on", 118.0)
+    assert not ok
+    assert "118.0 W" in why
+
+
+def test_an_idle_switch_may_be_probed():
+    assert v.safe_to_switch_off("on", 0.4)[0]
+    assert v.safe_to_switch_off("off", None)[0]
+
+
+def test_an_unmetered_device_that_is_on_is_refused_not_guessed():
+    """It could be a lamp or a workstation. Say so instead of picking one."""
+    ok, why = v.safe_to_switch_off("on", None)
+    assert not ok
+    assert "no way to tell" in why
+
+
+def test_turning_an_idle_device_ON_is_never_gated():
+    """The asymmetry is deliberate - powering something up is recoverable."""
+    assert v.safe_to_switch_off("off", 0.0)[0]
+    assert v.safe_to_switch_off("off", 500.0)[0]
