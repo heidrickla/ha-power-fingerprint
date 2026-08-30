@@ -20,6 +20,22 @@ result is worth unlocking a door for.
 The prior state is always restored, including when the probe fails partway.
 A probe that leaves the house in a different state than it found it is a bug
 regardless of what it learned.
+
+⚠ AUTOMATIONS CAN CORRUPT A PROBE, AND WILL NOT ANNOUNCE THEMSELVES.
+
+The device being probed is very often one an automation also controls - a motion
+light is both the most useful thing to identify and the most likely to be
+switched by something else mid-probe. If motion fires while the light is toggled
+off, the automation turns it back on, the circuit step vanishes, and the reading
+is wrong rather than missing.
+
+There is no clean way to detect that from here, so it is handled by requiring
+repeated probes to AGREE rather than by trying to spot the interference. A
+spurious automation action lands on one probe and not the other, so the probes
+disagree and `agree()` returns nothing. That is the failure mode working: a
+corrupted probe should produce no answer, not a confident wrong one.
+
+Probing while the house is quiet reduces it further, but does not remove it.
 """
 
 from __future__ import annotations
