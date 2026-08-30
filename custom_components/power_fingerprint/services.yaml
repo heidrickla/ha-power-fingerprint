@@ -164,3 +164,18 @@ map_devices:
       default: 0.5
 
 autolabel:
+
+apply_circuit_labels:
+  fields:
+    dry_run:
+      selector:
+        boolean:
+      default: true
+    remove:
+      selector:
+        boolean:
+      default: false
+    prefix:
+      selector:
+        text:
+      default: Circuit
