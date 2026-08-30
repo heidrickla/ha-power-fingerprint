@@ -5,7 +5,7 @@ MANUFACTURER = "Power Fingerprint"
 # Must match manifest.json. HACS surfaces the release TAG while Home Assistant
 # reports the MANIFEST version, so a mismatch is a defect users see as a wrong
 # version number. Bump both together.
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 
 CONF_MAINS = "mains"
 CONF_CIRCUITS = "circuits"
@@ -25,3 +25,12 @@ DEFAULT_TOLERANCE = 5.0
 # of the slowest cycling appliance on the circuit.
 WINDOW_HOURS = 24
 POLL_SECONDS = 30
+
+# ⛔ HOW LITTLE OF THE WINDOW IS STILL TOO LITTLE TO ANSWER. Standby is a 5th
+# percentile, so it needs to span at least a duty cycle or two of whatever
+# cycles slowest on the circuit. Measured on the development install: the
+# central AC runs 42% of a day, and a window covering only the minute after a
+# restart reported 5,017 W of "standby" against a true 24-hour figure of 3 W.
+# Below this span the sensors report `unknown`, which is the honest answer and
+# is not the same as reporting a number nobody should trust.
+MIN_STANDBY_WINDOW_HOURS = 1.0

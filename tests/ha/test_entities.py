@@ -190,3 +190,46 @@ async def test_silent_appliance_is_unknown_with_nothing_learned(
     assert state is not None
     assert state.state == "unknown"
     assert state.attributes["watching"] == 0
+
+
+# --- found by installing, not by any test ----------------------------------
+
+
+async def test_diagnostics_download_does_not_raise(
+    hass: HomeAssistant, config_entry, powered
+):
+    """`window_sizes()` returns COUNTS; diagnostics called len() on them.
+
+    TypeError, and the whole diagnostics download returned HTTP 500. Nothing
+    caught it because the HA-layer suite has never executed - installing did.
+    """
+    from custom_components.power_fingerprint.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    await _setup(hass, config_entry)
+    report = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert isinstance(report["window_filled"], dict)
+    assert all(isinstance(v, int) for v in report["window_filled"].values())
+    assert "window_hours" in report
+    assert "source" in report
+
+
+async def test_standby_refuses_to_answer_from_a_cold_window(
+    hass: HomeAssistant, config_entry, powered
+):
+    """A 5th percentile over four minutes is a different quantity, not a rough one.
+
+    On the live install a window holding only the minute after a restart
+    reported 5,017 W of "standby" while the true 24-hour figure was near zero,
+    because the central AC happened to be running. It looked exactly as
+    authoritative as a real number.
+    """
+    coordinator = await _setup(hass, config_entry)
+    assert coordinator.window_hours() < 1.0
+    state = hass.states.get("sensor.power_fingerprint_standby_power")
+    assert state.state == "unknown"
+    assert state.attributes["window_ready"] is False
+    assert hass.states.get("sensor.power_fingerprint_standby_annual_cost").state == (
+        "unknown"
+    )

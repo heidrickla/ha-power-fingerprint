@@ -262,17 +262,31 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         try:
             from homeassistant.components.recorder import get_instance, history
         except ImportError:  # recorder disabled
+            _LOGGER.warning(
+                "The recorder is not available, so standby figures start from "
+                "an empty window and take up to %d hours to mean anything",
+                WINDOW_HOURS,
+            )
             self._seeded = True
             return
 
         start = dt_util.utcnow() - timedelta(hours=WINDOW_HOURS)
 
         def _fetch() -> dict[str, list[State]]:
-            rows: dict[str, list[State]] = history.state_changes_during_period(
+            # ⛔ ASK FOR THE CONFIGURED ENTITIES, NOT FOR EVERYTHING. The first
+            # version passed entity_id=None, which asks the recorder for 24
+            # hours of EVERY entity in the house. On a real install that is
+            # millions of rows; it failed, the failure was swallowed into a
+            # debug line, and the window stayed empty. Standby then reported
+            # the 5th percentile of about sixty seconds of samples - which on a
+            # night with the air conditioning running came out as 5,017 W of
+            # "standby" against a true 24-hour figure near zero. A confident
+            # wrong number, with nothing anywhere saying it was wrong.
+            rows: dict[str, list[State]] = history.get_significant_states(
                 self.hass,
                 start,
                 dt_util.utcnow(),
-                entity_id=None,
+                entity_ids=list(self.circuits),
                 include_start_time_state=False,
                 no_attributes=True,
             )
@@ -281,7 +295,13 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         try:
             data = await get_instance(self.hass).async_add_executor_job(_fetch)
         except Exception as err:
-            _LOGGER.debug("Could not seed window from recorder: %s", err)
+            # WARNING, not debug. A silent seed failure produces standby
+            # figures that look real and are not.
+            _LOGGER.warning(
+                "Could not seed the window from the recorder (%s) - standby "
+                "figures will be meaningless until the window fills",
+                err,
+            )
             self._seeded = True
             return
 
@@ -298,10 +318,21 @@ class FingerprintCoordinator(DataUpdateCoordinator):
                 val = to_watts(_raw(st), unit)
                 if val is not None:
                     self._window[entity].append((st.last_changed, val))
-        _LOGGER.debug(
-            "Seeded %d circuits from recorder",
-            sum(1 for c in self.circuits if self._window[c]),
-        )
+        seeded = sum(1 for c in self.circuits if self._window[c])
+        if seeded:
+            _LOGGER.debug(
+                "Seeded %d of %d circuits from the recorder (%d samples)",
+                seeded,
+                len(self.circuits),
+                sum(len(self._window[c]) for c in self.circuits),
+            )
+        else:
+            _LOGGER.warning(
+                "The recorder returned no history for any of the %d configured "
+                "circuits - standby figures will be meaningless until the "
+                "window fills",
+                len(self.circuits),
+            )
         self._seeded = True
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -360,6 +391,11 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             "standby": ranking,
             "standby_total_w": round(sum(floors.values()), 1),
             "standby_annual_cost": round(sum(floors.values()) * 8.766 * self.price, 2),
+            # ⛔ Standby is a 5th percentile, so it only means anything once the
+            # window spans a duty cycle or two. Published so the entities can
+            # refuse to answer rather than publish a number from four minutes
+            # of data that looks exactly as authoritative as a real one.
+            "window_hours": round(self.window_hours(), 2),
             "contradictions": clashes,
             "silent_circuits": silent,
             "tolerance_pct": self.tolerance,
@@ -464,6 +500,21 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             return
         self._seen_dirty = False
         await self.store.async_record_seen(self._last_seen, now.isoformat())
+
+    def window_hours(self) -> float:
+        """How much wall-clock time the rolling window actually spans.
+
+        ⭐ THE SAMPLE COUNT IS NOT THE ANSWER. A window can hold hundreds of
+        samples and still cover four minutes, and a standby figure from four
+        minutes is a confident wrong number rather than a rough one. What
+        matters is the span.
+        """
+        spans = [
+            (w[-1][0] - w[0][0]).total_seconds()
+            for w in self._window.values()
+            if len(w) >= 2
+        ]
+        return (max(spans) / 3600.0) if spans else 0.0
 
     def window_sizes(self) -> dict[str, int]:
         """How many samples each circuit has accumulated. Used by diagnostics
