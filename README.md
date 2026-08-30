@@ -81,13 +81,37 @@ two or three data points. Kettles, microwaves and disposals sit at or below the
 resolution limit. That is a property of the meter, not something more code
 fixes.
 
-## Roadmap
+## Self-metering devices
 
-Labelling comes next, and unlocks the rest:
+Most homes with per-circuit monitoring also have devices that meter themselves —
+smart dimmers, metered outlets, a PDU reporting per outlet. The development
+install has **40 of them alongside 27 circuits**, and they are worth more than
+one extra reading each because they are *already labelled*:
+`sensor.front_porch_light_active_power` needs no human to name it.
+
+That gives three things circuit CTs alone cannot: labelled fingerprints for
+free, subtraction of a known device from a shared circuit, and automatic
+device-to-circuit mapping.
+
+⚠ **Attribution is implemented but NOT yet reliable — treat its output as a
+suggestion.** Correlation alone placed only 2 of 20 devices, because a 10 W lamp
+contributes almost nothing to the variance of a circuit swinging hundreds of
+watts. Step matching — does the circuit show a coincident step of matching
+*magnitude* when the device switches — lifted that to 13. Requiring the winner
+to beat the runner-up then correctly refused four office lights that always
+switch together and so score identically everywhere.
+
+But checked against Home Assistant's own area assignments, one busy circuit
+still claims devices from three unrelated areas. Only assignments with a high
+step match *and* a clear margin should be trusted, and the tool prints both so
+you can judge. Verifying against area data is the next piece of work.
+
+## Roadmap
 
 - **Fingerprint learning** — cluster recurring event shapes per circuit, then
   ask once which is which. Unsupervised clustering finds the shapes but cannot
-  name them; a human names them in one pass and it remembers.
+  name them; a human names them in one pass and it remembers. Metered devices
+  skip the asking entirely.
 - **Absence detection** — alert when an expected signature *fails* to appear.
   The fridge stopped cycling, the sump pump was silent through a storm. Every
   tool alerts on too much; the expensive failures are silence.
