@@ -326,6 +326,61 @@ the house's own daily rhythm; nineteen hours does not. Taking the minimum across
 a spread is what stops autocorrelation being mistaken for signal — a single
 short offset would have called the refrigerator result far stronger than it is.
 
+## Breaker walk — the only causal test here
+
+⭐ **Everything else in this integration is circumstantial.** Correlation says
+two things moved together. An active probe says a circuit moved when a device
+was switched. Only cutting the breaker proves a device is fed by that circuit,
+because the device stops.
+
+The app cannot flip breakers, so this is a guided manual procedure — but it
+does two things a person at a panel cannot:
+
+**It works out which breaker you flipped.** One circuit's clamp falls to the
+noise floor; that identifies it. You never have to say. ⛔ **And if no clamp
+drops, it refuses** — the breaker you flipped isn't one this integration
+watches, and the honest answer is "I could not see that" rather than a mapping
+built from whatever else happened to change. Two circuits dying together is
+also a refusal: that is a double-pole breaker or a main, and which one fed what
+is not decidable.
+
+**It separates what it measured from what it merely noticed.**
+
+| | Meaning |
+|---|---|
+| `confirmed` | The device's own meter collapsed. Measured. |
+| `suspected` | The device *vanished* — which might mean it lost power, or that its Zigbee/Z-Wave **parent** did. Kill one mains-powered router and a dozen unrelated battery sensors go quiet with it. |
+| `unaffected` | Still drawing what it was. |
+
+Anything known to route for other devices stays `suspected` however convincing
+it looks.
+
+### It reports, it does not judge
+
+⛔ **Two earlier versions of this rated each circuit as safe or unsafe to kill,
+and both were wrong in opposite directions.** The first matched circuit and
+device names against a denylist and called anything with no match safe — which
+on a **new install**, where nothing has been attributed and every circuit is
+called "Circuit 7", marked the entire panel safe, including the one feeding a
+rack. Absence of evidence returned as evidence of absence. The second inverted
+it and refused to call anything safe without proof, which is just a different
+way of pretending to know.
+
+⭐ **The person at the panel knows their own house.** They know the freezer is
+on that wall and the desktop is running. No amount of string-matching on
+"Circuit 7" competes with that. What they *cannot* see from the panel is what
+the meter has recorded, so that is all this returns:
+
+```
+Circuit 16 Study    now 700 W   never below 652 W   watched 48 h
+                    never observed idle   ·   known: n1_usp_pdu_pro
+```
+
+⚠ **The floor is the number to read twice**, and the only one that works before
+anything has been identified: a circuit that never falls below several hundred
+watts has something on it that never stops, and that is true from the first day
+of measurement.
+
 ## Naming what was learned
 
 Clustering finds the recurring shapes and genuinely cannot name them. But a lot
