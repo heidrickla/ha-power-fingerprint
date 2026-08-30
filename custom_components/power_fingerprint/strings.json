@@ -14,7 +14,7 @@
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
           "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
-          "price_per_kwh": "Used only to turn standby watts into an annual figure.",
+          "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
           "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
         }
@@ -32,7 +32,7 @@
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
           "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
-          "price_per_kwh": "Used only to turn standby watts into an annual figure.",
+          "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
           "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
         }
@@ -151,7 +151,7 @@
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
           "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
-          "price_per_kwh": "Used only to turn standby watts into an annual figure.",
+          "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
           "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
         }

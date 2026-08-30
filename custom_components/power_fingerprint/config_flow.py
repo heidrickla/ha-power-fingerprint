@@ -25,6 +25,7 @@ from .const import (
     DEFAULT_TOLERANCE,
     DOMAIN,
 )
+from .price import async_dashboard_price
 
 _POWER_SENSOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", device_class="power")
@@ -32,6 +33,23 @@ _POWER_SENSOR = selector.EntitySelector(
 _POWER_SENSORS = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
 )
+
+
+async def _defaults_with_price(
+    hass: HomeAssistant, defaults: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Fill in the price from the energy dashboard when the user has none set.
+
+    Only ever a default. A price the user has already chosen wins over the
+    dashboard's, because the dashboard changing should not silently rewrite
+    what someone deliberately configured here.
+    """
+    if defaults.get(CONF_PRICE) is not None:
+        return defaults, {}
+    price = await async_dashboard_price(hass)
+    if price is None:
+        return defaults, {}
+    return {**defaults, CONF_PRICE: price}, {"price_source": f"{price:g}"}
 
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -126,11 +144,12 @@ class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[cal
                 return self.async_create_entry(
                     title="Power Fingerprint", data=user_input
                 )
+        seed, price_note = await _defaults_with_price(self.hass, user_input or {})
         return self.async_show_form(
             step_id="user",
-            data_schema=_schema(user_input or {}),
+            data_schema=_schema(seed),
             errors=errors,
-            description_placeholders=placeholders,
+            description_placeholders={**placeholders, **price_note},
         )
 
     async def async_step_reconfigure(
@@ -151,6 +170,8 @@ class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[cal
             if not errors:
                 return self.async_update_reload_and_abort(entry, data=user_input)
         merged = {**entry.data, **entry.options, **(user_input or {})}
+        merged, price_note = await _defaults_with_price(self.hass, merged)
+        placeholders = {**placeholders, **price_note}
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_schema(merged),
@@ -179,6 +200,8 @@ class PowerFingerprintOptionsFlow(OptionsFlow):
         merged = {**self.config_entry.data, **self.config_entry.options}
         if user_input is not None:
             merged.update(user_input)
+        merged, price_note = await _defaults_with_price(self.hass, merged)
+        placeholders = {**placeholders, **price_note}
         return self.async_show_form(
             step_id="init",
             data_schema=_schema(merged),
