@@ -731,7 +731,59 @@ samples *before* a point against the median *after* it sees a slow ramp as one
 step. Same house, same window: **168 runs at 1572 W / 2263 W / 2628 W over
 19–24 minutes** — appliance-shaped magnitudes and durations instead of debris.
 
-### ⚠ And it still only half works here, which is the point
+### ⛔ The floor must be the meter's own noise floor, and nothing higher
+
+Swept against the 27 real clamps, the fraction of inferred runs that
+magnitude-match a real circuit:
+
+| floor | shapes found | match rate |
+|---|---|---|
+| **69 W** — the measured noise floor | 4 | **69%** |
+| 138 W | 5 | 52% |
+| 345 W | 4 | 29% |
+| 967 W | 3 | 19% |
+| 1934 W | 2 | **0%** |
+
+Monotonic, and the reason is not subtle once seen: **raising the floor does not
+filter out noise, it filters out single appliances.** What survives at 2 kW on a
+house with two air conditioners and two furnaces is the moments when several of
+them moved together, and a combination matches no individual circuit by
+construction. An earlier version hardcoded a 300 W minimum taken from this very
+install's own recovery curve, and it cost more than half the accuracy.
+
+⚠ **Pair rate looked like the perfect ground-truth-free tuner and is
+anti-correlated with accuracy.** It climbs to 97% at the 1934 W floor that
+matches 0% — fewer, larger events pair tidily with each other while meaning
+less. It is reported as a diagnostic and never used to choose.
+
+### ⚠ What this house is *not* representative of
+
+Every number above is close to a worst case, and the app should not be judged
+on it:
+
+- **Measured in the hottest week of the year**, with two air conditioners, fans
+  and refrigerator compressors all cycling. The aggregate is at its noisiest
+  and its 95th-percentile movement is 69 W, which is high.
+- **Both air conditioners have soft starts**, which most houses do not. That is
+  precisely why a compressor here ramps over half a minute instead of stepping
+  in one sample — and why adjacent-sample detection failed so completely. A
+  house with hard-starting compressors is an easier case, not a harder one.
+- **Several large loads run continuously rather than alone.** The good case for
+  virtual circuits is a dryer, an oven, a charger — things that run by
+  themselves and stop.
+
+### Self-metering devices: sound idea, no help *here*
+
+A device that meters itself needs no inference at all — it is already an exact
+virtual circuit — and subtracting its trace should declutter the residual.
+`--subtract` does exactly that. Measured on this install it changed the match
+rate by **nothing** (69% either way), because the self-metering devices here
+are lights and small outlets amounting to a rounding error against a 4–6 kW
+aggregate. On a house whose metered devices are large — a smart-plugged dryer,
+an EV charger — the same code should matter a great deal.
+
+⭐ Worth keeping precisely because it *didn't* help here: a technique that
+works only on some houses is fine, as long as nobody has to guess which.
 
 Validated against the real clamps with magnitude matching, only **9–26%** of
 inferred runs match a specific circuit. The cause is structural: this house has

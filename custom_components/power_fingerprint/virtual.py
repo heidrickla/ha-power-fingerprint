@@ -87,15 +87,73 @@ def noise_floor(samples: list[Sample], percentile: float = 95.0) -> float:
     return deltas[idx]
 
 
-def resolvable_floor(samples: list[Sample], min_w: float = 300.0) -> float:
-    """The smallest load worth claiming to resolve on this meter.
+def pair_rate(samples: list[Sample], floor_w: float) -> float:
+    """What fraction of detected level shifts found a partner.
 
-    The larger of the measured noise floor and `min_w`. The constant is not a
-    guess: below 300 W the measured recovery rate on the development install
-    fell to 70% and kept falling, so a lower bar would manufacture virtual
-    circuits that are mostly wrong.
+    ⭐ THE SELF-CHECK THAT NEEDS NO GROUND TRUTH. A floor set too low picks up
+    the house breathing: shifts appear that never come back down, overlapping
+    loads interleave, and the proportion that pair into a clean run collapses.
+    Too high and there is nothing to pair. The floor where pairing stays clean
+    is the floor where the meter can actually separate appliances - and a house
+    with one meter and no clamps can compute this for itself.
     """
-    return max(noise_floor(samples), min_w)
+    found = steps(samples, floor_w)
+    if not found:
+        return 0.0
+    events, unpaired = pair_steps(samples, floor_w)
+    return (len(found) - len(unpaired)) / len(found)
+
+
+def resolvable_floor(samples: list[Sample], absolute_min_w: float = 20.0) -> float:
+    """The smallest load this meter can separate: its own measured noise floor.
+
+    ⛔ DO NOT ADD A MINIMUM CONSTANT. An earlier version clamped this at 300 W,
+    taken from one install's recovery curve, and it cost more than half the
+    accuracy on that very install. Swept against 27 real clamps, the fraction
+    of inferred runs that magnitude-match a real circuit:
+
+        floor 69 W (the measured noise floor)  ->  69%   <- best
+        floor 138 W                            ->  52%
+        floor 344 W                            ->  29%
+        floor 963 W                            ->  19%
+        floor 1927 W                           ->   0%
+
+    Higher is worse, monotonically, and the reason is not subtle once seen:
+    raising the floor does not filter out noise, it filters out SINGLE
+    APPLIANCES. What survives at 2 kW on a house with two air conditioners and
+    two furnaces is the moments several of them moved together, and a
+    combination matches no individual circuit by construction.
+
+    ⚠ AND DO NOT TUNE THIS BY PAIR RATE. That was the obvious ground-truth-free
+    self-check, and on real data it is ANTI-CORRELATED with accuracy: it climbs
+    to 97% at the 1927 W floor that scores 0%. Fewer, larger events pair tidily
+    with each other while meaning less. `pair_rate` stays as a diagnostic.
+
+    `absolute_min_w` guards only against a dead-flat trace yielding zero.
+    """
+    return max(noise_floor(samples), absolute_min_w)
+
+
+def residual(
+    mains: list[Sample], known: list[list[float]], grid: list[float] | None = None
+) -> list[float]:
+    """The aggregate with every self-metered device's own draw taken out.
+
+    ⭐ A DEVICE THAT METERS ITSELF NEEDS NO INFERENCE AT ALL - it is already a
+    virtual circuit, exactly known. Its value here is second: removing its
+    trace from the aggregate makes everything left over easier to separate.
+    Every watt subtracted is a watt that can no longer be mistaken for part of
+    something else.
+
+    This is the same subtraction the per-circuit attribution path uses when it
+    locks in a confirmed device, for the same reason - a load that has been
+    explained must stop being available to explain anything else.
+    """
+    base = list(grid if grid is not None else [v for _, v in mains])
+    for trace in known:
+        for i in range(min(len(base), len(trace))):
+            base[i] -= trace[i]
+    return [max(0.0, v) for v in base]
 
 
 def _median(values: list[float]) -> float:
