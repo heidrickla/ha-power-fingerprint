@@ -45,6 +45,7 @@
     "learn": "mdi:school",
     "label": "mdi:tag-text",
     "verify_circuit": "mdi:check-decagram",
-    "map_devices": "mdi:sitemap"
+    "map_devices": "mdi:sitemap",
+    "autolabel": "mdi:auto-fix"
   }
 }

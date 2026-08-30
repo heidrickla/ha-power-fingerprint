@@ -25,7 +25,7 @@ from .const import (
     DEFAULT_TOLERANCE,
     DOMAIN,
 )
-from .price import async_dashboard_price
+from .dashboard import async_dashboard_price
 
 _POWER_SENSOR = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", device_class="power")

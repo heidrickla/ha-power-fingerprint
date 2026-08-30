@@ -181,6 +181,47 @@ class Fingerprint:
         )
 
 
+_NOISE_WORDS = (
+    "power",
+    "energy",
+    "sensor",
+)
+
+
+def suggest_label(friendly_name: str) -> str | None:
+    """The appliance name already sitting in a circuit's own title, if any.
+
+    ⭐ NOT INFERENCE. "EmporiaVue Circuit 15 Dish Washer Power" contains the
+    answer; somebody typed it when they clamped the panel. Reading it back is
+    free and certain, and it is the difference between a user facing 39 shapes
+    called `unnamed_0` and facing the handful that genuinely need a human.
+
+    Returns None when nothing descriptive is left - "EmporiaVue Circuit 25
+    Power" names a breaker, not an appliance, and guessing from a number would
+    be exactly the confident nonsense this project keeps deleting.
+    """
+    words = friendly_name.replace("&", " ").split()
+    out: list[str] = []
+    skip_next_number = False
+    for word in words:
+        low = word.lower().strip(".,")
+        if low.startswith("emporiavue") or low in _NOISE_WORDS:
+            continue
+        if low == "circuit":
+            skip_next_number = True
+            continue
+        if skip_next_number and low.isdigit():
+            continue
+        skip_next_number = False
+        # A bare number before any real word is still part of the breaker's
+        # address ("Circuit 6 & 8"), not part of an appliance's name.
+        if low.isdigit() and not out:
+            continue
+        out.append(word)
+    label = " ".join(out).strip()
+    return label or None
+
+
 def summarize(
     circuit: str,
     feature_rows: list[dict[str, float]],

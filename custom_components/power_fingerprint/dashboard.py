@@ -1,4 +1,4 @@
-"""Where the electricity price comes from.
+"""What the energy dashboard already knows, so nobody types it twice.
 
 ⭐ IF THE ENERGY DASHBOARD ALREADY KNOWS THE PRICE, ASK IT. A second place to
 type your tariff is a second place for it to be wrong, and the one that is
@@ -80,3 +80,38 @@ async def async_dashboard_price(hass: HomeAssistant) -> float | None:
             _LOGGER.debug("Using the energy dashboard's price of %s per kWh", price)
             return price
     return None
+
+
+async def async_circuit_names(hass: HomeAssistant) -> dict[str, str]:
+    """Circuit power sensor -> the name the user gave it on the energy dashboard.
+
+    ⭐ THE BEST NAMES IN THE HOUSE ARE USUALLY ALREADY ON THAT SCREEN. Entity
+    titles come from the meter's firmware and read "EmporiaVue Circuit 25
+    Power"; the energy dashboard is where somebody sat down and typed "Circuit
+    25 Garage", "Circuit 26 Microwave", "Circuit 21 Washer". Reading those back
+    is free and certain, and it is the difference between a user facing a list
+    of numbered shapes and facing named appliances.
+
+    Keyed by `stat_rate`, which is the circuit's POWER sensor and therefore
+    exactly what this integration is configured with. The consumption
+    statistic is a different entity and would not match.
+    """
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+    except ImportError:
+        return {}
+    try:
+        manager = await async_get_manager(hass)
+    except Exception as err:
+        _LOGGER.debug("Could not read the energy dashboard's names: %s", err)
+        return {}
+
+    out: dict[str, str] = {}
+    for device in (manager.data or {}).get("device_consumption", []):
+        if not isinstance(device, dict):
+            continue
+        rate = device.get("stat_rate")
+        name = device.get("name")
+        if rate and name:
+            out[str(rate)] = str(name)
+    return out
