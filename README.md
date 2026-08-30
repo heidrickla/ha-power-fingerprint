@@ -379,6 +379,19 @@ you can judge. Verifying against area data is the next piece of work.
   leave the house. That capability arrives free whether or not it is wanted, so
   it is declined deliberately rather than by omission.
 
+## Tests
+
+```bash
+python -m pytest tests/          # 53 pure tests, no Home Assistant needed
+```
+
+The analysis, fingerprint, attribution and verify modules import nothing from
+Home Assistant, so the bulk of the suite runs on a bare checkout.
+
+`tests/ha/` covers the Home Assistant layer and is **skipped unless
+`pytest-homeassistant-custom-component` is installed**. ⚠ It has never been
+executed — see [PUBLISHING.md](PUBLISHING.md) for why.
+
 ## Licence
 
 MIT.
