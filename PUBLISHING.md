@@ -13,6 +13,26 @@ Everything in this repo is built to HACS default-store standards, but it is
 
 None of these are code problems. The code is ready; the hosting is not.
 
+## ⚠ The Home Assistant layer tests have never run
+
+`tests/ha/` covers setup and unload, the config and options flow, the derived
+sensor values, the coverage fault in both directions, device grouping, and the
+orphaned-pause safety backstop. **None of it has ever been executed.**
+
+`pytest-homeassistant-custom-component` does not run on Windows: the harness
+blocks sockets during tests, and the Windows ProactorEventLoop builds its own
+self-pipe out of a local socket pair, so the block kills the event loop before
+any test starts. Home Assistant supports Linux, macOS and the devcontainer for
+development. Neither WSL (only a `docker-desktop` distro here) nor disabling
+pytest-socket worked, and the harness calls `disable_socket()` programmatically
+so the plugin cannot simply be turned off.
+
+They are skipped when the harness is absent, so the default run reports
+**53 passed, 1 skipped** and does not imply coverage it does not have.
+
+**Expect some to fail the first time they genuinely execute**, on Linux or in
+CI. That is the point at which this section can be deleted.
+
 ## Already done
 
 - `custom_components/power_fingerprint/` layout, `hacs.json` with `name`
