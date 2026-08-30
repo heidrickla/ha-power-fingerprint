@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Power Fingerprint",
+        "description": "Pick the sensor that measures the whole panel, then the per-circuit power sensors.",
+        "data": {
+          "mains": "Whole-panel power sensor",
+          "circuits": "Circuit power sensors",
+          "price_per_kwh": "Electricity price per kWh"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Power Fingerprint is already configured."
+    }
+  }
+}

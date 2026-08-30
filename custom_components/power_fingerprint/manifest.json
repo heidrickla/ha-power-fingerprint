@@ -1,0 +1,17 @@
+{
+  "domain": "power_fingerprint",
+  "name": "Power Fingerprint",
+  "version": "0.1.0",
+  "documentation": "https://10.10.54.219:3000/lewis/ha-power-fingerprint",
+  "issue_tracker": "https://10.10.54.219:3000/lewis/ha-power-fingerprint/issues",
+  "codeowners": [
+    "@lewis"
+  ],
+  "config_flow": true,
+  "iot_class": "calculated",
+  "integration_type": "service",
+  "dependencies": [
+    "recorder"
+  ],
+  "requirements": []
+}
