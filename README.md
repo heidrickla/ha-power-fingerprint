@@ -2,165 +2,93 @@
 
 Identify what is running on a circuit from the shape of its load.
 
-Home Assistant integration for panels with per-circuit power monitoring. It
-takes `device_class: power` sensors and does not care where they come from —
-but see **[What it has actually been tested against](#what-it-has-actually-been-tested-against)**
-before assuming that means yours.
+A Home Assistant integration for panels with per-circuit power monitoring. It
+takes `device_class: power` sensors and does not care where they come from, but
+see [What it has been tested against](#what-it-has-been-tested-against).
 
 ## Why this is not NILM
 
-Classic non-intrusive load monitoring tries to pull thirty overlapping
-appliances out of a single meter reading at the mains. That is genuinely hard
-and is why the field leans on neural networks.
+Non-intrusive load monitoring tries to pull thirty overlapping appliances out of
+one meter reading. That is hard, which is why the field uses neural networks.
 
-This solves the much easier problem: you already have a CT on each circuit, so
-the separation NILM works to recover is already done in hardware. What is left
-is telling apart the two or three appliances that share one circuit — which
-turns out to need a handful of well-chosen features and no machine learning at
-all.
+With a CT on each circuit the separation is already done in hardware. What is
+left is telling apart the two or three appliances sharing one circuit, which
+needs a handful of features and no machine learning.
 
-On the development install the circuits sum to within **28 W of a 6,556 W
-mains reading**. There is nothing meaningful left to disaggregate.
+On the development install the circuits sum to within 28 W of a 6,556 W mains
+reading. There is nothing meaningful left to disaggregate.
 
-## What ships in 0.1
+## Entities
 
-Three checks that need **no labelled fingerprints** and work the moment you
-install it:
+Available immediately, with no labelled fingerprints:
 
-| Entity | What it tells you |
+| Entity | Meaning |
 |---|---|
-| `sensor.unmonitored_load` | Mains minus the sum of the circuits. Near zero on a fully clamped panel. |
-| `binary_sensor.ct_coverage_fault` | That figure moved outside tolerance — a clamp came off, a CT reversed, or an unmonitored load appeared. |
+| `sensor.unmonitored_load` | Mains minus the sum of the circuits. |
+| `binary_sensor.ct_coverage_fault` | That figure moved outside tolerance. |
 | `sensor.standby_power` | Total permanent draw, with a per-circuit ranking in the attributes. |
-| `sensor.standby_annual_cost` | What that costs per year at your price. |
+| `sensor.standby_annual_cost` | What that costs per year. |
 | `binary_sensor.state_contradiction` | A switch reports `on` while its circuit draws nothing. |
+| `sensor.unnamed_candidates` | Learned shapes waiting for a name, described in the attributes. |
 | `binary_sensor.silent_appliance` | A named appliance has stopped running when its own history says it should have. |
 
-Plus `sensor.unnamed_candidates` — how many learned shapes are waiting for a
-name, with each one's plain-English description in the attributes. ⛔ Without
-it the `learn` step had no visible output at all: the candidates lived only in
-`.storage` and in the action's response, so someone who ran `learn` and then
-opened the integration saw no sign anything had happened. On the development
-install that was **39 invisible shapes**.
+After naming a fingerprint, an appliance sensor per circuit reads `idle`,
+`starting`, the appliance name, or `unknown`.
 
-And once you have named at least one fingerprint on a circuit, an **appliance
-sensor** for that circuit reading `idle`, `starting`, the appliance name, or
-`unknown`.
+`unknown` means the circuit is drawing power in a shape no named fingerprint
+accounts for. That is a signal, not a failure.
 
-### The circuit shows up on the device itself
+### Circuit shown on the device
 
-⭐ Once a device has been mapped, a **Circuit** entity appears **on that
-device's own page** — not on this integration's service device. Open the front
-porch light in Home Assistant and its breaker is right there, next to its
-switch and its power reading.
+Once a device is mapped, a Circuit entity appears on that device's own page,
+next to its switch and its power reading. The attributes record how it was
+established:
 
-A circuit assignment filed under *Power Fingerprint* is a fact stored where you
-have to already know to look for it. On the device's page it is there when you
-open the thing to find out why it is behaving oddly, and it is there for
-whoever opens it next.
-
-The attributes say **how** it was established, because a passive correlation
-and a three-probe agreement are not the same claim:
-
-| `established_by` | Means |
+| `established_by` | Meaning |
 |---|---|
 | `probe` | The integration switched the device and watched a circuit move. |
-| `correlation` | It only observed the two moving together. |
+| `correlation` | It observed the two moving together. |
 
-⛔ **A probe's answer is never overwritten by a passive one**, and a run that
-resolves nothing never erases a previous answer — "I could not tell this time"
-is not "it is not there".
+A probe result is never overwritten by a passive one, and a run that resolves
+nothing never erases a previous answer.
 
-#### Filtering by breaker: labels, not devices
+### Filtering by breaker
 
-`power_fingerprint.apply_circuit_labels` puts a label like **`Circuit 16 Study`**
-on every device it has mapped, so you can filter by breaker anywhere in Home
+`power_fingerprint.apply_circuit_labels` adds a label such as `Circuit 16 Study`
+to each mapped device, so devices can be filtered by breaker anywhere in Home
 Assistant.
 
-⛔ **`via_device` is what HA actually means by "related" and it is not
-available.** 149 devices on the development install already use it — Zigbee
-devices under their coordinator, cameras under the NVR — but an integration may
-only set it on devices **it owns**, and these belong to ZHA and Z-Wave.
+`via_device` would be the natural mechanism, but an integration may only set it
+on devices it owns and these belong to ZHA or Z-Wave. A device per circuit was
+rejected because entries named "Circuit 30" beside real devices read as
+duplicates.
 
-⛔ **A device per circuit was the alternative and is worse.** Twenty-seven
-entries called "Circuit 30" sitting beside 519 real devices read as duplicate
-devices — and that registry already contains both `emporiavue` and `EmporiaVue`
-confusing people.
+Labels are the user's namespace and no integration API for them is documented,
+so the service defaults to a dry run, only adds to a device's existing labels,
+and `remove: true` takes them off.
 
-⚠ **Labels are the user's namespace, and no integration API for them is
-documented** — there is simply no ownership check stopping this. So the service
-**defaults to a dry run**, only ever *adds* to a device's existing labels, and
-`remove: true` takes them all back off.
+### Attaching an entity to another integration's device
 
-The label is the circuit's own name kept whole, because a label wants the
-breaker number even though an appliance name does not. Trimming the number and
-prefixing "Circuit" back on produced `Circuit Circuit 30`.
+Returning the target device's `identifiers` in `DeviceInfo` no longer merges. On
+Home Assistant 2026.8 it creates a second, nameless device beside the real one;
+the registry now carries `composite_device_id` and treats shared identifiers as
+a composite relationship.
 
-#### ⛔ How NOT to attach an entity to another integration's device
+Register with no device and point the entity's registry row at the target in
+`async_added_to_hass`. `setup_entry` prunes stray devices left by earlier
+versions.
 
-Returning the target device's own `identifiers` in `DeviceInfo` was the
-documented way to do this for years. **It no longer merges.** Measured on Home
-Assistant 2026.8 against a real registry: identifiers matching an existing
-Inovelli device *exactly* —
-
-```
-ours:   identifiers [["zha","64:02:8f:ff:fe:a1:ca:4a"]]   name: null
-theirs: identifiers [["zha","64:02:8f:ff:fe:a1:ca:4a"]]   name: "Inovelli VZM32-SN"
-```
-
-— produced a **second, nameless device** owned by this integration sitting
-beside the real one, one per mapping. The registry now carries
-`composite_device_id` and `has_composite_identifiers`: shared identifiers
-across config entries are a composite relationship, not a merge.
-
-The working route is to register with no device and then point the entity's
-**registry row** at the target in `async_added_to_hass`. `setup_entry` also
-prunes the stray devices an earlier version created, because a fix that only
-stops the bleeding leaves the mess behind on every install that already ran it.
-
-⚠ One consequence worth knowing: the entity id is derived from device name plus
-entity name at *registration*, which happens before the device is attached, so
-these arrive as `sensor.circuit`, `sensor.circuit_2`… The displayed name is
-correct — "Circuit", under the device — and `suggested_object_id` does **not**
-fix the id for this shape of entity. Rename them once if the ids matter to you.
-
-`unknown` is not a failure. It means the circuit is drawing power in a shape no
-named fingerprint accounts for — something new was plugged in, or an appliance
-changed behaviour. Forcing that into the nearest bucket would throw away the
-most interesting reading the integration produces.
-
-Matching runs on the samples seen *so far*, not on a completed run, so an
-automation can react while the appliance is still going. That is only possible
-because duration and energy carry zero weight for identity — every feature that
-counts is computable mid-run.
-
-The contradiction sensor is worth explaining. It catches a welded relay, a dead lamp, a
-smart plug that reports state without actually switching, and a breaker that
-tripped under a device still showing its last known state. It is *verify by
-effect* as a background service: the state machine says one thing, the current
-clamp says another, and the clamp is the one measuring reality.
-
-The CT coverage check earns its place for a similar reason. A current clamp
-reading zero is otherwise indistinguishable from an appliance that is switched
-off — a distinction that cost real debugging time during development, twice, on
-the same circuit.
+Entity ids arrive as `sensor.circuit`, `sensor.circuit_2` and so on, because the
+id is derived from device name plus entity name at registration, before the
+device is attached. `suggested_object_id` does not change this.
 
 ## What people use it for
 
-- **"Tell me when the laundry is done"** — the appliance sensor goes from the
-  dryer's name back to `idle`, with no vibration sensor, no contact sensor and
-  nothing stuck to the machine.
-- **"Which of these 27 breakers is the garage fridge on?"** — `learn` proposes
-  the recurring shapes, `verify_circuit` switches a device and watches which
-  circuit moves, and the two agree or the answer is refused.
-- **"What is my house drawing while nobody is home?"** — standby power with a
-  per-circuit ranking, and what it costs a year.
-- **"Did a CT come off?"** — the coverage fault fires when the circuits stop
-  adding up to the mains, in either direction. A reversed clamp reads as
-  negative unmonitored load.
-- **"That switch says it is on but nothing happened"** — the contradiction
-  sensor compares what the state machine claims against what the clamp
-  measures, and the clamp wins.
+- Notify when the laundry finishes, with no sensor attached to the machine.
+- Find which of 27 breakers a device is on.
+- See standby draw per circuit, and what it costs.
+- Detect a CT coming loose, in either direction.
+- Catch a switch reporting `on` while its circuit draws nothing.
 
 ### Automation examples
 
@@ -180,7 +108,7 @@ automation:
           message: The dryer has finished.
 ```
 
-Raise the alarm when a clamp comes off, but only once it has persisted:
+Alert on a persistent coverage fault:
 
 ```yaml
 automation:
@@ -201,7 +129,7 @@ automation:
             'circuits_w') }} W across the circuits.
 ```
 
-Learn on a schedule, so the library tracks appliances as they age:
+Re-learn monthly:
 
 ```yaml
 automation:
@@ -219,456 +147,249 @@ automation:
         response_variable: found
 ```
 
-⚠ `learn` **replaces** a circuit's candidates. Names you have already given
-survive — they are carried onto the matching new shapes — but a shape that no
-longer occurs disappears with its name.
+`learn` replaces a circuit's candidates. Names already given are carried onto the
+matching new shapes, but a shape that no longer occurs disappears with its name.
 
 ## Installation
 
-**HACS (custom repository)** — add this repository as a custom repository of
-type *Integration*, install, restart Home Assistant.
+HACS (custom repository): add this repository as a custom repository of type
+Integration, install, restart Home Assistant.
 
-**Manual** — copy `custom_components/power_fingerprint/` into your Home
-Assistant `config/custom_components/` directory and restart.
+Manual: copy `custom_components/power_fingerprint/` into your Home Assistant
+`config/custom_components/` directory and restart.
 
-Then: Settings -> Devices & Services -> Add Integration -> Power Fingerprint.
+Then Settings -> Devices & Services -> Add Integration -> Power Fingerprint.
 
-All entities group under a single service device, and
-`Download diagnostics` on that device produces a report with entity ids
-pseudonymised — this integration's entity names describe rooms and appliances,
-and diagnostics files routinely end up in public issue trackers.
+Entities group under a single service device. `Download diagnostics` produces a
+report with entity ids pseudonymised, since entity names describe rooms and
+appliances and diagnostics files end up in public issue trackers.
 
-Publication status and the HACS submission checklist are in
-[PUBLISHING.md](PUBLISHING.md).
+Publication status is in [PUBLISHING.md](PUBLISHING.md).
 
-### What you need before installing
+### Requirements
 
 | Requirement | Detail |
 |---|---|
-| **A whole-panel power sensor** | Any `device_class: power` sensor reading the mains. ⚠ Check its unit — see below. |
-| **At least one circuit power sensor** | One per breaker. Leave out phase and total sensors, or they get counted twice. |
-| **The recorder** | Used to seed the 24-hour window at startup and to read history for learning. Without it the integration still runs, but standby figures take a day to converge and `learn` has nothing to read. |
+| A whole-panel power sensor | Any `device_class: power` sensor reading the mains. |
+| At least one circuit power sensor | One per breaker. Leave out phase and total sensors or they are counted twice. |
+| The recorder | Seeds the 24-hour window at startup and supplies history for learning. |
 
-Setup validates all of this before the entry is created: a sensor that does not
-exist, is not reporting a number, or reports in something other than a power
-unit is refused **by name** at the point you can still pick a different one.
-If a sensor's unit changes to a non-power unit later, a repair issue appears
-naming it rather than the circuit quietly vanishing from the totals.
+Setup validates this before the entry is created: a sensor that does not exist,
+is not reporting a number, or is not in a power unit is refused by name. If a
+sensor's unit later changes to a non-power unit, a repair issue names it.
 
 ### Removing it
 
-Settings → Devices & Services → Power Fingerprint → ⋮ → **Delete**. That
-removes the entry, its device and every entity it created. The learned
-fingerprint library is stored under `.storage/power_fingerprint.<entry_id>` and
-is deleted with the entry.
+Settings -> Devices & Services -> Power Fingerprint -> Delete. That removes the
+entry, its device and every entity. The fingerprint library lives in
+`.storage/power_fingerprint.<entry_id>` and goes with it.
 
-⭐ Nothing outside the integration is left behind. The one thing that could be
-— an automation switched off for an active probe — is recorded to storage
-*before* it is switched off and restored at the next startup, so a probe killed
-mid-run cannot leave the house silently unresponsive.
+An automation paused for a probe is recorded to storage before being switched
+off, and restored at the next startup.
 
 ### Reconfiguring
 
-Settings → Devices & Services → Power Fingerprint → ⋮ → **Reconfigure** to
-change the mains or circuit list after re-clamping a panel, or **Configure**
-for the same fields plus price, tolerance and contradiction pairs. Both run the
-same validation as setup.
+Reconfigure changes the mains or circuit list. Configure covers the same fields
+plus price, tolerance, confidence and contradiction pairs. Both run the same
+validation as setup.
 
-## How sure do you want to be?
+## Confidence
 
-⭐ **One dial, not twelve thresholds.** Every number in this integration was
-arrived at by measuring against a house with 27 real clamps to check answers
-against. Almost nobody installing it has that, so exposing `min_step_match` and
-`min_margin` as separate settings would hand over controls with no way to tell
-whether turning them helped. What a person *can* say is how they would rather
-be wrong.
+One setting rather than a dozen thresholds:
 
-⛔ **The two ways to be wrong are not symmetric.** A missing answer is visible —
-the device simply has no circuit. A wrong answer is invisible: it looks exactly
-like a right one, gets written onto a device as a label, and is believed.
-
-| Setting | What it does |
+| Setting | Effect |
 |---|---|
-| **Cautious** | Answers only where the evidence clearly beats coincidence. Roughly half as many placements, and you can trust them. |
-| **Balanced** | What every measurement in this README was taken with. |
-| **Eager** | ⚠ More placements, some wrong in ways you cannot see. Sound while exploring a panel, poor for driving automations. |
+| Cautious | Answers only where the evidence clearly beats coincidence. Roughly half as many placements. |
+| Balanced | Default. What the measurements below were taken with. |
+| Eager | More placements, some of them wrong. Useful while exploring a panel, not for driving automations. |
 
-It moves every threshold together — step match, margin, correlation, probes
-required to agree, cluster tightness, absence patience — so the setting stays
-coherent instead of becoming a half-tuned mixture. A profile name it does not
-recognise falls back to **balanced**, never to eager: a typo must not quietly
-loosen anything.
+It moves step match, margin, correlation, probes required to agree, cluster
+tightness and absence patience together. An unrecognised value falls back to
+balanced.
 
-## Every score carries its own control
+The thresholds are not exposed individually because they were derived by
+measuring against a house with 27 clamps to check answers against, which most
+installs do not have.
 
-⛔ **A match rate without a control is not a result**, and this project learned
-that the expensive way three times in one night:
+## Controls
 
-- four "virtual circuits" each matched **both** air conditioners at 85–97%,
-  because those run 42% of the time and everything coincides with them;
-- a garage refrigerator scored **91%** — and **78%** when its runs were shifted
-  three hours into a time they did not happen;
-- an 18-device probe sweep at `probes: 1` returned every placement as
-  `measured`, and six of seven collapsed when three probes had to agree.
-
-Each was caught by a human remembering to check. **Nobody installing this has
-that human**, so the check is in the code: `analysis.control()` scores the real
-alignment, then scores it again at several offsets where the same events did not
-happen, and reports the gap.
+Every match rate is reported alongside the score the same test achieves against
+data shifted in time. `analysis.control()` scores the real alignment, then scores
+it at several offsets where the same events did not happen.
 
 ```
 measured 0.91   chance 0.40   lift 0.51   verdict: clear
 measured 0.95   chance 0.93   lift 0.02   verdict: chance
 ```
 
-⭐ **Several offsets, and the lowest wins.** A three-hour shift still overlaps
-the house's own daily rhythm; nineteen hours does not. Taking the minimum across
-a spread is what stops autocorrelation being mistaken for signal — a single
-short offset would have called the refrigerator result far stronger than it is.
+The lowest of several offsets is used. A three-hour shift still overlaps the
+house's daily rhythm; nineteen hours does not.
 
-## Breaker walk — the only causal test here
+## Breaker walk
 
-⭐ **Everything else in this integration is circumstantial.** Correlation says
-two things moved together. An active probe says a circuit moved when a device
-was switched. Only cutting the breaker proves a device is fed by that circuit,
-because the device stops.
+Cutting a breaker is the only causal test here. Correlation and probes show that
+two things move together; killing the circuit proves a device is fed by it.
 
-The app cannot flip breakers, so this is a guided manual procedure — but it
-does two things a person at a panel cannot:
+The integration cannot flip breakers, so this is a guided manual procedure. It
+identifies which breaker was flipped from the circuit clamps, and refuses when:
 
-**It works out which breaker you flipped.** One circuit's clamp falls to the
-noise floor; that identifies it. You never have to say. ⛔ **And if no clamp
-drops, it refuses** — the breaker you flipped isn't one this integration
-watches, and the honest answer is "I could not see that" rather than a mapping
-built from whatever else happened to change. Two circuits dying together is
-also a refusal: that is a double-pole breaker or a main, and which one fed what
-is not decidable.
+- no clamp dropped, meaning the breaker is not one it watches;
+- two circuits dropped together, meaning a double-pole breaker or a main;
+- the candidate circuit was already idle.
 
-**It separates what it measured from what it merely noticed.**
+Results are split by evidence:
 
 | | Meaning |
 |---|---|
-| `confirmed` | The device's own meter collapsed. Measured. |
-| `suspected` | The device *vanished* — which might mean it lost power, or that its Zigbee/Z-Wave **parent** did. Kill one mains-powered router and a dozen unrelated battery sensors go quiet with it. |
+| `confirmed` | The device's own meter collapsed. |
+| `suspected` | The device vanished, which may mean it lost power or that its Zigbee or Z-Wave parent did. |
 | `unaffected` | Still drawing what it was. |
 
-Anything known to route for other devices stays `suspected` however convincing
-it looks.
+Anything known to route for other devices stays `suspected`.
 
-### It reports, it does not judge
+`describe()` reports what the meter recorded for a circuit: current draw,
+permanent floor, hours observed, whether it has ever been idle, and which devices
+are attributed to it. It forms no verdict on whether a circuit is safe to cut.
+The permanent floor is the useful figure before anything is identified, since a
+circuit that never falls below several hundred watts has something on it that
+never stops.
 
-⛔ **Two earlier versions of this rated each circuit as safe or unsafe to kill,
-and both were wrong in opposite directions.** The first matched circuit and
-device names against a denylist and called anything with no match safe — which
-on a **new install**, where nothing has been attributed and every circuit is
-called "Circuit 7", marked the entire panel safe, including the one feeding a
-rack. Absence of evidence returned as evidence of absence. The second inverted
-it and refused to call anything safe without proof, which is just a different
-way of pretending to know.
+## Naming
 
-⭐ **The person at the panel knows their own house.** They know the freezer is
-on that wall and the desktop is running. No amount of string-matching on
-"Circuit 7" competes with that. What they *cannot* see from the panel is what
-the meter has recorded, so that is all this returns:
+`power_fingerprint.autolabel` names shapes whose circuit already says what it is,
+reading the circuit sensor's title and, in preference, the name on the energy
+dashboard.
 
-```
-Circuit 16 Study    now 700 W   never below 652 W   watched 48 h
-                    never observed idle   ·   known: n1_usp_pdu_pro
-```
+It applies a name only where the circuit has exactly one learned shape and its
+title contains something other than a number. A circuit with several shapes has
+its suggestion returned rather than applied. It never overwrites a name a person
+gave.
 
-⚠ **The floor is the number to read twice**, and the only one that works before
-anything has been identified: a circuit that never falls below several hundred
-watts has something on it that never stops, and that is true from the first day
-of measurement.
-
-## Naming what was learned
-
-Clustering finds the recurring shapes and genuinely cannot name them. But a lot
-of the time **the name is already written down somewhere**, and reading it back
-is free and certain:
-
-```yaml
-action: power_fingerprint.autolabel
-```
-
-⭐ **Not inference — reading.** Two sources, both things a person typed:
-the circuit sensor's own title ("EmporiaVue Circuit 15 **Dish Washer** Power")
-and, preferred because it is more curated, the name on the **energy dashboard**
-("Circuit 25 **Garage**", "Circuit 26 **Microwave**"). Meter firmware names
-breakers; people name appliances.
-
-⛔ **It refuses in exactly two cases**, and both refusals matter more than the
-names it applies:
-
-| Situation | What it does |
-|---|---|
-| The circuit has **more than one shape** | Refuses, and reports the suggestion for you to apply. Naming the biggest shape would be a guess wearing a fact's clothes. |
-| The circuit's name is only a number | Refuses. "Circuit 30" names a breaker, not an appliance. |
-
-It never overwrites a name a human gave. On the development install it named 12
-of 21 circuits outright and handed back 8 with suggestions attached.
+On the development install this named 12 of 21 circuits and returned 8 with
+suggestions.
 
 ## Learning fingerprints
 
-Two services. The split matters: clustering finds the recurring shapes and
-genuinely cannot name them, because naming needs someone who knows what is
-plugged in.
+Two services. Clustering finds the recurring shapes and cannot name them; naming
+needs someone who knows what is plugged in.
 
 ```yaml
 # Propose candidates from history. Returns a description of each shape.
 action: power_fingerprint.learn
 data:
   days: 7
-```
+response_variable: found
 
-```text
-sensor.circuit_21_power: 22 runs -> 4 distinct shape(s)
-  [unnamed_0]  7 runs - runs 5 min,  peaks 335 W, holds a 212 W floor, 3 levels
-  [unnamed_1]  7 runs - runs 8 min,  peaks 703 W, holds a 3 W floor,  12 levels
-  [unnamed_2]  7 runs - runs 59 min, peaks 839 W, holds a 202 W floor, 11 levels
-```
-
-Read the floors: the ones holding ~200 W are the dryer, the one dropping to 3 W
-is the washer. Then name them:
-
-```yaml
+# Name one.
 action: power_fingerprint.label
 data:
   circuit: sensor.circuit_21_power
-  current_label: unnamed_1
-  new_label: Washing machine
+  current_label: unnamed_0
+  new_label: Dryer
 ```
 
-**Only named fingerprints drive anything.** An `unnamed_N` centroid is a
-candidate, not an identification, and reporting "unnamed_2 is running" would be
-worse than reporting nothing.
+Matching happens on a partial run rather than waiting for it to finish, which
+works because duration and energy are weighted to zero for identity. Three
+outcomes: the appliance name, `idle`, or `unknown`.
 
-Re-running `learn` later keeps the names you applied, matched by position.
-Position is used because clusters come back largest-first and a re-run over more
-data usually preserves that order. When it does not, a label lands on the wrong
-shape and you can see it and fix it — a visible wrong label beats silently
-throwing your naming work away.
+## Passive and active together
 
-## Passive and active, together
+`map_devices` correlates each self-metering device against every circuit.
+`verify_circuit` switches a device and watches which circuit moves. Passive
+covers everything at once but is inference; active is measurement but touches one
+device at a time.
 
-Working out which circuit a device sits on is done two ways, and they are
-complementary rather than alternatives.
+### Limits of active probing
 
-**Passive** correlates a metered device's history against every circuit. It
-covers every device that ever switches, across days, for free, without touching
-anything. Assignment is iterative: the most confident match is committed first,
-then that device's trace is **subtracted** from its circuit before anything else
-is scored. A step already explained by a confirmed device is no longer available
-to explain a different one — without that, one busy circuit keeps looking like a
-plausible home for everything.
-
-**Active** settles what passive cannot. It switches the device and watches which
-circuit moves:
-
-```yaml
-action: power_fingerprint.verify_circuit
-data:
-  device: switch.office_lamp
-  power_sensor: sensor.office_lamp_power   # strongly recommended
-  probes: 2
-```
-
-The circuit's step is compared against what the *device* reported it drew, so an
-unrelated load switching at the same moment is rejected rather than credited.
-All probes must agree — one toggle can coincide with a fridge starting, two
-cannot.
-
-| Both agree | `confirmed` |
-|---|---|
-| Active only | `measured` |
-| Passive only | `inferred` |
-| **They disagree** | **`conflict` — neither is trusted** |
-
-Disagreement deliberately returns nothing rather than preferring the
-measurement. One of them is wrong about a physical fact that cannot be both
-ways, and which one is not knowable from here. Reporting the conflict is
-information; silently preferring a method hides a real problem behind a
-confident answer.
-
-### What active probing cannot do
-
-Three limits, all found by running it against a real panel rather than reasoning
-about it:
-
-- **A device meter can be slower than the circuit meter.** A Z-Wave dimmer
-  reported no power change at all across a 25-second probe, while the circuit CT
-  reports every few seconds. Treated as *no reading* rather than a zero-watt
-  change, and the probe falls back to "which circuit moved most" and says it did.
-- **Very small loads are below the noise floor.** An RGB light drawing 1.1 W
-  cannot be picked out of a circuit's normal variation. The probe refuses rather
-  than guessing.
-- **Battery devices cannot be attributed to a circuit at all** and are refused
-  up front. They draw no mains current, so no CT will ever see them switch;
-  probing one burns the full settle time to reach "no answer", and an unrelated
-  load that moved during those minutes could be credited to it.
-  ⚠ The test is *not* "has a battery sensor" — a UPS reports one and draws
-  600 W, as do some thermostats and mains smoke alarms with a backup cell. It is
-  a battery reading **and** no power, energy or current reading: a device that
-  meters its own consumption is by definition consuming. Checked against a
-  499-device install: 34 correctly excluded, and the UPS correctly kept.
-- **An automation can move the device mid-probe and nothing in the power trace
-  reveals it.** So the probe snapshots `last_triggered` for every automation
-  that references the device or a circuit, either side of the measurement, and
-  reports any that fired. A result with interference is graded `suspect` and the
-  automation is named, rather than being silently trusted or silently discarded.
-
-### What a real sweep taught, 2026-08-30
-
-Eighteen devices probed across seven rooms in one night. Three findings, in
-order of how badly each would have bitten someone:
-
-⛔ **A "lights only" filter does not make a sweep safe.** The target list
-contained `light.living_room_logans_computer` — a desktop's power feed, exposed
-as a `light` entity. Domain filtering did nothing. The measured
-carrying-load guard is what refused it, along with eleven other live loads.
-
-⛔ **`probes: 1` produces confident garbage.** The whole defence against
-coincidence is that independent probes must agree, and with one probe that is
-vacuously true. Every placement came back `measured`, including six devices
-from five unrelated areas on one busy circuit, and a dining-room chandelier on
-an air-conditioner circuit. Re-probed at `probes: 3`, **six of seven collapsed
-to `unknown`**. `grade()` now caps a single probe at `inferred`.
-
-⭐ **Attach the device's own meter, or the answer is always the air
-conditioning.** With it, ranking requires the circuit's step to match the
-magnitude the device reported. Without it, ranking falls back to "which circuit
-moved most" — and a cycling 3 kW compressor out-moves a 10 W lamp on every axis
-that does not check magnitude. The same two AC circuits appeared in nearly
-every disagreement above. The probe now discovers the device's own power sensor
-automatically instead of expecting the caller to name it.
-
-### Field results, 2026-08-30
-
-First live run, three devices, two probes each, on a 27-circuit panel at 01:00.
-
-| Device | Result |
-|---|---|
-| Foyer archway *(control)* | probe 2 → **circuit 30**, match **0.998** (39.3 W expected, 39.4 W measured) — **matching the passive inference exactly** |
-| Front porch | probe 1 → circuit 30, match **0.68** (12.0 W expected, 17.6 W measured) |
-| Office desk light | **1.1 W** — below the noise floor, refused on both probes |
-
-All three devices restored to their prior state, verified afterwards rather than
-assumed.
-
-The control is the important one: two independent methods, one statistical and
-one by measurement, produced the same circuit. That is what makes the rest of
-this trustworthy.
-
-⚠ **And eight automations fired during that window, three of them touching a
-probed device** — including the outside-lights automation firing *during* the
-front porch probe. That is very likely why the porch match was 0.68 rather than
-0.99: the automation also controls the driveway and side-door lights, which may
-share the circuit, adding a delta that was not the porch light.
-
-So the porch result is **suspect, not accepted**. The interference detector was
-built because of this run, and would now grade it as such automatically.
-
-The wider lesson: 01:00 was chosen because the house should be quiet, and it was
-not. Motion automations fired throughout — laundry, kitchen, garage. Probing
-when the house *seems* quiet is not a substitute for detecting interference.
+- Only `switch` and `light` entities are probed. Config and diagnostic entities
+  are refused: a Z-Wave dimmer publishes its settings in the same domain as its
+  load, and flipping `invert_switch` reconfigures the device while moving no
+  current.
+- A device currently drawing a sustained load is refused, because switching it
+  off would interrupt whatever is running. An unmetered device that is on is
+  refused rather than guessed at.
+- Battery devices are refused: they draw no mains current.
+- A single probe never returns `measured`. The defence against coincidence is
+  that independent probes agree, which is vacuous with one.
+- The device's own power sensor is discovered automatically. Without it, ranking
+  falls back to which circuit moved most, and on a house with air conditioning
+  the answer is always the air conditioning.
 
 ### Pausing interfering automations
 
-Detecting interference is the default. Removing it is opt-in:
+`pause_automations: true` switches off automations that reference the probed
+device or any circuit, using Home Assistant's `referenced_entities`.
 
-```yaml
-action: power_fingerprint.verify_circuit
-data:
-  device: light.hall
-  power_sensor: sensor.hall_power
-  pause_automations: true
-```
+Automations touching locks, alarm panels, covers, valves, water heaters, climate,
+sirens, humidifiers, vacuums, notifications or person entities are never paused.
+The list is a denylist and deliberately broad.
 
-This switches off automations that touch the device or a circuit, probes, then
-switches them back on. It is more invasive than detection, so it is guarded
-three ways:
+The pause list is written to storage before anything is switched off, and
+restored at the next startup if a probe dies mid-run.
 
-- **A denylist, deliberately over-broad.** Anything referencing a lock, alarm
-  panel, cover, valve, water heater, climate, siren, notification, presence
-  entity, or a moisture / smoke / gas / CO / safety sensor is **never paused**,
-  and is reported back as refused. Refusing costs a noisier measurement; pausing
-  the wrong thing costs a leak alert that never fires.
-- **The record is written before the switch-off, not after.** If the process
-  dies between the two, the worst case is a stale record that re-enables
-  something already running.
-- **Orphans are restored at startup.** If a probe dies mid-run — killed process,
-  Home Assistant restart, power cut — the next setup re-enables anything left
-  paused and logs a warning for each. A house whose automations are silently off
-  is far worse than a bad measurement.
+### Field results
 
-### Safety
+18 devices probed across seven rooms. Placements that survived three agreeing
+probes:
 
-Active probing actuates real devices, so the rules are enforced in code:
+| Circuit | Devices |
+|---|---|
+| `circuit_18` | Kitchen counter lights, kitchen ceiling lights, dining room light |
+| `circuit_30` | Guest bathroom vent, shared hallway outlet, pantry light, archway lights |
+| `circuit_22` | Living room ceiling lights |
+| `circuit_12` | Shared bathroom vent |
+| `circuit_16` | Kitchen pendant lights |
 
-- **Only `switch` and `light` entities may be probed.** An allowlist, not a
-  denylist, so a domain nobody anticipated fails closed. Locks, alarm panels,
-  covers, valves, climate, water heaters and sirens are refused outright.
-- **The prior state is always restored**, from a `finally` block rather than the
-  happy path — an exception mid-probe is exactly when that would otherwise be
-  skipped.
-- **It never runs on its own.** There is no automatic probing; it happens only
-  when someone calls the service.
+Six of seven disputed placements collapsed to `unknown` when three probes had to
+agree, having been reported as `measured` at `probes: 1`.
 
 ## Tools
 
-Two offline tools run against a live Home Assistant from a workstation that does
-not have Home Assistant installed. `analysis.py`, `fingerprint.py` and
-`attribution.py` import nothing from HA precisely so this works.
+Development scripts in `tools/`, run against the REST API from a workstation.
+They load the pure modules by path and need no Home Assistant install.
 
-```bash
-export HA_URL=https://homeassistant.local:8123 HA_TOKEN=...
-
-python tools/identify.py --all --days 7          # cluster runs, describe shapes
-python tools/attribute.py --days 3               # place metered devices on circuits
-python tools/make_brand.py                       # regenerate brand images
-```
+| Script | Purpose |
+|---|---|
+| `identify.py` | Segment and cluster history for one circuit. |
+| `attribute.py` | Map self-metering devices to circuits. |
+| `virtual_circuits.py` | Infer appliances from a whole-house meter, with `--validate` against real clamps. |
+| `one_appliance.py` | Test whether the mains contains one known circuit's runs, with its chance baseline. |
+| `validate_local.py` | The offline half of the HACS and hassfest checks. |
+| `make_brand.py` | Generate and size-check the brand images. |
 
 ## Configuration
 
-Settings → Devices & Services → Add Integration → Power Fingerprint.
-
-- **Whole-panel power sensor** — the mains reading
-- **Circuit power sensors** — every per-circuit sensor you want included
-- **Price per kWh** — for the standby cost figure
-- **Coverage tolerance** — percent of mains the remainder may drift before a fault
-- **Contradiction pairs** — one `switch.entity: sensor.circuit_power` per line
+- Whole-panel power sensor
+- Circuit power sensors
+- Price per kWh, pre-filled from the energy dashboard when it has one
+- Coverage tolerance, percent of mains the remainder may drift
+- Confidence
+- Contradiction pairs, one `switch.entity: sensor.circuit_power` per line
 
 ## How it updates
 
-The coordinator polls Home Assistant's state machine every **30 seconds** and
-keeps its own 24-hour rolling window in memory. It does not query the recorder
-on every refresh — the recorder purges (30 days by default), and repeated
-history queries against a multi-gigabyte database are slow enough to matter at
-that rate. The window *is* seeded from the recorder once at startup, so standby
-figures are meaningful immediately after a restart instead of taking a day.
+The coordinator polls the state machine every 30 seconds and keeps a 24-hour
+rolling window in memory, seeded once from the recorder at startup. It does not
+query the recorder on every refresh.
 
-30 seconds is the resolution the standby figure needs (a 5th percentile over 24
-hours does not move faster than that), and the live appliance match reads
-whatever the meter last published — polling faster would resample the same
-value. The meter's own cadence is measured separately and reported in
-diagnostics.
+30 seconds is the resolution the standby figure needs. The live appliance match
+reads whatever the meter last published; the meter's own cadence is measured and
+reported in diagnostics.
 
-Learning and probing are **actions you run**, not background work. Nothing
-switches anything in your house unless you call `verify_circuit`.
+Learning and probing are actions you run. Nothing switches anything unless
+`verify_circuit` is called.
 
 ## Troubleshooting
 
-| Symptom | What it means |
+| Symptom | Cause |
 |---|---|
-| **Every circuit reports zero runs** | Almost always a unit mismatch. Check the `source` block in diagnostics: if `units` shows `kW`, older versions read those numbers raw and every threshold was 1000× too high. Current versions convert and log a warning naming the sensor. |
-| **Coverage fault that never clears** | The mains sensor and the circuits are not measuring the same thing. A panel with two physical units has a total sensor per unit — picking one of them as mains leaves the other's whole load unaccounted for. Look for a `whole_panel`-style sensor covering both. |
-| **A circuit is listed as silent** | Its maximum over 24 hours is under 5 W. That is information, not an alarm: an unused circuit legitimately reads zero forever. A circuit you *know* is loaded reading zero means a CT is off or on the wrong conductor. |
-| **`learn` returns `no history in window`** | The recorder has nothing for that entity in the requested window. Empty history is UNREAD, not "nothing ran" — the report says which. |
-| **A probe says `suspect`** | An automation fired during the probe and may have moved something. Re-run with `pause_automations: true`, or at a quieter time. |
-| **A probe says the settle window is too short** | Your meter reports more slowly than the probe waits, so both reads came from the same stale value. The message names the settle time to use. |
-| **Entities are unavailable** | Every configured source is gone at once. A *single* circuit dropping out deliberately does not blank the others — that is the condition the coverage sensor exists to report. |
-
-Turn on debug logging with:
+| Every circuit reports zero runs | Usually a unit mismatch. Check the `source` block in diagnostics for `kW`. |
+| Coverage fault that never clears | The mains sensor and the circuits are not measuring the same thing. A panel with two units has a total per unit. |
+| A circuit listed as silent | Its maximum over 24 hours is under 5 W. Normal for an unused circuit. |
+| `learn` returns `no history in window` | The recorder has nothing for that entity in the window. |
+| A probe returns `suspect` | An automation fired during it. Re-run with `pause_automations: true`. |
+| A probe warns about settle time | The meter reports more slowly than the probe waits. |
+| Entities unavailable | Every configured source is gone. A single circuit dropping out does not blank the others. |
 
 ```yaml
 logger:
@@ -678,420 +399,238 @@ logger:
 
 ## Design notes
 
-Four things in `analysis.py` exist because the obvious approach failed first,
-and each has a regression test.
+Four things in `analysis.py` exist because the obvious approach failed, each with
+a regression test.
 
-**Thresholds make no duty-cycle assumption.** A first pass used `idle × 3`,
-which scored zero runs on two circuits drawing 663 W and 353 W continuously —
-on a high-baseline circuit that lands above the 99th percentile. Switching to a
-fixed percentile was no better: the 40th percentile assumes a circuit is mostly
-off, and on a furnace at a **68% duty cycle** it lands *inside* a run, reporting
-zero runs across 98,849 samples. Both failures are silent. Otsu's method is used
-instead, because it assumes nothing about how often a load is on.
+Otsu's method, not a percentile, for the on/off threshold. A percentile assumes a
+duty cycle. On a furnace at 68% duty the 40th percentile lands inside a run,
+putting the threshold above the load, and the circuit reports zero runs across
+98,849 samples with no error anywhere.
 
-**An event keeps its own dips.** If an event held only its above-threshold
-samples, the floor would be pinned at the threshold by construction and could
-never be low — destroying the very feature below. Events retain every sample
-inside their time span.
+Events keep their sub-threshold samples. Storing only samples above the threshold
+pins `floor_w` to the threshold by construction, destroying the feature that
+separates a washer from a dryer.
 
-**Duration does not decide identity.** Weighted into the clustering, it split
-one furnace into four clusters that were identical in power (156 W peak, 110 W
-floor, 2 plateaus) and differed only in how long each run happened to last. A
-machine is identified by the power it draws.
+Duration and energy are weighted to zero for clustering. With duration counted,
+one furnace split into four clusters identical in power and differing only in how
+long each run lasted.
 
-**Minimum run length is configurable and defaults low.** The same pass silently
-discarded a garbage disposal with a 423 W peak, because it used a two-minute
-floor and a disposal runs for twenty seconds.
+The floor while running is the discriminator. A washer and dryer sharing a
+circuit have near-identical peaks. The washer drops to near zero between fill,
+soak and spin; the dryer holds a 350-400 W floor.
 
-**The floor while running is a first-class feature.** A gas dryer and a washing
-machine sharing a circuit have near-identical peaks and are not separable on
-peak, mean or duration. They separate instantly on the *minimum* while running:
-the washer drops to near zero between fill, soak and spin, while the dryer holds
-a steady 350–400 W floor. Most published feature sets omit this.
+### Resolution limit
 
-### Known limit
+An appliance shorter than a few reporting intervals is two or three data points
+and cannot be fingerprinted. At the ~6 s the development install publishes, that
+covers kettles, microwaves and disposals.
 
-An appliance shorter than a few reporting intervals is two or three data
-points, and cannot be fingerprinted. At the ~6 s the development install
-publishes, that puts kettles, microwaves and disposals at or below the
-resolution limit; a 1-second meter would resolve all three. That is a property of your meter, not
-something more code fixes — and it is why the cadence is measured and reported
-rather than assumed.
+## What it has been tested against
 
-## What it has actually been tested against
+One meter: an ESPHome-flashed Emporia Vue, 2 units, 27 circuits, publishing every
+~6 s. Nothing here is written against a vendor API, but that is not the same as
+being tested elsewhere.
 
-**One meter: an ESPHome-flashed Emporia Vue, 2 units, 27 circuits, publishing
-every ~6 s.**
-Everything in the field results below comes from that install. Nothing here is
-written against a vendor API — the integration only ever sees
-`device_class: power` sensors — but "no vendor code" is not the same claim as
-"tested elsewhere", and it would be dishonest to make the second one.
+Two properties of a meter matter, and both are measured rather than assumed:
 
-Two properties of a meter are what actually matter, and both used to be
-assumed. Both are now measured, and both appear in the diagnostics download:
-
-| Property | Why it matters | What happens now |
+| Property | Why | Handling |
 |---|---|---|
-| **Unit** | Every threshold here is in watts. `device_class: power` does not constrain the unit — Vue, Shelly EM and IotaWatt report W; SolarEdge, Powerwall and most Modbus meters report kW. | Converted once at ingestion (W, kW, MW, GW, mW, BTU/h). A sensor whose unit is not power is dropped and **named in the log**, once. |
-| **Reporting cadence** | Sets the step-matching window in attribution: too wide and chance coincidences match, too narrow and real ones fall between cells. | Measured from your own history as the median inter-sample gap. `tools/attribute.py --step` overrides it; the default no longer names a cadence. |
+| Unit | Every threshold is in watts. `device_class: power` does not constrain the unit. | Converted at ingestion (W, kW, MW, GW, mW, BTU/h). A non-power unit is dropped and named in the log once. |
+| Reporting cadence | Sets the step-matching window. | Measured from your own history as the median inter-sample gap. |
 
-⛔ **A kilowatt meter used to fail silently, and that is the failure mode to
-expect from any untested assumption here.** Feeding kW into a 15 W margin puts
-the threshold above every reading, so every circuit reported **zero runs
-forever** — no error, no warning, just an empty result that looks like a quiet
-house. `test_kilowatt_circuit_is_detectable_only_after_conversion` pins it.
+Both assumptions were wrong on the install they came from:
 
-### Both assumptions were wrong on the install they came from
-
-Measured 2026-08-30, on the same Vue everything above was developed against.
-Neither of these was visible from the outside, which is the point.
-
-- ⛔ **The mains sensor reports kilowatts while all 27 circuits report watts.**
-  Same brand, same integration, three whole-panel sensors, two different units:
-  `emporiavue_total_power` is kW, `emporiavuesecondary_total_power` and
-  `whole_panel_total_power` are W. Configure the kW one as mains and coverage
-  compared **1.38 against 2,316** — a permanent −2,314 W fault on a panel that
-  is actually fine. Converted, the same reading is 1,380 W, and the remaining
-  −936 W correctly points at the *second* panel rather than at a fault.
-- ⛔ **The cadence is ~6.1 s, not the 12 s written throughout this repo.**
-  Measured two independent ways on two circuits: 14,141 rows over 86,395 s =
-  6.11 s/row, median inter-sample gap 6.18 s. Because Home Assistant does not
-  restamp an unchanged value, both are *upper* bounds — the meter is at least
-  that fast. The attribution grid had been running at roughly double the real
-  interval, which is the direction that lets chance coincidences match.
-
-If you run this on something other than a Vue, the diagnostics download names
-your unit and your measured cadence in the `source` block. That is the useful
-thing to paste into an issue.
+- The mains sensor reports kilowatts while all 27 circuits report watts, on the
+  same brand and integration. Configured as mains, coverage compared 1.38 against
+  2,316.
+- The cadence is ~6.1 s, not the 12 s previously assumed. Measured two ways on
+  two circuits: 14,141 rows over 86,395 s, median gap 6.18 s. Both are upper
+  bounds, since Home Assistant does not restamp an unchanged value.
 
 ## Self-metering devices
 
-Most homes with per-circuit monitoring also have devices that meter themselves —
-smart dimmers, metered outlets, a PDU reporting per outlet. The development
-install has **40 of them alongside 27 circuits**, and they are worth more than
-one extra reading each because they are *already labelled*:
-`sensor.front_porch_light_active_power` needs no human to name it.
+Most homes with per-circuit monitoring also have devices that meter themselves.
+The development install has 40 alongside 27 circuits. They give labelled
+fingerprints without asking anyone, allow a known device to be subtracted from a
+shared circuit, and support automatic device-to-circuit mapping.
 
-That gives three things circuit CTs alone cannot: labelled fingerprints for
-free, subtraction of a known device from a shared circuit, and automatic
-device-to-circuit mapping.
+Attribution should be treated as a suggestion. Correlation alone placed 2 of 20
+devices, because a 10 W lamp contributes almost nothing to the variance of a
+circuit swinging hundreds of watts. Step matching lifted that to 13. Requiring
+the winner to beat the runner-up then correctly refused four office lights that
+always switch together.
 
-⚠ **Attribution is implemented but NOT yet reliable — treat its output as a
-suggestion.** Correlation alone placed only 2 of 20 devices, because a 10 W lamp
-contributes almost nothing to the variance of a circuit swinging hundreds of
-watts. Step matching — does the circuit show a coincident step of matching
-*magnitude* when the device switches — lifted that to 13. Requiring the winner
-to beat the runner-up then correctly refused four office lights that always
-switch together and so score identically everywhere.
+The grid is measured rather than fixed. At a 12 s grid against a meter publishing
+every 6 s, one circuit claimed devices from three unrelated areas; at the measured
+6 s that fell to zero such circuits, and placements dropped from 13 to 8.
 
-Checked against Home Assistant's own area assignments, one busy circuit was
-still claiming devices from three unrelated areas — and the cause turned out to
-be the grid, not the scoring. **The grid had been hardcoded at 12 s against a
-meter that actually publishes every ~6 s**, so every step-match window was
-about double the width it should have been, and on a busy circuit chance
-coincidences fit inside one. Measuring the cadence instead:
+### No candidate versus nothing to look at
 
-| | 12 s grid (assumed) | 6 s grid (measured) |
-|---|---|---|
-| Devices placed | 13 of 21 | **8 of 21** |
-| Circuits claiming 3+ areas | 1 | **0** |
+A device that never switched during the window cannot be placed. Correlation and
+step matching both work on transitions.
 
-Fewer answers, and that is the improvement: Master Bathroom, Guest Bathroom and
-Front Porch stopped being assigned to one circuit and are now honestly
-**ambiguous**. The four office lights that always switch together still land on
-circuit 16 together, which is consistent rather than suspicious, and the shared
-bathroom light lands on the circuit whose own label reads *"twins bedrooms,
-hallway and bath"* — a name the scorer never sees.
+This is a property of the window, not the device. Network gear draws very
+differently when it starts; it is simply never switched. Six of seven rack PDU
+outlets report `no transition in window` across three days.
 
-⭐ **An over-wide correlation window buys placements by inventing them.** Only
-assignments with a high step match *and* a clear margin should be trusted; the
-tool prints both, and prints which grid it used and whether that grid was
-measured or given.
+The test is steps, not spread. A light on 3% of the time has an identical 95th
+and 5th percentile; slow thermal drift has a wide one.
 
-### "No candidate" and "nothing to look at" are different answers
+## Absence detection
 
-A device that never switched during the window cannot be placed by any of this.
-Correlation and step matching both work on *transitions*; with none, there is
-nothing to match, and containment alone cannot tell such a device from any
-circuit whose floor happens to clear its draw.
+The only check here that alerts on too little. A freezer that stopped cycling
+crosses no threshold.
 
-⛔ **This is a fact about the window, not about the device.** The devices it
-catches are not constant loads — network gear draws very differently when it
-starts. They are things nobody switches, because switching them takes the
-network down. Widen the window over a real power cut or a planned maintenance
-reboot and one transition places them outright.
+`learn` records when each shape ran, so every named fingerprint carries its own
+cadence: median and 90th-percentile gap between runs. Below five runs it records
+nothing, because four gaps cannot distinguish "runs weekly" from "ran four times
+and stopped".
 
-Measured here: **six of the seven rack PDU outlets** report `no transition in
-window` across three days. The rack's aggregate sensor drifted between 211 and
-227 W without a single step above threshold, yet its circuit "contained" it in
-**all 43,201 samples** — a confident-looking placement worth nothing.
+`binary_sensor.silent_appliance` turns on when a named appliance has been silent
+for more than twice its own p90 gap.
 
-⚠ **The test is steps, not spread — and getting that backwards fails in both
-directions at once.** The first version compared a device's 95th-to-5th
-percentile range against the circuit's noise. A bathroom light that is on 3% of
-the time has `p95 == p5 == off`, so it was called untraceable while switching
-several times a day; the PDU's slow thermal drift gave it a non-zero spread, so
-it was called traceable while never switching at all. **Percentiles describe
-where a trace sits. Only steps describe when it moved.**
+### Blind time is not silence
 
-Separating the two lifted placements from 8 to 9 and moved the shared bathroom
-light from 0.50 to 0.67, because the untraceable devices stopped consuming
-circuit steps in the subtraction pass.
+Unobserved seconds are tracked per circuit and subtracted before judging, from
+two sources:
 
-## Roadmap
+| Source | Why |
+|---|---|
+| A circuit `unavailable` at a poll | One poll interval unobserved. |
+| Home Assistant restarted | The whole gap since the last recorded poll. |
 
-- **Fingerprint learning** — cluster recurring event shapes per circuit, then
-  ask once which is which. Unsupervised clustering finds the shapes but cannot
-  name them; a human names them in one pass and it remembers. Metered devices
-  skip the asking entirely.
-- **Signature drift as health** — compare an appliance against its own history,
-  not a spec. A fridge duty cycle creeping 40% → 70%, a compressor's inrush
-  changing, a pump's start current climbing.
-- **Runtime-based maintenance** — blower hours since filter change, dryer
-  cycles since duct clean, pump starts.
-- **Away-mode safety** — alarm armed away plus a 2 kW load on the oven circuit.
-- **Tariff-aware shifting** — fingerprints plus a tariff become "run the dryer
-  after 9pm".
-- **Unknown-signature detection** — an unrecognised shape means something new
-  was plugged in, or an appliance changed behaviour.
+When more than half the window was unobserved the answer is `unknown`. The
+`unjudgeable` attribute names which appliances are being declined rather than
+counted healthy.
 
-## Virtual circuits — for houses with no per-circuit clamps
+Last-seen times are persisted, so a restart does not reset every appliance to
+"never seen".
 
-⭐ **Not everyone has a clamp per breaker, and the separation is still worth
-something.** A whole-house meter plus this module infers large appliances from
-the aggregate: a dryer, an oven, an air conditioner, a well pump, an EV
-charger. It does not infer lamps, and it refuses rather than pretending.
+## Virtual circuits
 
-⛔ **This is a weaker problem than the rest of the integration and is never
-presented as the same one.** With a clamp on each breaker the separation is
-already done in hardware. With one meter every appliance is layered onto one
-trace, and small loads are simply not in it any more.
+For houses with no per-circuit clamps. Infers large appliances from a whole-house
+meter: a dryer, an oven, an air conditioner, a well pump, an EV charger. It does
+not infer lamps.
 
-### What the measurement actually showed
+A load is identified by its on-step and matching off-step. `segment()` is not
+usable, because it finds runs by watching a trace fall back to idle and a
+whole-house trace never does.
 
-The development install has both a whole-panel meter and 27 real circuits, so
-it can answer this rather than guess. Three findings, and the second one killed
-the first implementation:
+Level shifts, not adjacent samples. A compressor ramps over half a minute, so a
+2 kW load arrives as several smaller deltas and no single one clears the bar.
+Comparing the median of the samples before a point against the median after sees
+the ramp as one step. On the development install that took the result from 0
+paired runs to 168, at 1572-2628 W over 19-24 minutes.
 
-**1. Adjacent-sample stepping finds nothing, and looks like a quiet house.**
-Two air conditioners drawing 2000–2900 W produced **two** sample-to-sample
-steps above 1000 W in two days. A compressor does not appear between one
-6-second sample and the next — it ramps over half a minute, so a 2000 W load
-arrives as five 400 W deltas and no single delta clears the bar.
-
-**2. Those fragments cluster into confident nonsense.** At a 300 W floor the
-first version reported **four virtual circuits averaging 380–530 W**, all of
-which validated at 85–97% against *both* air conditioners — because those run
-42% of the time, so everything coincides with them. Four names for two
-appliances, chopped up.
-
-**3. Level shifts are the right primitive.** Comparing the median of the
-samples *before* a point against the median *after* it sees a slow ramp as one
-step. Same house, same window: **168 runs at 1572 W / 2263 W / 2628 W over
-19–24 minutes** — appliance-shaped magnitudes and durations instead of debris.
-
-### ⛔ The floor must be the meter's own noise floor, and nothing higher
+### The floor is the meter's own noise floor
 
 Swept against the 27 real clamps, the fraction of inferred runs that
 magnitude-match a real circuit:
 
-| floor | shapes found | match rate |
+| Floor | Shapes | Match rate |
 |---|---|---|
-| **69 W** — the measured noise floor | 4 | **69%** |
+| 69 W, the measured noise floor | 4 | 69% |
 | 138 W | 5 | 52% |
 | 345 W | 4 | 29% |
 | 967 W | 3 | 19% |
-| 1934 W | 2 | **0%** |
+| 1934 W | 2 | 0% |
 
-Monotonic, and the reason is not subtle once seen: **raising the floor does not
-filter out noise, it filters out single appliances.** What survives at 2 kW on a
-house with two air conditioners and two furnaces is the moments when several of
-them moved together, and a combination matches no individual circuit by
-construction. An earlier version hardcoded a 300 W minimum taken from this very
-install's own recovery curve, and it cost more than half the accuracy.
+Raising the floor filters out single appliances rather than noise: what survives
+at 2 kW is the moments when several loads moved together, and a combination
+matches no individual circuit.
 
-⚠ **Pair rate looked like the perfect ground-truth-free tuner and is
-anti-correlated with accuracy.** It climbs to 97% at the 1934 W floor that
-matches 0% — fewer, larger events pair tidily with each other while meaning
-less. It is reported as a diagnostic and never used to choose.
+Pair rate, the fraction of level shifts that find a partner, is not used to tune
+this. It reaches 97% at the floor that matches 0%.
 
-### ⚠ What this house is *not* representative of
+### A worked example
 
-Every number above is close to a worst case, and the app should not be judged
-on it:
-
-- **Measured in the hottest week of the year**, with two air conditioners, fans
-  and refrigerator compressors all cycling. The aggregate is at its noisiest
-  and its 95th-percentile movement is 69 W, which is high.
-- **Both air conditioners have soft starts**, which most houses do not. That is
-  precisely why a compressor here ramps over half a minute instead of stepping
-  in one sample — and why adjacent-sample detection failed so completely. A
-  house with hard-starting compressors is an easier case, not a harder one.
-- **Several large loads run continuously rather than alone.** The good case for
-  virtual circuits is a dryer, an oven, a charger — things that run by
-  themselves and stop.
-
-### A worked example: the garage refrigerator
-
-An unmetered appliance on a clamped circuit is the cleanest possible test — the
-mains has to find something only the CT can see. Circuit 25 is the garage, and
-the only significant load on it is a refrigerator.
+Circuit 25 carries a garage refrigerator and nothing else, so the mains has to
+find something only the CT can see.
 
 ```
-circuit 25 (Garage), 2 days     85 runs   median step 103 W   median 1 min
-the mains at its 69 W floor            526 inferred runs
+circuit 25, 2 days     85 runs   median step 103 W   median 1 min
+the mains at 69 W      526 inferred runs
 
-  55 of the 85 runs are above the mains floor
-  50 of those 55 were found in the mains          91%
-  30 were below the floor and unfindable by construction
+55 of the 85 runs are above the mains floor
+50 of those were found in the mains          91%
+30 were below the floor and unfindable
 ```
 
-⛔ **And then the control, which is the only part that makes the 91% mean
-anything.** Shift every garage run in time — same size, same duration, wrong
-moment — and re-run the identical test:
+With the same runs shifted in time:
 
-| garage runs shifted by | still "matched" |
+| Shift | Still matched |
 |---|---|
 | +3 h | 78% |
 | +7 h | 64% |
 | +13 h | 45% |
-| +19 h | **40%** |
+| +19 h | 40% |
 
-So the honest figure is **91% against a ~40% chance floor**, not 91% against
-zero. 526 inferred runs across two days is one every five and a half minutes,
-and a one-minute fridge cycle overlaps one of them constantly; the decline as
-the shift grows is the house's own daily rhythm being destroyed.
+So 91% against a 40% chance floor. 526 inferred runs across two days is one every
+five and a half minutes, and a one-minute compressor cycle overlaps one
+constantly.
 
-⭐ **The lesson generalises past this feature.** Detecting *an* event in the
-aggregate works well. Attributing it to a *specific* appliance on time and
-magnitude alone does not, because a busy aggregate offers too many candidates —
-which is the same failure the active probe hit when it ran without a device
-meter, and the same one the 60-second attribution grid hit. Shape matching, not
-coincidence, is what has to close it.
+Detecting an event in the aggregate works. Attributing it to a specific appliance
+on time and magnitude alone does not.
 
-### Self-metering devices: sound idea, no help *here*
+### What this house is not representative of
 
-A device that meters itself needs no inference at all — it is already an exact
-virtual circuit — and subtracting its trace should declutter the residual.
-`--subtract` does exactly that. Measured on this install it changed the match
-rate by **nothing** (69% either way), because the self-metering devices here
-are lights and small outlets amounting to a rounding error against a 4–6 kW
-aggregate. On a house whose metered devices are large — a smart-plugged dryer,
-an EV charger — the same code should matter a great deal.
+- Measured in the hottest week of the year, with two air conditioners, fans and
+  compressors cycling. Its 95th-percentile movement is 69 W, which is high.
+- Both air conditioners have soft starts, which most houses do not, and which is
+  why a compressor here ramps over half a minute.
+- Several large loads run continuously rather than alone. The good case is a
+  dryer, an oven or a charger, which run by themselves and stop.
 
-⭐ Worth keeping precisely because it *didn't* help here: a technique that
-works only on some houses is fine, as long as nobody has to guess which.
+### Subtracting self-metering devices
 
-Validated against the real clamps with magnitude matching, only **9–26%** of
-inferred runs match a specific circuit. The cause is structural: this house has
-two air conditioners and two furnaces cycling continuously, so most level
-shifts are *combinations* rather than single appliances. That is close to the
-worst case for aggregate disaggregation.
+A device that meters itself needs no inference; it is already an exact virtual
+circuit. `--subtract` removes its trace from the aggregate before inferring.
 
-A house whose large loads run **alone and intermittently** — a dryer, an oven,
-a charger — is the good case. A house with a constantly cycling HVAC baseline
-is the bad one. ⭐ **So the useful thing to ship is not the feature but the
-measurement**: point `tools/virtual_circuits.py --validate` at your meter and
-it tells you which house you have, before you rely on any of it.
+On this install it changed the match rate by nothing, because the metered devices
+are lights against a 4-6 kW aggregate. On a house with a smart-plugged dryer or
+EV charger it should matter.
 
-```bash
-python tools/virtual_circuits.py --days 3 --floor 1000
-```
+## Roadmap
+
+- Signature drift as health: compare an appliance against its own history. A
+  fridge duty cycle creeping 40% to 70%, a pump's start current climbing.
+- Runtime-based maintenance: blower hours since filter change, dryer cycles since
+  duct clean.
+- Away-mode safety: alarm armed away plus a 2 kW load on the oven circuit.
+- Tariff-aware shifting: fingerprints plus a tariff become "run the dryer after
+  9pm".
 
 ### Deliberate non-goals
 
-- **No deep learning.** The data volumes do not justify it and an unexplainable
-  classifier is worthless the moment it drives an alert or an automation. The
-  single most useful feature so far — the floor while running — came from
-  domain knowledge, not feature discovery.
-- **No whole-house NILM from the mains.** The hard version of a problem the CT
-  clamps already solved.
-- **No occupancy inference.** Power traces reveal when people shower, sleep and
-  leave the house. That capability arrives free whether or not it is wanted, so
-  it is declined deliberately rather than by omission.
+No deep learning. The data volumes do not justify it and an unexplainable
+classifier is worthless once it drives an alert. The most useful feature so far,
+the floor while running, came from domain knowledge.
 
-## Absence detection
-
-⭐ **The only check here that alerts on too little.** Everything else fires when
-something exceeds something. The expensive failures are the quiet ones: a
-freezer that stopped cycling crosses no threshold, a sump pump silent through a
-storm draws no current, and neither appears in a dashboard of maxima. They
-appear as a rhythm that stopped.
-
-`learn` already segments each circuit's history into runs and clusters them by
-shape. It now also records **when each shape ran**, so every named fingerprint
-carries its own cadence — median and 90th-percentile gap between runs. A
-fridge cycling every 40 minutes and a dryer used twice a week each get a
-description of themselves, which is the only fair basis for calling one of them
-quiet. Below five runs it records **nothing**, because four gaps cannot tell
-"runs weekly" from "ran four times and stopped".
-
-`binary_sensor.silent_appliance` turns on when a named appliance has been
-silent for more than **twice its own p90 gap**, and lists which in its
-attributes.
-
-### ⛔ Blind time is not silence
-
-This is the one failure that matters, and it is the same mistake this project
-keeps finding elsewhere: **"I could not look" is not "nothing happened".**
-
-If the circuit sensor was unavailable for six hours, the appliance may well
-have run during them. Reporting that as "it has not run" would be asserting an
-observation that was never made. So unobserved seconds are tracked per circuit
-and subtracted before judging, from two sources:
-
-| Source | Why it counts |
-|---|---|
-| A circuit `unavailable` at a poll | One poll interval nobody was watching |
-| Home Assistant restarted | The **whole gap** since the last recorded poll — usually the longest blind stretch an install ever has. Counting it as silence would fire an absence alert after every reboot. |
-
-When more than half the window was unobserved the answer is **`unknown`**, not
-`off`. `off` asserts the appliance is fine; `unknown` says nobody was watching.
-The entity reports `unknown` for that, and its `unjudgeable` attribute names
-exactly which appliances it is declining to judge rather than quietly counting
-them as healthy.
-
-Last-seen times are **persisted**, so a restart does not reset every appliance
-to "never seen" and start the clock again — otherwise a fridge that stopped a
-week ago would look freshly quiet after every reboot, and the one alert worth
-having would never mature.
+No cloud. Everything runs locally against sensors already in Home Assistant.
 
 ## Quality scale
 
 Built to Home Assistant's Integration Quality Scale, tracked rule by rule in
 [`quality_scale.yaml`](custom_components/power_fingerprint/quality_scale.yaml)
-with a written reason on every exemption. What that actually bought:
+with a reason on every exemption.
 
-| Rule | What changed |
-|---|---|
-| `runtime-data` | Runtime state lives on `entry.runtime_data` behind a typed dataclass, not in an untyped `hass.data` dict. |
-| `action-setup` | Actions register at component setup, so an automation calling one still validates while the entry is unloaded — and gets a translated "not loaded" error instead of a `KeyError`. |
-| `test-before-configure` | Setup refuses a sensor that does not exist, is not reporting a number, or is not in a power unit — **by name**, while you can still pick another. |
-| `test-before-setup` | `ConfigEntryNotReady` while the meter's own integration is still loading, instead of a device full of blank entities. |
-| `entity-unavailable` / `log-when-unavailable` | Sources going away is logged once and once on return, not every 30 seconds. A single circuit dropping out deliberately does *not* blank everything — that is what the coverage sensor is for. |
-| `repair-issues` | A sensor that starts reporting a non-power unit raises a repair issue naming it, rather than quietly leaving a circuit out of every total. |
-| `reconfiguration-flow` | Re-clamped the panel? Reconfigure the entry instead of deleting and re-adding it. |
-| `entity-translations` / `icon-translations` / `exception-translations` | Names, icons and error messages come from `strings.json` and `icons.json` and can be translated. |
-| `strict-typing` | `mypy --strict` clean across the integration. |
-| `parallel-updates` | `PARALLEL_UPDATES = 0`: nothing here talks to a device, so there is nothing to be gentle with. |
-
-Two rules are honestly `todo` — the Home Assistant layer's test coverage,
-written but never executed on Windows. `tools/validate_local.py` refuses to let
+Two rules are `todo`: `config-flow-test-coverage` and `test-coverage`. The Home
+Assistant layer tests are written but have never executed, since this repository
+was developed on Windows. `tools/validate_local.py` refuses to let
 `manifest.json` claim a tier while anything is `todo`.
+
+The scale is a core-integration concept. A custom integration builds to the rules
+and is not scored.
 
 ## Tests
 
 ```bash
-python -m pytest tests/          # 53 pure tests, no Home Assistant needed
+python -m pytest tests/ -q
 ```
 
-The analysis, fingerprint, attribution and verify modules import nothing from
-Home Assistant, so the bulk of the suite runs on a bare checkout.
-
-`tests/ha/` covers the Home Assistant layer and is **skipped unless
-`pytest-homeassistant-custom-component` is installed**. It runs in CI against
-Home Assistant on Linux, which is where it belongs — see
-[PUBLISHING.md](PUBLISHING.md).
+The pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`,
+`breaker` - import nothing from Home Assistant and are tested by path.
+`tests/ha/` covers the Home Assistant layer and skips when the harness is absent.
 
 ## Licence
 
