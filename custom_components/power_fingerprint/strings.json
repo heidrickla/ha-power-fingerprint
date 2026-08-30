@@ -51,6 +51,28 @@
           "description": "What this appliance actually is."
         }
       }
+    },
+    "verify_circuit": {
+      "name": "Verify a circuit by switching a device",
+      "description": "Switch a device and watch which circuit moves. Actuates the device; only switches and lights may be probed, and the prior state is always restored.",
+      "fields": {
+        "device": {
+          "name": "Device to switch",
+          "description": "Only switch and light entities."
+        },
+        "power_sensor": {
+          "name": "Device power sensor",
+          "description": "Strongly recommended."
+        },
+        "probes": {
+          "name": "Number of probes",
+          "description": "All probes must agree."
+        },
+        "settle": {
+          "name": "Settle time",
+          "description": "Seconds to wait for the meter."
+        }
+      }
     }
   }
 }

@@ -118,6 +118,60 @@ data usually preserves that order. When it does not, a label lands on the wrong
 shape and you can see it and fix it — a visible wrong label beats silently
 throwing your naming work away.
 
+## Passive and active, together
+
+Working out which circuit a device sits on is done two ways, and they are
+complementary rather than alternatives.
+
+**Passive** correlates a metered device's history against every circuit. It
+covers every device that ever switches, across days, for free, without touching
+anything. Assignment is iterative: the most confident match is committed first,
+then that device's trace is **subtracted** from its circuit before anything else
+is scored. A step already explained by a confirmed device is no longer available
+to explain a different one — without that, one busy circuit keeps looking like a
+plausible home for everything.
+
+**Active** settles what passive cannot. It switches the device and watches which
+circuit moves:
+
+```yaml
+action: power_fingerprint.verify_circuit
+data:
+  device: switch.office_lamp
+  power_sensor: sensor.office_lamp_power   # strongly recommended
+  probes: 2
+```
+
+The circuit's step is compared against what the *device* reported it drew, so an
+unrelated load switching at the same moment is rejected rather than credited.
+All probes must agree — one toggle can coincide with a fridge starting, two
+cannot.
+
+| Both agree | `confirmed` |
+|---|---|
+| Active only | `measured` |
+| Passive only | `inferred` |
+| **They disagree** | **`conflict` — neither is trusted** |
+
+Disagreement deliberately returns nothing rather than preferring the
+measurement. One of them is wrong about a physical fact that cannot be both
+ways, and which one is not knowable from here. Reporting the conflict is
+information; silently preferring a method hides a real problem behind a
+confident answer.
+
+### Safety
+
+Active probing actuates real devices, so the rules are enforced in code:
+
+- **Only `switch` and `light` entities may be probed.** An allowlist, not a
+  denylist, so a domain nobody anticipated fails closed. Locks, alarm panels,
+  covers, valves, climate, water heaters and sirens are refused outright.
+- **The prior state is always restored**, from a `finally` block rather than the
+  happy path — an exception mid-probe is exactly when that would otherwise be
+  skipped.
+- **It never runs on its own.** There is no automatic probing; it happens only
+  when someone calls the service.
+
 ## Tools
 
 Two offline tools run against a live Home Assistant from a workstation that does

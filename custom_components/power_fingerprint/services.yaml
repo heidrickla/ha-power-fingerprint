@@ -66,3 +66,57 @@ label:
       required: true
       selector:
         text:
+
+verify_circuit:
+  name: Verify a circuit by switching a device
+  description: >-
+    Switch a device and watch which circuit moves. This settles by measurement
+    what history can only infer. It ACTUATES the device - it will visibly switch
+    and switch back, several times - and only switches and lights may be probed.
+    The prior state is always restored, including if the probe fails partway.
+  fields:
+    device:
+      name: Device to switch
+      description: Only switch and light entities may be probed.
+      required: true
+      selector:
+        entity:
+          domain:
+            - switch
+            - light
+    power_sensor:
+      name: The device's own power sensor
+      description: >-
+        Strongly recommended. With it, the circuit's step is compared against
+        what the device says it drew, which is what rejects an unrelated load
+        that happened to switch at the same moment.
+      required: false
+      selector:
+        entity:
+          domain: sensor
+          device_class: power
+    probes:
+      name: Number of probes
+      description: >-
+        How many times to switch it. All probes must agree; one toggle can
+        coincide with a fridge starting, two cannot.
+      required: false
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: slider
+    settle:
+      name: Settle time
+      description: >-
+        Seconds to wait for the meter after each switch. An Emporia reports
+        about every 12 seconds, so this must comfortably exceed that.
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 10
+          max: 120
+          unit_of_measurement: seconds
+          mode: slider
