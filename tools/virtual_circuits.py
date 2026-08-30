@@ -86,7 +86,8 @@ def main() -> int:
                 if args.validate:
                     best = f"{100 * _best_match_rate(evs, args, f):.0f}%"
             print(
-                f"{f:9.0f} {len(found):7d} {len(evs):7d} {rate:6.0%} {shapes:>7} {best:>11}"
+                f"{f:9.0f} {len(found):7d} {len(evs):7d} "
+                f"{rate:6.0%} {shapes:>7} {best:>11}"
             )
         return 0
 
@@ -95,7 +96,7 @@ def main() -> int:
     # every watt subtracted is a watt that can no longer be mistaken for part
     # of something else.
     if args.subtract:
-        grid_s = int(round(analysis.sample_interval(rows) or 6))
+        grid_s = round(analysis.sample_interval(rows) or 6)
         start, end = rows[0][0], rows[-1][0]
         base = attribution.resample(rows, grid_s, start, end)
         known, names = [], []

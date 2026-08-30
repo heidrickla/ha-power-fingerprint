@@ -98,7 +98,7 @@ def test_a_quiet_meter_resolves_small_loads():
     the background and must not be denied because of somebody else's install.
     """
     quiet = []
-    for cycle in range(6):
+    for _ in range(6):
         quiet += [100] * 25 + [160] * 25
     samples = trace(quiet)
     assert v.noise_floor(samples) < 60.0
@@ -124,7 +124,7 @@ def test_pair_rate_is_a_diagnostic_not_a_tuner():
     with each other while meaning less. It is reported, never used to choose.
     """
     body = [500] * 40
-    for _cycle in range(6):
+    for _ in range(6):
         body += [2500] * 20 + [500] * 20
     body += [560] * 15 + [640] * 15 + [580] * 15 + [660] * 15 + [610] * 40
     samples = trace(body)

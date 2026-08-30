@@ -772,6 +772,44 @@ on it:
   virtual circuits is a dryer, an oven, a charger — things that run by
   themselves and stop.
 
+### A worked example: the garage refrigerator
+
+An unmetered appliance on a clamped circuit is the cleanest possible test — the
+mains has to find something only the CT can see. Circuit 25 is the garage, and
+the only significant load on it is a refrigerator.
+
+```
+circuit 25 (Garage), 2 days     85 runs   median step 103 W   median 1 min
+the mains at its 69 W floor            526 inferred runs
+
+  55 of the 85 runs are above the mains floor
+  50 of those 55 were found in the mains          91%
+  30 were below the floor and unfindable by construction
+```
+
+⛔ **And then the control, which is the only part that makes the 91% mean
+anything.** Shift every garage run in time — same size, same duration, wrong
+moment — and re-run the identical test:
+
+| garage runs shifted by | still "matched" |
+|---|---|
+| +3 h | 78% |
+| +7 h | 64% |
+| +13 h | 45% |
+| +19 h | **40%** |
+
+So the honest figure is **91% against a ~40% chance floor**, not 91% against
+zero. 526 inferred runs across two days is one every five and a half minutes,
+and a one-minute fridge cycle overlaps one of them constantly; the decline as
+the shift grows is the house's own daily rhythm being destroyed.
+
+⭐ **The lesson generalises past this feature.** Detecting *an* event in the
+aggregate works well. Attributing it to a *specific* appliance on time and
+magnitude alone does not, because a busy aggregate offers too many candidates —
+which is the same failure the active probe hit when it ran without a device
+meter, and the same one the 60-second attribution grid hit. Shape matching, not
+coincidence, is what has to close it.
+
 ### Self-metering devices: sound idea, no help *here*
 
 A device that meters itself needs no inference at all — it is already an exact
