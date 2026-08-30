@@ -88,7 +88,7 @@ def test_subtract_removes_a_known_device():
 # circuit in all 43,201 samples. That reads as a confident placement and means
 # nothing.
 #
-# ⛔ These are NOT constant loads. Network gear draws very differently when it
+# These are NOT constant loads. Network gear draws very differently when it
 # starts; it simply never gets switched, because switching it takes the network
 # down. A window containing one real power cut places them instantly.
 

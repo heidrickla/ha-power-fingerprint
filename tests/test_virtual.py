@@ -41,7 +41,7 @@ def test_a_single_appliance_is_recovered_from_a_busy_house():
 
 
 def test_nested_appliances_pair_with_the_right_partner():
-    """⛔ The regression that oldest-first matching gets wrong.
+    """The regression that oldest-first matching gets wrong.
 
     Oven on, kettle on and off inside it, oven off. Pairing the oven's start
     with the kettle's stop invents a short 3 kW run and leaves the oven
@@ -91,7 +91,7 @@ def test_noise_floor_is_measured_from_the_trace():
 
 
 def test_a_quiet_meter_resolves_small_loads():
-    """⛔ The regression from hardcoding 300 W as a minimum.
+    """The regression from hardcoding 300 W as a minimum.
 
     That number came from one unusually noisy house that also has soft starts
     on both air conditioners. On a quiet meter a 60 W load steps cleanly out of
@@ -117,7 +117,7 @@ def test_a_noisy_meter_raises_its_own_floor():
 
 
 def test_pair_rate_is_a_diagnostic_not_a_tuner():
-    """⛔ The self-check that looked right and is anti-correlated with accuracy.
+    """The self-check that looked right and is anti-correlated with accuracy.
 
     Swept against 27 real clamps, pair rate climbed to 97% at the floor that
     matched 0% of real circuits, because fewer and larger events pair tidily
@@ -142,7 +142,7 @@ def test_the_floor_is_the_measured_noise_floor_and_nothing_else():
 
 
 def test_a_self_metered_device_is_subtracted_out_of_the_aggregate():
-    """⭐ A device that meters itself needs no inference - it IS a virtual
+    """A device that meters itself needs no inference - it IS a virtual
     circuit already. Removing its trace declutters what is left to infer."""
     lamp = [0.0 if (i // 10) % 2 else 60.0 for i in range(60)]
     mains = trace([500 + x for x in lamp])

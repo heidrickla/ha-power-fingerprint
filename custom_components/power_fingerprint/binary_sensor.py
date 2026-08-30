@@ -45,7 +45,7 @@ class _Diagnostic(_Base):
 
     Coverage and contradiction both say "this integration's own view is
     suspect", which belongs in the device's diagnostic section rather than on a
-    dashboard beside the power figures. ⚠ A silent appliance is NOT one of
+    dashboard beside the power figures.  A silent appliance is NOT one of
     these - it is a fact about the house and the whole reason someone installs
     this, so it stays a primary entity.
     """
@@ -113,13 +113,13 @@ class Contradiction(_Diagnostic):
 class SilentAppliance(_Base):
     """On when a named appliance has stopped running when it should have.
 
-    ⭐ THE ONLY CHECK HERE THAT ALERTS ON TOO LITTLE. Everything else in this
+     THE ONLY CHECK HERE THAT ALERTS ON TOO LITTLE. Everything else in this
     integration fires when something exceeds something; the expensive failures
     are the quiet ones. A freezer that stopped cycling crosses no threshold, a
     sump pump silent through a storm draws no current, and neither shows up in
     a dashboard of maxima. They show up as a rhythm that stopped.
 
-    ⛔ Returns `None` - unknown - rather than `off` when the circuit was not
+     Returns `None` - unknown - rather than `off` when the circuit was not
     observable for a meaningful part of the window. `off` would assert the
     appliance is fine; `None` says nobody was watching. Those are different
     claims and only one of them is true after a restart or a dropout.

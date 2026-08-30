@@ -3,13 +3,13 @@
 The cleanest possible test of virtual circuits: point it at a circuit carrying
 a single unmetered load and ask whether the whole-house trace contains its runs.
 
-⛔ ALWAYS PRINTS THE CHANCE BASELINE. A busy aggregate offers a candidate event
+ALWAYS PRINTS THE CHANCE BASELINE. A busy aggregate offers a candidate event
 every few minutes, so a short appliance cycle overlaps one constantly. On the
 development install a garage refrigerator scored 91% - against a 40% floor that
 shifting the same runs in time produced out of nothing at all. A match rate
 without its control is not a result.
 
-    python tools/one_appliance.py --circuit sensor.circuit_25_power
+   python tools/one_appliance.py --circuit sensor.circuit_25_power
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ print(
     f"  {below} runs were below the {floor:.0f} W floor and unfindable by construction"
 )
 
-# ⛔ CONTROL. 528 inferred runs over 2 days is a lot of candidates, and a
+# CONTROL. 528 inferred runs over 2 days is a lot of candidates, and a
 # magnitude-matched overlap can happen by chance. Shift every garage run by
 # offsets that preserve its size and duration but destroy its timing: whatever
 # still "matches" is what coincidence alone buys.

@@ -22,7 +22,7 @@ from typing import Any
 
 # Feature -> (log-scaled?, weight, linear divisor).
 #
-# ⛔ AN EARLIER VERSION Z-SCORED THESE PER CIRCUIT AND IT WAS WRONG. Z-scoring
+# Absolute log scaling, not per-circuit z-scoring: z-scoring
 # rescales each circuit's own variance to fill the range, so trivial variation
 # WITHIN one appliance is inflated into apparent difference BETWEEN appliances.
 # Measured: it produced 22 "distinct shapes" on a circuit carrying one load and
@@ -44,13 +44,10 @@ FEATURES: dict[str, tuple[bool, float, float]] = {
     "mean_w": (True, 0.8, 1.0),
     "plateaus": (False, 0.4, 5.0),
     "duty_above_half_peak": (False, 0.4, 1.0),
-    # ⛔ DURATION AND ENERGY ARE DELIBERATELY WEIGHTED TO ZERO FOR CLUSTERING.
-    # They are still reported, because they are useful for a human reading a
-    # cluster description, but they must not decide identity. Measured: with
-    # duration weighted at 0.25 a furnace split into FOUR clusters that were
-    # identical in power (156 W peak, 110 W floor, 2 plateaus) and differed
-    # only in how long each run happened to last. A machine is identified by
-    # the power it draws, not by how long someone left it on.
+    # Duration and energy are reported but weighted to zero for clustering:
+    # with duration counted, one furnace split into four clusters identical in
+    # power and differing only in how long each run lasted. A machine is
+    # identified by the power it draws, not how long it was left on.
     "duration_s": (True, 0.0, 1.0),
     "energy_wh": (True, 0.0, 1.0),
 }
@@ -191,7 +188,7 @@ _NOISE_WORDS = (
 def suggest_label(friendly_name: str) -> str | None:
     """The appliance name already sitting in a circuit's own title, if any.
 
-    ⭐ NOT INFERENCE. "EmporiaVue Circuit 15 Dish Washer Power" contains the
+     NOT INFERENCE. "EmporiaVue Circuit 15 Dish Washer Power" contains the
     answer; somebody typed it when they clamped the panel. Reading it back is
     free and certain, and it is the difference between a user facing 39 shapes
     called `unnamed_0` and facing the handful that genuinely need a human.
@@ -232,7 +229,7 @@ def summarize(
 
     `cadences` maps cluster id to that cluster's learned rhythm, which absence
     detection later judges against. It is passed in rather than computed here
-    because ⛔ `analysis`, `fingerprint`, `attribution` and `verify` are loaded
+    because  `analysis`, `fingerprint`, `attribution` and `verify` are loaded
     BY PATH - by the pure test suite and by `tools/_ha.py` - so a relative
     import between them raises "attempted relative import with no known parent
     package" and breaks both. They stay mutually independent on purpose.

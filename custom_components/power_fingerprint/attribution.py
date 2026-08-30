@@ -10,16 +10,16 @@ already labelled. `sensor.front_porch_light_active_power` needs no human to
 name it. That gives three things the circuit CTs alone cannot:
 
 1.  GROUND TRUTH FOR FREE. Every metered device is a labelled fingerprint,
-    which is the bootstrap problem solved without asking anyone anything.
+   which is the bootstrap problem solved without asking anyone anything.
 
 2.  SUBTRACTION. A metered device sitting on a monitored circuit can be
-    removed from that circuit's trace, leaving the appliances that share it.
-    This is the honest way to attack a shared circuit - rather than inferring
-    two appliances from one blended signal, measure one and subtract it.
+   removed from that circuit's trace, leaving the appliances that share it.
+   This is the honest way to attack a shared circuit - rather than inferring
+   two appliances from one blended signal, measure one and subtract it.
 
 3.  AUTOMATIC DEVICE-TO-CIRCUIT MAPPING. Correlating a device's trace against
-    every circuit finds which circuit it is wired to. That map is needed by the
-    contradiction check anyway, and deriving it beats asking someone to type it.
+   every circuit finds which circuit it is wired to. That map is needed by the
+   contradiction check anyway, and deriving it beats asking someone to type it.
 
 The correlation deliberately requires BOTH agreement and containment. A device
 on circuit A may correlate with circuit B by coincidence - two lights switched
@@ -113,37 +113,16 @@ def transitions(device: list[float], min_delta_w: float = 5.0) -> int:
 
 
 def traceable(device: list[float], min_delta_w: float = 5.0) -> bool:
-    """Whether this device produced anything to trace DURING THIS WINDOW.
+    """Whether this device produced anything to trace during this window.
 
-    ⭐ A DEVICE THAT NEVER SWITCHED CANNOT BE PLACED, AND THAT IS A FACT ABOUT
-    THE WINDOW RATHER THAN ABOUT THE DEVICE. Correlation and step matching both
-    work on transitions. No transition, nothing to match - and containment
-    alone cannot tell such a device apart from any other circuit whose floor
-    happens to clear its draw.
+    A fact about the window, not the device: correlation and step matching both
+    work on transitions, and containment alone cannot tell a device with none
+    apart from any circuit whose floor clears its draw. Network gear and
+    freezers draw plenty differently when they start; they simply are not
+    switched. A window containing one power cut places them outright.
 
-    ⛔ DO NOT READ THIS AS "the device draws a constant load". Network gear,
-    freezers and alarm panels all draw very differently when they start; they
-    simply are not switched, because switching them is disruptive or unsafe.
-    Widen the window over a real power cut or a planned maintenance reboot and
-    the same device becomes trivially placeable on that one event. What is off
-    the table is probing it, not the device's own behaviour.
-
-    Measured on the development install: a rack PDU drifted between 211 and
-    227 W for three days without one step above the threshold, and was
-    "contained" by its circuit in all 43,201 samples. That reads as a confident
-    placement and is worth nothing.
-
-    ⚠ THE TEST IS STEPS, NOT SPREAD. The first version of this compared the
-    device's 95th-to-5th percentile range against the circuit's noise, and got
-    it exactly backwards on both classes it had to separate: a bathroom light
-    that is on 3% of the time has p95 == p5 == off, so it looked untraceable
-    while switching several times a day, and the PDU's slow thermal drift gave
-    it a nonzero spread so it looked traceable while never switching at all.
-    Percentiles describe where a trace SITS; only steps describe when it MOVED.
-
-    Returning False is the difference between "I looked and found nothing" and
-    "there was nothing to look at yet". Those are not the same answer and must
-    never be reported as if they were.
+    The test is steps, not spread. A light on 3% of the time has an identical
+    95th and 5th percentile, and slow thermal drift has a wide one.
     """
     return transitions(device, min_delta_w) > 0
 
@@ -157,7 +136,7 @@ def step_match(
 ) -> float:
     """Fraction of the device's switching events the circuit also shows.
 
-    ⛔ THIS EXISTS BECAUSE CORRELATION FAILS ON SMALL LOADS AND FAILS QUIETLY.
+     THIS EXISTS BECAUSE CORRELATION FAILS ON SMALL LOADS AND FAILS QUIETLY.
     Pearson r compares whole series, so a 10 W lamp on a circuit that swings
     several hundred watts scores near zero even when it is genuinely on that
     circuit - its contribution is swamped by everything else sharing the
@@ -221,12 +200,9 @@ def _score_one(
     best = scored[0] if scored else None
     runner = scored[1] if len(scored) > 1 else None
 
-    # ⛔ A WINNER MUST BEAT THE RUNNER-UP, NOT MERELY SCORE HIGHEST.
-    # Without this a busy circuit absorbs every weak match. Measured against
-    # Home Assistant's own area assignments: taking the top score alone put six
-    # devices from THREE different areas - Office, Guest Bathroom and Master
-    # Bathroom - on one circuit, which is not plausible wiring. When several
-    # circuits score alike, none of them is evidence.
+    # A winner must beat the runner-up, not merely score highest, or a busy
+    # circuit absorbs every weak match. When several circuits score alike,
+    # none of them is evidence.
     margin = 0.0
     if best and runner:
         margin = max(best[1], best[2]) - max(runner[1], runner[2])
@@ -245,7 +221,7 @@ def assign(
 ) -> dict[str, dict[str, float | str | None]]:
     """Work out which circuit each metered device sits on.
 
-    ⭐ ASSIGNMENT IS ITERATIVE, AND EACH CONFIRMED DEVICE IS SPENT.
+     ASSIGNMENT IS ITERATIVE, AND EACH CONFIRMED DEVICE IS SPENT.
 
     Scoring every device against the raw circuit traces independently lets one
     circuit's step be claimed by several devices at once - nothing consumes it,

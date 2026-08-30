@@ -1,22 +1,12 @@
-"""Breaker walk: kill a circuit and see what dies. The only causal test here.
+"""Breaker walk: kill a circuit and see what dies.
 
-⭐ EVERYTHING ELSE IN THIS INTEGRATION IS CIRCUMSTANTIAL. Correlation says two
-things moved together. An active probe says a circuit moved when a device was
-switched. Only cutting the breaker proves a device is fed by that circuit,
-because the device stops.
+The only causal test in the integration. Correlation and probes show that two
+things move together; cutting the breaker proves a device is fed by that
+circuit, because it stops.
 
-⛔ AND IT IS THE ONE OPERATION THAT CAN COST SOMETHING. Killing a breaker kills
-whatever is on it: a desktop mid-write, a rack, a freezer, a sump pump during a
-storm. The app cannot flip breakers and must never pretend the choice is
-routine - what it can do is say what it already believes is on a circuit BEFORE
-anyone touches it, and refuse to nominate circuits carrying loads that should
-not be interrupted.
-
-⭐ THE CIRCUIT'S OWN CLAMP IS THE SELF-CHECK. If no CT drops to zero, the
-breaker that was flipped is not one this integration is watching, and the right
-answer is "I could not see that" rather than a mapping built from noise. This is
-the same rule as everywhere else here: a blind source returns a clean-looking
-empty, so make the source prove it was looking.
+The circuit's own clamp identifies which breaker was flipped. If no clamp drops
+there is nothing to attribute casualties to, and the result is a refusal rather
+than a mapping built from whatever else changed.
 """
 
 from __future__ import annotations
@@ -68,7 +58,7 @@ def dead_circuit(
     staying idle, and treating it as the answer would let a user "identify" a
     breaker they never touched.
 
-    ⛔ MORE THAN ONE MATCH IS A REFUSAL, NOT A CHOICE. Two circuits going dead
+     MORE THAN ONE MATCH IS A REFUSAL, NOT A CHOICE. Two circuits going dead
     together means a double-pole breaker, a main, or something else switched at
     the same moment, and picking the larger would be inventing a fact.
     """
@@ -99,7 +89,7 @@ def classify_devices(
 ) -> tuple[list[str], list[str], list[str]]:
     """Sort devices into confirmed dead, suspected, and unaffected.
 
-    ⛔ "WENT UNAVAILABLE" IS WEAKER EVIDENCE THAN "READS ZERO", AND CONFLATING
+     "WENT UNAVAILABLE" IS WEAKER EVIDENCE THAN "READS ZERO", AND CONFLATING
     THEM WOULD BE THIS PROJECT'S FAVOURITE MISTAKE. A device reporting 0 W was
     measured. A device that merely vanished might be on the circuit, or might
     be a Zigbee or Z-Wave node whose PARENT was on the circuit - kill one mains
@@ -147,7 +137,7 @@ def walk(
         devices_before, devices_after, mesh_routers
     )
     if circuit is None:
-        # ⛔ Without a confirmed circuit there is nothing to attribute the
+        # Without a confirmed circuit there is nothing to attribute the
         # casualties TO. Report them, attribute none of them.
         return WalkResult(
             circuit=None,
@@ -180,26 +170,12 @@ def describe(
 ) -> dict[str, object]:
     """What is measurably true about a circuit, for someone about to flip it.
 
-    ⛔ REPORTS, DOES NOT JUDGE. Two earlier versions of this tried to rate a
-    circuit as safe or unsafe and both were wrong in opposite directions. The
-    first scored names against a denylist and called anything with no match
-    safe - which on a NEW install, where nothing is attributed and every
-    circuit is called "Circuit 7", marked the whole panel safe including the
-    one feeding a rack. The second inverted it and refused to call anything
-    safe without evidence, which is merely a different way of pretending to
-    know.
+    Reports, does not judge. The person at the panel knows their own house; what
+    they cannot see is what the meter recorded, so that is what this returns.
 
-    ⭐ THE PERSON AT THE PANEL KNOWS THEIR OWN HOUSE. They know the freezer is
-    on that wall and the desktop is running; no amount of string matching on
-    "Circuit 7" competes with that. What they cannot see from the panel is what
-    the meter has recorded, so that is what this returns - the floor, the
-    current draw, how long it has been watched, whether it has ever been idle,
-    and which devices have been attributed to it. Facts they lack, not opinions
-    they do not need.
-
-    ⚠ `standby_w` is the one worth reading twice: a circuit that never falls
+    `standby_w` is the number worth reading twice - a circuit that never falls
     below several hundred watts has something on it that never stops, and that
-    is true from the first day of measurement without anything being named.
+    holds from the first day without anything being named.
     """
     return {
         "circuit": circuit,

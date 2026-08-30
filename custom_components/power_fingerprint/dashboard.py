@@ -1,15 +1,7 @@
-"""What the energy dashboard already knows, so nobody types it twice.
+"""Reads what the energy dashboard already knows: the price, and circuit names.
 
-⭐ IF THE ENERGY DASHBOARD ALREADY KNOWS THE PRICE, ASK IT. A second place to
-type your tariff is a second place for it to be wrong, and the one that is
-wrong is always the one nobody looks at. On the development install the
-dashboard held $0.145/kWh while this integration defaulted to a hardcoded
-$0.13, so every standby cost it reported was 11% low - not obviously wrong,
-just quietly wrong, which is worse.
-
-The value is only ever used as the DEFAULT offered in the config flow. Once a
-user has set a price it is theirs, and a later change on the dashboard does not
-silently reach in and alter what they configured.
+Both are things the user has typed once already. A second place to enter them
+is a second place for them to be wrong.
 """
 
 from __future__ import annotations
@@ -25,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 def _price_from_source(hass: HomeAssistant, source: dict[str, Any]) -> float | None:
     """Pull a price out of one energy source, whatever shape it is in.
 
-    ⚠ Home Assistant has carried two shapes for a grid source: the price keys
+     Home Assistant has carried two shapes for a grid source: the price keys
     sit directly on the source in some versions and inside a `flow_from` list
     in others. Handling only the shape in front of you works until the next
     upgrade, so both are read here.
@@ -85,7 +77,7 @@ async def async_dashboard_price(hass: HomeAssistant) -> float | None:
 async def async_circuit_names(hass: HomeAssistant) -> dict[str, str]:
     """Circuit power sensor -> the name the user gave it on the energy dashboard.
 
-    ⭐ THE BEST NAMES IN THE HOUSE ARE USUALLY ALREADY ON THAT SCREEN. Entity
+     THE BEST NAMES IN THE HOUSE ARE USUALLY ALREADY ON THAT SCREEN. Entity
     titles come from the meter's firmware and read "EmporiaVue Circuit 25
     Power"; the energy dashboard is where somebody sat down and typed "Circuit
     25 Garage", "Circuit 26 Microwave", "Circuit 21 Washer". Reading those back

@@ -13,7 +13,7 @@ CONF_PRICE = "price_per_kwh"
 CONF_TOLERANCE = "coverage_tolerance_pct"
 CONF_PAIRS = "contradiction_pairs"
 
-# ⭐ ONLY A LAST RESORT. `price.async_dashboard_price` is asked first, because a
+# ONLY A LAST RESORT. `price.async_dashboard_price` is asked first, because a
 # second place to type your tariff is a second place for it to be wrong, and the
 # wrong one is always the one nobody looks at. Measured: a dashboard holding
 # $0.145/kWh against this constant made every standby cost read 11% low.
@@ -30,31 +30,21 @@ DEFAULT_TOLERANCE = 5.0
 WINDOW_HOURS = 24
 POLL_SECONDS = 30
 
-# ⛔ HOW LITTLE OF THE WINDOW IS STILL TOO LITTLE TO ANSWER. Standby is a 5th
-# percentile, so it needs to span at least a duty cycle or two of whatever
-# cycles slowest on the circuit. Measured on the development install: the
-# central AC runs 42% of a day, and a window covering only the minute after a
-# restart reported 5,017 W of "standby" against a true 24-hour figure of 3 W.
-# Below this span the sensors report `unknown`, which is the honest answer and
-# is not the same as reporting a number nobody should trust.
+# Standby is a 5th percentile, so it needs to span a duty cycle or two of
+# whatever cycles slowest. Below this the sensors report `unknown` rather than a
+# number from a window too short to mean anything.
 MIN_STANDBY_WINDOW_HOURS = 1.0
 
 
 CONF_CONFIDENCE = "confidence"
 DEFAULT_CONFIDENCE = "balanced"
 
-# ⭐ ONE DIAL THE USER CAN REASON ABOUT, NOT TWELVE THEY CANNOT.
+# One dial rather than a dozen thresholds: these were found by measuring
+# against a house with 27 clamps to check answers against, which nobody else
+# has, so separate numeric knobs would be controls with no feedback.
 #
-# Every threshold below was arrived at by measuring against a house with 27
-# real clamps to check answers against. Almost nobody installing this has that,
-# so exposing `min_step_match` and `min_margin` as separate numbers would be
-# handing over controls with no way to tell whether turning them helped. What a
-# person CAN say is how they would rather be wrong.
-#
-# ⛔ THE TWO WAYS TO BE WRONG ARE NOT SYMMETRIC. A missing answer is visible -
-# the device simply has no circuit. A wrong answer is invisible: it looks
-# exactly like a right one, gets written onto a device as a label, and is
-# believed. `cautious` is therefore the safe end and `eager` carries a warning.
+# The two ways to be wrong are not symmetric. A missing answer is visible; a
+# wrong one looks exactly like a right one and gets believed.
 CONFIDENCE_PROFILES: dict[str, dict[str, float]] = {
     # Answers only where the evidence clearly beats coincidence. Expect roughly
     # half as many placements as `balanced`, and to trust all of them.
@@ -77,7 +67,7 @@ CONFIDENCE_PROFILES: dict[str, dict[str, float]] = {
         "cluster_threshold": 0.90,
         "absence_patience": 2.0,
     },
-    # ⚠ More placements, and some of them wrong in a way you cannot see. Sound
+    # More placements, and some of them wrong in a way you cannot see. Sound
     # choice while exploring a panel, poor one for driving automations.
     "eager": {
         "min_step_match": 0.25,

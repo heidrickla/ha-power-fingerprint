@@ -1,6 +1,6 @@
 """Shared Home Assistant REST client for the offline tools.
 
-⛔ THE `end_time` TRAP LIVES HERE AND NOWHERE ELSE.
+THE `end_time` TRAP LIVES HERE AND NOWHERE ELSE.
 
 `/api/history/period/<start>` returns only about 24 hours from <start> unless
 `end_time` is supplied. That is the documented default and it fails SOFT: you

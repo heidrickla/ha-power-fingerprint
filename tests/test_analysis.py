@@ -291,7 +291,7 @@ def test_absence_flags_a_genuinely_silent_appliance():
 
 
 def test_blind_time_is_not_counted_as_silence():
-    """⛔ The failure that matters: the recorder was down, not the fridge.
+    """The failure that matters: the recorder was down, not the fridge.
 
     Thirty hours of silence, twenty of which nobody was watching, is ten hours
     of observed silence - inside the limit. Claiming otherwise would be
@@ -389,7 +389,7 @@ def _profiles():
 
 
 def test_the_profiles_are_ordered_not_just_different():
-    """⛔ A dial only means something if turning it moves every bar the same way.
+    """A dial only means something if turning it moves every bar the same way.
 
     Three profiles with thresholds that disagree about which is stricter would
     be worse than one profile, because the user's mental model would be wrong.

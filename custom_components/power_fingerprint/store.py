@@ -39,7 +39,7 @@ class FingerprintStore:
         # async_take_orphaned_pauses().
         self._paused: list[str] = []
         # When each named appliance was last seen running, keyed
-        # "<circuit>|<label>" -> ISO timestamp. ⛔ PERSISTED ON PURPOSE. Held
+        # "<circuit>|<label>" -> ISO timestamp.  PERSISTED ON PURPOSE. Held
         # only in memory, every Home Assistant restart would reset absence
         # detection to "never seen", so a fridge that stopped a week ago would
         # look freshly quiet after every reboot and the one alert worth having
@@ -104,7 +104,7 @@ class FingerprintStore:
             self._last_seen = dict(data.get("last_seen", {}))
             self._last_poll = data.get("last_poll")
             self._assignments = dict(data.get("assignments", {}))
-            # ⛔ SELF-HEAL: drop any assignment for this integration's OWN
+            # SELF-HEAL: drop any assignment for this integration's OWN
             # sensors. `unmonitored_load` is mains minus the circuits, so
             # correlating it against a circuit is circular by construction, and
             # an early version did exactly that and persisted the result.
@@ -147,7 +147,7 @@ class FingerprintStore:
     ) -> bool:
         """Remember which circuit a device was found on.
 
-        ⛔ AN ACTIVE PROBE MUST NOT OVERWRITE ITSELF WITH A WEAKER ANSWER.
+         AN ACTIVE PROBE MUST NOT OVERWRITE ITSELF WITH A WEAKER ANSWER.
         A probe that switched a real light and watched a real circuit move is
         stronger evidence than a passive correlation, and a later passive sweep
         finding nothing must not erase it. A `None` circuit is never recorded

@@ -96,7 +96,7 @@ def test_a_multi_breaker_designation_is_stripped():
 
 
 def test_an_unnamed_circuit_returns_none_rather_than_a_number():
-    """⛔ "Circuit 25" names a breaker. Guessing an appliance from it would be
+    """ "Circuit 25" names a breaker. Guessing an appliance from it would be
     exactly the confident nonsense this project keeps deleting."""
     assert fp.suggest_label("EmporiaVueSecondary Circuit 25 Power") is None
     assert fp.suggest_label("EmporiaVue Circuit 16 Power") is None
@@ -144,7 +144,7 @@ def _label_name(title, prefix="Circuit"):
 
 
 def test_a_dashboard_name_is_already_a_good_label():
-    """⛔ The bug this replaced produced "Circuit Circuit 30"."""
+    """A dashboard name is already a label; it must not be re-prefixed."""
     assert _label_name("Circuit 30") == "Circuit 30"
     assert _label_name("Circuit 16 Study") == "Circuit 16 Study"
 

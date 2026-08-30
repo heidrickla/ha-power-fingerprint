@@ -34,7 +34,7 @@ async def test_services_are_registered(hass: HomeAssistant, config_entry, powere
 async def test_a_dead_probe_does_not_leave_automations_switched_off(
     hass: HomeAssistant, config_entry, powered
 ):
-    """⛔ THE SAFETY BACKSTOP, AND THE REASON IT EXISTS.
+    """THE SAFETY BACKSTOP, AND THE REASON IT EXISTS.
 
     If a probe pauses automations and the process then dies - killed, restarted,
     power cut - nothing else would ever switch them back on and the house would

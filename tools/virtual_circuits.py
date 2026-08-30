@@ -1,6 +1,6 @@
 """Pull large appliances out of a whole-house meter, with no per-circuit clamps.
 
-⛔ WEAKER THAN THE REST OF THIS PROJECT, ON PURPOSE. With a clamp per breaker
+WEAKER THAN THE REST OF THIS PROJECT, ON PURPOSE. With a clamp per breaker
 the separation is done in hardware. With one meter every appliance is layered
 on one trace and small loads are simply not in it. Measured against a house
 that has both: 1000 W and above is recovered 100% of the time from the mains
@@ -9,8 +9,8 @@ alone, 300-1000 W about 80%, and below that it falls away fast.
 So this finds the dryer, the oven, the air conditioner, the well pump. It does
 not find lamps, and it says so rather than inventing them.
 
-    python tools/virtual_circuits.py --days 3
-    python tools/virtual_circuits.py --days 3 --validate emporiavue
+   python tools/virtual_circuits.py --days 3
+   python tools/virtual_circuits.py --days 3 --validate emporiavue
 
 `--validate` is only possible on a house that ALSO has real clamps: it checks
 each inferred appliance against the per-circuit truth, which is the only honest
@@ -91,7 +91,7 @@ def main() -> int:
             )
         return 0
 
-    # ⭐ Devices that meter themselves are known exactly and need no inference.
+    # Devices that meter themselves are known exactly and need no inference.
     # Taking them out of the aggregate first is the cheapest possible help:
     # every watt subtracted is a watt that can no longer be mistaken for part
     # of something else.
@@ -152,15 +152,12 @@ def main() -> int:
         if args.validate:
             # Which real circuit was actually moving during these runs? The
             # answer this whole approach is guessing at.
-            # ⛔ COINCIDENCE IS NOT EVIDENCE. The air conditioners here run
-            # 42% of the time, so every inferred run overlaps one of them and
-            # a plain overlap test scored four different shapes at 85-97%
-            # against BOTH. The circuit's own step has to MATCH THE MAGNITUDE
-            # of the inferred appliance - the same lesson the active probe
-            # taught, for the same reason.
+            # Coincidence is not evidence: the air conditioners run 42% of
+            # the time, so a plain overlap test scores everything against them.
+            # The circuit's step must match the inferred magnitude.
             hits: Counter[str] = Counter()
             for m in members:
-                # ⚠ Take the BEST matching overlapping event, not the first
+                # Take the BEST matching overlapping event, not the first
                 # one. Breaking on first overlap scored real matches at 6%
                 # because a busy circuit's earliest overlapping event is
                 # usually the wrong size.
@@ -187,7 +184,7 @@ def main() -> int:
 def _best_match_rate(events: list, args, floor: float) -> float:
     """How often an inferred run matches a real circuit's step in magnitude.
 
-    ⛔ Only meaningful on a house that ALSO has clamps. It is the honest tuning
+     Only meaningful on a house that ALSO has clamps. It is the honest tuning
     signal, and the reason a clamp-less house cannot simply be told its own
     best floor - it has nothing to check against.
     """

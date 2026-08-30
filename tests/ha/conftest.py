@@ -10,7 +10,7 @@ they do. They skip when the harness is absent, so the pure-module suite one
 level up still runs on a bare checkout and the default run does not imply
 coverage that does not exist.
 
-⛔ THIS CONFTEST LIVES IN ITS OWN DIRECTORY ON PURPOSE.
+THIS CONFTEST LIVES IN ITS OWN DIRECTORY ON PURPOSE.
 
 It declares an autouse fixture that pulls in Home Assistant machinery. A pytest
 conftest applies to everything at or below its directory, so with this file in

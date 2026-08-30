@@ -167,7 +167,7 @@ async def _sample_circuits(
     active read. Averaging over the settle window removes that and most of the
     noise from other loads.
 
-    ⚠ THE SETTLE WINDOW HAS TO OUTLAST YOUR METER'S REPORTING INTERVAL. If it
+     THE SETTLE WINDOW HAS TO OUTLAST YOUR METER'S REPORTING INTERVAL. If it
     does not, the circuit has not reported since the switch was thrown and the
     probe reads a confident "no change" from stale values - a wrong answer that
     looks like a clean one. The caller warns when the measured cadence says
@@ -271,7 +271,7 @@ def _pausable(
 def _own_meter(hass: HomeAssistant, entity_id: str) -> str | None:
     """The device's own power sensor, if it has one.
 
-    ⭐ THE SINGLE BIGGEST ACCURACY LEVER IN ACTIVE PROBING, AND ASKING THE USER
+     THE SINGLE BIGGEST ACCURACY LEVER IN ACTIVE PROBING, AND ASKING THE USER
     TO SUPPLY IT WAS A FOOTGUN. With the device's own reading, `rank_deltas`
     requires the circuit's step to MATCH THE MAGNITUDE the device reported.
     Without it, ranking falls back to "which circuit moved most", and on a
@@ -469,7 +469,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
             )
 
         prior = state.state
-        # ⛔ Refuse to cut a live load. See safe_to_switch_off - the domain
+        # Refuse to cut a live load. See safe_to_switch_off - the domain
         # allowlist cannot tell a lamp from a computer's power feed, and this
         # install's living room contains both.
         ok, why_not = safe_to_switch_off(prior, _read(hass, meter) if meter else None)
@@ -489,7 +489,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         watching = [device, *coordinator.circuits]
         watched_before = _watchers(hass, watching)
 
-        # ⚠ A settle window shorter than the meter's own reporting interval
+        # A settle window shorter than the meter's own reporting interval
         # measures nothing: the circuit has not published since the switch was
         # thrown, so both reads come from the same stale value and the probe
         # returns a confident "no change". Say so rather than returning a
@@ -512,10 +512,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
         refused: list[dict[str, str]] = []
         if call.data["pause_automations"]:
             paused, refused = _pausable(hass, watching)
-            # ⛔ RECORD BEFORE SWITCHING OFF, NOT AFTER. If the process dies
-            # between the two, a stale record restores something already
-            # running, which is harmless. The other order leaves automations
-            # off with nothing aware of it.
+            # Record before switching off. Dying between the two leaves a
+            # stale record that restores something already running, which is
+            # harmless; the other order leaves automations off silently.
             await store.async_record_paused(paused)
             for entity in paused:
                 await hass.services.async_call(
@@ -584,7 +583,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 )
                 await asyncio.sleep(settle)
         finally:
-            # ⛔ RESTORE IS IN `finally`, NOT ON THE HAPPY PATH. A probe that
+            # RESTORE IS IN `finally`, NOT ON THE HAPPY PATH. A probe that
             # leaves the house in a different state than it found it is a bug
             # regardless of what it learned, and an exception mid-probe is
             # exactly when that would otherwise happen.
@@ -664,7 +663,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _map(call: ServiceCall) -> ServiceResponse:
         """Work out which circuit each self-metering device sits on.
 
-        ⭐ THIS WAS TOOL-ONLY UNTIL NOW. The analysis lived in
+         THIS WAS TOOL-ONLY UNTIL NOW. The analysis lived in
         `tools/attribute.py` and needed a workstation, a token and a shell,
         which meant the one thing that turns a wall of numbered circuits into
         named ones could not be run by the person who installed the
@@ -682,7 +681,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         for entity in circuits:
             raw_circuits[entity] = await _history(hass, entity, days)
 
-        # ⛔ The grid must be about one reporting interval wide, and that is a
+        # The grid must be about one reporting interval wide, and that is a
         # property of the meter, not a constant. Measured from this install's
         # own history unless the caller overrides it.
         measured = [
@@ -705,18 +704,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 "result, not an absence of matches."
             )
 
-        # ⛔ THREE KINDS OF SENSOR LOOK LIKE DEVICES AND ARE NOT, AND ALL THREE
-        # GOT "PLACED" ON THE FIRST REAL RUN.
-        #
-        #  1. THIS INTEGRATION'S OWN OUTPUT. `unmonitored_load` is mains minus
-        #     the circuits, so correlating it against a circuit is circular by
-        #     construction - and it duly landed on the busiest one.
-        #  2. PANEL AGGREGATES. The Vue publishes `phase_l1`, `phase_l2` and a
-        #     per-unit total alongside the per-circuit readings. Excluding only
-        #     the configured mains left the rest in, and a sum of circuits
-        #     trivially tracks any circuit in it.
-        #  3. Anything else sharing a DEVICE with a configured circuit, which
-        #     is the general form of (2) and needs no list of names.
+        # Three kinds of sensor look like devices and are not: this
+        # integration's own output (`unmonitored_load` is mains minus circuits,
+        # so correlating it is circular), panel aggregates such as phase and
+        # per-unit totals, and anything else sharing a device with a configured
+        # circuit - which is the general form of the second.
         registry = er.async_get(hass)
 
         circuit_devices = set()
@@ -767,7 +759,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         def _area(entity_id: str) -> str | None:
             """An entity's area, falling back to its device's.
 
-            ⛔ `entity.area_id` is only set when someone has OVERRIDDEN the
+             `entity.area_id` is only set when someone has OVERRIDDEN the
             area on that specific entity. Almost every entity inherits its
             area from its device, so reading the entity alone returned None for
             every single device on the first real run - silently disabling the
@@ -847,7 +839,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _autolabel(call: ServiceCall) -> ServiceResponse:
         """Name every shape whose circuit already says what it is.
 
-        ⭐ ONLY WHERE THERE IS NOTHING TO GUESS. Two conditions, both strict:
+         ONLY WHERE THERE IS NOTHING TO GUESS. Two conditions, both strict:
         the circuit's own title must contain an appliance name somebody typed,
         and the circuit must have exactly ONE learned shape. A circuit called
         "Dish Washer" with a single recurring shape has one answer. A circuit
@@ -907,7 +899,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _apply_labels(call: ServiceCall) -> ServiceResponse:
         """Label each mapped device with the circuit it sits on.
 
-        ⛔ WHY LABELS AND NOT THE OBVIOUS THING. `via_device` is what Home
+         WHY LABELS AND NOT THE OBVIOUS THING. `via_device` is what Home
         Assistant means by "related" - 149 devices on the development install
         already use it - but an integration may only set it on devices IT
         OWNS, and these belong to ZHA and Z-Wave. Creating a device per circuit
@@ -916,7 +908,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         that registry already has `emporiavue` and `EmporiaVue` confusing
         people.
 
-        ⚠ Labels are the USER'S namespace and no integration API for them is
+         Labels are the USER'S namespace and no integration API for them is
         documented - there is simply no ownership check stopping this. So it
         defaults to a dry run, only ever ADDS to a device's existing labels,
         and `remove: true` takes every label back off.
@@ -941,12 +933,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
             title = dashboard_names.get(circuit) or (
                 str(state.attributes.get("friendly_name", "")) if state else circuit
             )
-            # ⭐ A LABEL WANTS THE BREAKER NUMBER, unlike an appliance name.
-            # The dashboard names are already exactly right - "Circuit 16
-            # Study", "Circuit 30" - so use them verbatim. Stripping the number
-            # the way `suggest_label` does and then prefixing "Circuit" back on
-            # produced "Circuit Circuit 30", and lost the number where the name
-            # was only a number.
+            # A label wants the breaker number, unlike an appliance name, so
+            # dashboard names are used whole.
             name = _label_name(title, prefix)
             planned.append(
                 {
@@ -985,7 +973,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 existing = labels.async_create(str(item["label"]))
             if existing.label_id in device.labels:
                 continue
-            # ⛔ ADD, never replace - the other labels on that device are
+            # ADD, never replace - the other labels on that device are
             # somebody else's and none of our business.
             devices.async_update_device(
                 device.id, labels=device.labels | {existing.label_id}

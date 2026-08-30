@@ -73,7 +73,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=50, step=0.5, mode="box")
             ),
-            # ⭐ One dial the user can reason about. The individual
+            # One dial the user can reason about. The individual
             # thresholds are not exposed: almost nobody has 27 real clamps to
             # check answers against, so numeric knobs would be controls with no
             # feedback. What a person CAN say is how they would rather be wrong.
@@ -102,7 +102,7 @@ def _validate(
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Prove the chosen sensors can actually be read, before accepting them.
 
-    ⛔ THE SELECTOR IS NOT A CHECK. It filters on `device_class: power`, which
+     THE SELECTOR IS NOT A CHECK. It filters on `device_class: power`, which
     constrains neither the unit nor whether the sensor currently reports a
     number - and both of those failures are silent afterwards. A kilowatt
     sensor produces thresholds a thousand times too high and every circuit

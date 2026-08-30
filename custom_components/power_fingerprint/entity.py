@@ -1,9 +1,9 @@
-"""Shared entity base.
+"""Shared entity bases.
 
-Every entity belongs to one service device so they group in the UI instead of
-scattering as loose entities. This integration measures nothing itself - it
-derives everything from other integrations' sensors - so the device is marked
-as a service with no physical connection.
+`FingerprintEntity` groups an entity under this integration's service device.
+`AttachedEntity` places one on a device owned by another integration, by
+pointing its registry row at the target after registration - returning that
+device's identifiers in `DeviceInfo` creates a duplicate device instead.
 """
 
 from __future__ import annotations
@@ -47,13 +47,13 @@ class FingerprintEntity(CoordinatorEntity[FingerprintCoordinator]):
 class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
     """An entity that lives on SOMEONE ELSE'S device.
 
-    ⭐ THE FINGERPRINT BELONGS WHERE THE DEVICE IS. A circuit assignment listed
+     THE FINGERPRINT BELONGS WHERE THE DEVICE IS. A circuit assignment listed
     on this integration's own service device is a fact filed under the wrong
     heading - you look it up when you already know to ask. On the device's own
     page it is there when you open the front porch light to see why it is
     behaving oddly.
 
-    ⛔ DO NOT DO THIS BY RETURNING THE TARGET DEVICE'S IDENTIFIERS IN
+     DO NOT DO THIS BY RETURNING THE TARGET DEVICE'S IDENTIFIERS IN
     `DeviceInfo`. That was the documented trick for years and it no longer
     merges. Measured on Home Assistant 2026.8 against a real registry: passing
     identifiers `[["zha", "64:02:8f:ff:fe:a1:ca:4a"]]` that matched an existing

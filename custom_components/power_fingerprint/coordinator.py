@@ -138,7 +138,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         # rather than every 30 seconds, and logged again when they return.
         self._missing: set[str] = set()
         # Seconds each circuit spent unreadable since its appliance was last
-        # seen. ⛔ THIS IS THE WHOLE POINT OF ABSENCE DETECTION: time nobody was
+        # seen.  THIS IS THE WHOLE POINT OF ABSENCE DETECTION: time nobody was
         # watching is not evidence that nothing happened.
         self._blind_s: dict[str, float] = defaultdict(float)
         self._last_seen: dict[str, str] = {}
@@ -279,15 +279,9 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         start = dt_util.utcnow() - timedelta(hours=WINDOW_HOURS)
 
         def _fetch() -> dict[str, list[State]]:
-            # ⛔ ASK FOR THE CONFIGURED ENTITIES, NOT FOR EVERYTHING. The first
-            # version passed entity_id=None, which asks the recorder for 24
-            # hours of EVERY entity in the house. On a real install that is
-            # millions of rows; it failed, the failure was swallowed into a
-            # debug line, and the window stayed empty. Standby then reported
-            # the 5th percentile of about sixty seconds of samples - which on a
-            # night with the air conditioning running came out as 5,017 W of
-            # "standby" against a true 24-hour figure near zero. A confident
-            # wrong number, with nothing anywhere saying it was wrong.
+            # The configured circuits only. Asking the recorder for every
+            # entity is millions of rows on a real install, and the failure is
+            # swallowed, leaving standby computed from an empty window.
             rows: dict[str, list[State]] = history.get_significant_states(
                 self.hass,
                 start,
@@ -397,7 +391,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             "standby": ranking,
             "standby_total_w": round(sum(floors.values()), 1),
             "standby_annual_cost": round(sum(floors.values()) * 8.766 * self.price, 2),
-            # ⛔ Standby is a 5th percentile, so it only means anything once the
+            # Standby is a 5th percentile, so it only means anything once the
             # window spans a duty cycle or two. Published so the entities can
             # refuse to answer rather than publish a number from four minutes
             # of data that looks exactly as authoritative as a real one.
@@ -541,7 +535,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
     def window_hours(self) -> float:
         """How much wall-clock time the rolling window actually spans.
 
-        ⭐ THE SAMPLE COUNT IS NOT THE ANSWER. A window can hold hundreds of
+         THE SAMPLE COUNT IS NOT THE ANSWER. A window can hold hundreds of
         samples and still cover four minutes, and a standby figure from four
         minutes is a confident wrong number rather than a rough one. What
         matters is the span.
