@@ -1,7 +1,7 @@
 {
   "domain": "power_fingerprint",
   "name": "Power Fingerprint",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "documentation": "https://10.10.54.219:3000/lewis/ha-power-fingerprint",
   "issue_tracker": "https://10.10.54.219:3000/lewis/ha-power-fingerprint/issues",
   "codeowners": [

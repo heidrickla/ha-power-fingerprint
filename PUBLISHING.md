@@ -15,13 +15,20 @@ None of these are code problems. The code is ready; the hosting is not.
 
 ## The Home Assistant layer tests run on Linux, not here
 
-`tests/ha/` is 27 tests covering setup and unload, the config, reconfigure and
+`tests/ha/` is 31 tests covering setup and unload, the config, reconfigure and
 options flows and their validation refusals, the derived sensor values, the
 coverage fault in both directions, device grouping, the orphaned-pause safety
 backstop, component-level action registration, `ConfigEntryNotReady` while the
 power sensors are missing, and unit conversion at ingestion — including the
 kilowatt-mains-against-watt-circuits case that was found on the development
 install itself.
+
+⛔ **Installing the integration on a real Home Assistant found two defects the
+same afternoon, one of which this suite would have caught immediately**: a
+`len()` on an int that made the diagnostics download return HTTP 500, and a
+recorder seed that asked for every entity in the house, failed, swallowed the
+failure into a debug line, and left standby reporting 5,017 W against a true
+figure of 3 W. Written tests that never run are not coverage.
 
 They have not been executed yet. Home Assistant supports Linux, macOS and the
 devcontainer for development, and this repository was written on Windows, where

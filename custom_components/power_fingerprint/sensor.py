@@ -13,6 +13,7 @@ from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import MIN_STANDBY_WINDOW_HOURS
 from .coordinator import FingerprintCoordinator, PowerFingerprintConfigEntry
 from .entity import FingerprintEntity
 
@@ -57,6 +58,29 @@ async def async_setup_entry(
 
 class _Base(FingerprintEntity, SensorEntity):
     """Sensor flavour of the shared base."""
+
+
+class _StandbyBase(_Base):
+    """For the two sensors that are only meaningful once the window has filled.
+
+    ⛔ Refuses to answer rather than answering wrongly. A 5th percentile over
+    four minutes is not a rough standby figure, it is a different quantity
+    wearing the same label, and it reads as authoritative on a dashboard.
+    """
+
+    @property
+    def _window_ready(self) -> bool:
+        hours = (self.coordinator.data or {}).get("window_hours", 0.0)
+        return float(hours) >= MIN_STANDBY_WINDOW_HOURS
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        hours = (self.coordinator.data or {}).get("window_hours", 0.0)
+        return {
+            "window_hours": hours,
+            "window_ready": self._window_ready,
+            "minimum_window_hours": MIN_STANDBY_WINDOW_HOURS,
+        }
 
 
 class ApplianceSensor(_Base):
@@ -139,7 +163,7 @@ class UnmonitoredLoadSensor(_Base):
         }
 
 
-class StandbyPowerSensor(_Base):
+class StandbyPowerSensor(_StandbyBase):
     """Total permanent draw across every monitored circuit.
 
     This is always-on load, not waste - a rack at a flat 640 W is a legitimate
@@ -156,6 +180,8 @@ class StandbyPowerSensor(_Base):
 
     @property
     def native_value(self) -> float | None:
+        if not self._window_ready:
+            return None
         return (self.coordinator.data or {}).get("standby_total_w")
 
     @property
@@ -163,10 +189,10 @@ class StandbyPowerSensor(_Base):
         # Top 15 only: the attribute payload is written to the state machine on
         # every update and a 36-circuit ranking would bloat the recorder.
         ranking = (self.coordinator.data or {}).get("standby", [])
-        return {"ranking": ranking[:15]}
+        return {**super().extra_state_attributes, "ranking": ranking[:15]}
 
 
-class StandbyCostSensor(_Base):
+class StandbyCostSensor(_StandbyBase):
     """Annualised cost of that permanent draw, at the configured price.
 
     ⚠ DELIBERATELY NOT `SensorDeviceClass.MONETARY`. That device class means
@@ -192,4 +218,6 @@ class StandbyCostSensor(_Base):
 
     @property
     def native_value(self) -> float | None:
+        if not self._window_ready:
+            return None
         return (self.coordinator.data or {}).get("standby_annual_cost")

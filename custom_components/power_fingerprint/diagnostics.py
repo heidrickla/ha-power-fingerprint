@@ -95,10 +95,16 @@ async def async_get_config_entry_diagnostics(
         "standby_ranking": standby[:15],
         "contradictions": clashes,
         "silent_circuit_count": len(data.get("silent_circuits", [])),
-        "window_filled": {
-            _anon(entity): len(samples)
-            for entity, samples in coordinator.window_sizes().items()
-        },
+        # `window_sizes()` already returns COUNTS. Calling len() on them raised
+        # TypeError and made the whole diagnostics download 500 - found by
+        # installing, not by any test, because the HA-layer suite has never run.
+        "window_filled": dict(
+            sorted(
+                (_anon(entity), count)
+                for entity, count in coordinator.window_sizes().items()
+            )
+        ),
+        "window_hours": round(coordinator.window_hours(), 2),
         # The meter itself. This integration was developed against one brand of
         # per-circuit monitor, and unit and cadence are where another one will
         # differ - so report both rather than making a maintainer ask.
