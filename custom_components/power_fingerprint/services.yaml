@@ -120,6 +120,10 @@ verify_circuit:
           max: 120
           unit_of_measurement: seconds
           mode: slider
+    force:
+      selector:
+        boolean:
+      default: false
     pause_automations:
       name: Pause interfering automations
       description: >-
@@ -134,3 +138,27 @@ verify_circuit:
       default: false
       selector:
         boolean:
+
+map_devices:
+  fields:
+    days:
+      selector:
+        number:
+          min: 1
+          max: 14
+          mode: box
+      default: 3
+    step:
+      selector:
+        number:
+          min: 1
+          max: 300
+          mode: box
+    min_correlation:
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.05
+          mode: box
+      default: 0.5

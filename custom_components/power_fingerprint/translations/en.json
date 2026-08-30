@@ -110,6 +110,28 @@
         "pause_automations": {
           "name": "Pause interfering automations",
           "description": "Temporarily switch off automations that could move this device mid-probe. Safety-related automations are never paused."
+        },
+        "force": {
+          "name": "Probe anyway",
+          "description": "Switch the device even though it is currently carrying a load. Only set this when you know nothing is running on it."
+        }
+      }
+    },
+    "map_devices": {
+      "name": "Map devices to circuits",
+      "description": "Work out which circuit each self-metering device sits on, by correlating each device's own power reading against every circuit. Reports what it could not place as well as what it could.",
+      "fields": {
+        "days": {
+          "name": "Days of history",
+          "description": "How far back to compare."
+        },
+        "step": {
+          "name": "Grid seconds",
+          "description": "Leave empty to measure your meter's reporting interval from its own history."
+        },
+        "min_correlation": {
+          "name": "Minimum correlation",
+          "description": "Lower places more devices and places more of them wrongly."
         }
       }
     }
@@ -185,6 +207,9 @@
     },
     "battery_powered": {
       "message": "{device} is battery powered. It draws no mains current, so no circuit can show it switching and there is nothing to measure."
+    },
+    "carrying_load": {
+      "message": "{device} will not be probed: {reason}. Pass force: true only if you are certain nothing on it matters."
     }
   },
   "issues": {
