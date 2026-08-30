@@ -11,9 +11,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import EntityCategory, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import MIN_STANDBY_WINDOW_HOURS
@@ -70,12 +68,12 @@ async def async_setup_entry(
         for device_entity in store.assignments():
             if device_entity in mapped:
                 continue
-            info = _device_info_for(hass, device_entity)
-            if info is None:
+            target = _device_id_for(hass, device_entity)
+            if target is None:
                 # Not in the registry, or not on a device. Nothing to attach to.
                 continue
             mapped.add(device_entity)
-            new.append(CircuitSensor(coordinator, device_entity, info))
+            new.append(CircuitSensor(coordinator, device_entity, target))
         if new:
             async_add_entities(new)
 
@@ -83,24 +81,10 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(_add_mapped_devices))
 
 
-def _device_info_for(hass: HomeAssistant, entity_id: str) -> DeviceInfo | None:
-    """The DeviceInfo needed to attach an entity to an existing device.
-
-    Carries only the target device's own identifiers and connections. Anything
-    else - a name, a manufacturer - would be this integration writing to a
-    device it does not own.
-    """
-    entities = er.async_get(hass)
-    row = entities.async_get(entity_id)
-    if row is None or row.device_id is None:
-        return None
-    device = dr.async_get(hass).async_get(row.device_id)
-    if device is None:
-        return None
-    return DeviceInfo(
-        identifiers=set(device.identifiers),
-        connections=set(device.connections),
-    )
+def _device_id_for(hass: HomeAssistant, entity_id: str) -> str | None:
+    """The registry device id of the thing this entity measures."""
+    row = er.async_get(hass).async_get(entity_id)
+    return row.device_id if row else None
 
 
 class _Base(FingerprintEntity, SensorEntity):
@@ -342,10 +326,21 @@ class CircuitSensor(AttachedEntity, SensorEntity):
         self,
         coordinator: FingerprintCoordinator,
         device_entity: str,
-        device_info: DeviceInfo,
+        target_device_id: str,
     ) -> None:
-        super().__init__(coordinator, f"circuit_{device_entity}", device_info)
+        super().__init__(coordinator, f"circuit_{device_entity}", target_device_id)
         self._device_entity = device_entity
+
+    # ⚠ NO `suggested_object_id` HERE - IT DOES NOT WORK FOR THIS SHAPE OF
+    # ENTITY, AND LOOKED LIKE IT SHOULD. Home Assistant derives the entity id
+    # from the device name plus the entity name at REGISTRATION time, and this
+    # entity has no device until `async_added_to_hass` points its registry row
+    # at one. So the id is built from the name alone and comes out
+    # `sensor.circuit`, `sensor.circuit_2`, `sensor.circuit_3` - a numbered
+    # list that says nothing about which is which. The display name is correct
+    # ("Circuit", shown under the device, which is the house style); only the
+    # id is unlovely, and renaming it is a one-time registry operation rather
+    # than something to contort the entity for.
 
     @property
     def _row(self) -> dict[str, Any]:

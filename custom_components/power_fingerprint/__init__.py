@@ -6,12 +6,13 @@ import logging
 from typing import Any
 
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 
 from . import services
-from .const import CONF_CIRCUITS, CONF_MAINS
+from .const import CONF_CIRCUITS, CONF_MAINS, DOMAIN
 from .coordinator import (
     FingerprintCoordinator,
     PowerFingerprintConfigEntry,
@@ -59,6 +60,8 @@ async def async_setup_entry(
             f"starting with {missing[0]}"
         )
 
+    _prune_stray_devices(hass, entry)
+
     store = FingerprintStore(hass, entry.entry_id)
     await store.async_load()
 
@@ -86,6 +89,37 @@ async def async_setup_entry(
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     return True
+
+
+@callback
+def _prune_stray_devices(
+    hass: HomeAssistant, entry: PowerFingerprintConfigEntry
+) -> None:
+    """Remove device entries an earlier version created by mistake.
+
+    ⛔ Up to 0.10.0 this integration attached its per-device entities by
+    returning the TARGET device's identifiers in `DeviceInfo`. That merged
+    devices for years and no longer does: on Home Assistant 2026.8 it produced
+    a second, nameless device entry per mapping, owned by this integration and
+    sitting beside the real one. Nine of them on the development install.
+
+    The fix is in `AttachedEntity`, but a fix that only stops the bleeding
+    leaves the mess behind on every install that already ran the old version.
+    Only entries this integration owns, carrying no name and not its own
+    service device, are removed - the real devices are owned by whoever created
+    them and are never touched.
+    """
+    devices = dr.async_get(hass)
+    for device in list(dr.async_entries_for_config_entry(devices, entry.entry_id)):
+        if device.name is not None:
+            continue
+        if any(domain == DOMAIN for domain, _ in device.identifiers):
+            continue
+        _LOGGER.info(
+            "Removing a stray device entry left by an earlier version: %s",
+            device.identifiers,
+        )
+        devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
 
 
 async def async_unload_entry(

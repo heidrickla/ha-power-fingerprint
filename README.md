@@ -71,6 +71,34 @@ and a three-probe agreement are not the same claim:
 resolves nothing never erases a previous answer — "I could not tell this time"
 is not "it is not there".
 
+#### ⛔ How NOT to attach an entity to another integration's device
+
+Returning the target device's own `identifiers` in `DeviceInfo` was the
+documented way to do this for years. **It no longer merges.** Measured on Home
+Assistant 2026.8 against a real registry: identifiers matching an existing
+Inovelli device *exactly* —
+
+```
+ours:   identifiers [["zha","64:02:8f:ff:fe:a1:ca:4a"]]   name: null
+theirs: identifiers [["zha","64:02:8f:ff:fe:a1:ca:4a"]]   name: "Inovelli VZM32-SN"
+```
+
+— produced a **second, nameless device** owned by this integration sitting
+beside the real one, one per mapping. The registry now carries
+`composite_device_id` and `has_composite_identifiers`: shared identifiers
+across config entries are a composite relationship, not a merge.
+
+The working route is to register with no device and then point the entity's
+**registry row** at the target in `async_added_to_hass`. `setup_entry` also
+prunes the stray devices an earlier version created, because a fix that only
+stops the bleeding leaves the mess behind on every install that already ran it.
+
+⚠ One consequence worth knowing: the entity id is derived from device name plus
+entity name at *registration*, which happens before the device is attached, so
+these arrive as `sensor.circuit`, `sensor.circuit_2`… The displayed name is
+correct — "Circuit", under the device — and `suggested_object_id` does **not**
+fix the id for this shape of entity. Rename them once if the ids matter to you.
+
 `unknown` is not a failure. It means the circuit is drawing power in a shape no
 named fingerprint accounts for — something new was plugged in, or an appliance
 changed behaviour. Forcing that into the nearest bucket would throw away the

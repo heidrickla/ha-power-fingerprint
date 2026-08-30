@@ -28,6 +28,7 @@ from homeassistant.core import (
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
@@ -296,6 +297,11 @@ def _device_siblings(hass: HomeAssistant, entity_id: str) -> dict[str, str | Non
             else other.original_device_class
         )
     return out
+
+
+def _entry_id(hass: HomeAssistant) -> str | None:
+    entries = hass.config_entries.async_loaded_entries(DOMAIN)
+    return entries[0].entry_id if entries else None
 
 
 def _runtime(hass: HomeAssistant) -> PowerFingerprintData:
@@ -654,7 +660,27 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 "result, not an absence of matches."
             )
 
-        # Every power sensor that is not one of the circuits and not the mains.
+        # ⛔ THREE KINDS OF SENSOR LOOK LIKE DEVICES AND ARE NOT, AND ALL THREE
+        # GOT "PLACED" ON THE FIRST REAL RUN.
+        #
+        #  1. THIS INTEGRATION'S OWN OUTPUT. `unmonitored_load` is mains minus
+        #     the circuits, so correlating it against a circuit is circular by
+        #     construction - and it duly landed on the busiest one.
+        #  2. PANEL AGGREGATES. The Vue publishes `phase_l1`, `phase_l2` and a
+        #     per-unit total alongside the per-circuit readings. Excluding only
+        #     the configured mains left the rest in, and a sum of circuits
+        #     trivially tracks any circuit in it.
+        #  3. Anything else sharing a DEVICE with a configured circuit, which
+        #     is the general form of (2) and needs no list of names.
+        registry = er.async_get(hass)
+
+        circuit_devices = set()
+        for circuit in circuits:
+            row = registry.async_get(circuit)
+            if row and row.device_id:
+                circuit_devices.add(row.device_id)
+
+        own_entry_id = _entry_id(hass)
         known = {*circuits, coordinator.mains}
         devices: dict[str, list[float]] = {}
         for state in hass.states.async_all("sensor"):
@@ -665,6 +691,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 continue
             if attrs.get("state_class") != "measurement":
                 continue
+            row = registry.async_get(state.entity_id)
+            if row is not None:
+                if row.config_entry_id == own_entry_id:
+                    continue  # (1) our own derived sensors
+                if row.device_id and row.device_id in circuit_devices:
+                    continue  # (2)/(3) panel aggregates and phase legs
             trace = resample(
                 await _history(hass, state.entity_id, days), step, start, end
             )
@@ -677,14 +709,28 @@ def async_setup_services(hass: HomeAssistant) -> None:
         # trying to learn, so feeding Home Assistant's own area names back into
         # the scoring would be circular. They are here to make a wrong answer
         # visible, which is exactly how an over-wide grid was caught.
-        registry = er.async_get(hass)
         areas = ar.async_get(hass)
+        device_reg = dr.async_get(hass)
 
         def _area(entity_id: str) -> str | None:
+            """An entity's area, falling back to its device's.
+
+            ⛔ `entity.area_id` is only set when someone has OVERRIDDEN the
+            area on that specific entity. Almost every entity inherits its
+            area from its device, so reading the entity alone returned None for
+            every single device on the first real run - silently disabling the
+            one cross-check that makes a wrong mapping visible.
+            """
             row = registry.async_get(entity_id)
-            if row is None or row.area_id is None:
+            if row is None:
                 return None
-            area = areas.async_get_area(row.area_id)
+            area_id = row.area_id
+            if area_id is None and row.device_id:
+                device = device_reg.async_get(row.device_id)
+                area_id = device.area_id if device else None
+            if area_id is None:
+                return None
+            area = areas.async_get_area(area_id)
             return area.name if area else None
 
         placed, unplaced, quiet = [], [], []

@@ -8,6 +8,7 @@ as a service with no physical connection.
 
 from __future__ import annotations
 
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -52,11 +53,21 @@ class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
     page it is there when you open the front porch light to see why it is
     behaving oddly.
 
-    Home Assistant links an entity to an existing device by returning
-    `DeviceInfo` carrying that device's OWN identifiers or connections; the
-    registry then lists this config entry alongside the original one. ⛔ Pass
-    nothing but the identifiers. Sending a name, manufacturer or model would
-    have this integration overwrite fields on a device it does not own.
+    ⛔ DO NOT DO THIS BY RETURNING THE TARGET DEVICE'S IDENTIFIERS IN
+    `DeviceInfo`. That was the documented trick for years and it no longer
+    merges. Measured on Home Assistant 2026.8 against a real registry: passing
+    identifiers `[["zha", "64:02:8f:ff:fe:a1:ca:4a"]]` that matched an existing
+    Inovelli device EXACTLY produced a second, nameless device entry owned by
+    this integration, sitting beside the real one. Nine of them, one per
+    mapping, silently polluting the device registry. The registry now carries
+    `composite_device_id` and `has_composite_identifiers` fields; shared
+    identifiers across config entries are a composite relationship rather than
+    a merge.
+
+    The supported route is to let the entity register with no device at all and
+    then point its REGISTRY ROW at the target device, which is what the helper
+    integrations do. The entity stays owned by this config entry; only its
+    placement in the UI changes.
     """
 
     _attr_has_entity_name = True
@@ -65,11 +76,21 @@ class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
         self,
         coordinator: FingerprintCoordinator,
         key: str,
-        device_info: DeviceInfo,
+        target_device_id: str,
     ) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry_id}_{key}"
-        self._attr_device_info = device_info
+        self._target_device_id = target_device_id
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # After registration, so there is a registry row to point.
+        registry = er.async_get(self.hass)
+        row = registry.async_get(self.entity_id)
+        if row is not None and row.device_id != self._target_device_id:
+            registry.async_update_entity(
+                self.entity_id, device_id=self._target_device_id
+            )
 
     @property
     def available(self) -> bool:
