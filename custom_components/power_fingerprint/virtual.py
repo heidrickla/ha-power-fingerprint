@@ -100,7 +100,7 @@ def pair_rate(samples: list[Sample], floor_w: float) -> float:
     found = steps(samples, floor_w)
     if not found:
         return 0.0
-    events, unpaired = pair_steps(samples, floor_w)
+    _events, unpaired = pair_steps(samples, floor_w)
     return (len(found) - len(unpaired)) / len(found)
 
 
