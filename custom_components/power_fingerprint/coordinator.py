@@ -25,7 +25,9 @@ from .analysis import (
     coverage,
     on_threshold,
     parse_pairs,
+    sample_interval,
     standby_ranking,
+    to_watts,
 )
 from .const import (
     CONF_CIRCUITS,
@@ -44,13 +46,18 @@ from .fingerprint import match
 _LOGGER = logging.getLogger(__name__)
 
 
-def _as_float(state) -> float | None:
+def _raw(state) -> float | None:
+    """The numeric part of a state, with no unit interpretation."""
     if state is None or state.state in ("unknown", "unavailable", "", None):
         return None
     try:
         return float(state.state)
     except (TypeError, ValueError):
         return None
+
+
+def _unit(state) -> str | None:
+    return state.attributes.get("unit_of_measurement") if state else None
 
 
 class FingerprintCoordinator(DataUpdateCoordinator):
@@ -81,6 +88,36 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         self._seeded = False
         # Samples of the run currently in progress on each circuit, if any.
         self._live_run: dict[str, list[float]] = defaultdict(list)
+        # The unit each source actually reports in, and the sensors whose unit
+        # is not power at all. Both are surfaced in diagnostics: the meter is
+        # the single biggest unknown in any bug report about this integration.
+        self._units: dict[str, str | None] = {}
+        self._rejected: set[str] = set()
+
+    def _watts(self, entity: str, state) -> float | None:
+        """One reading, converted to watts, or None if it is unusable.
+
+        A sensor whose unit is not a power unit is dropped and named once in
+        the log rather than every 30 seconds. `device_class: power` does not
+        constrain the unit, so this really does happen.
+        """
+        value = _raw(state)
+        if value is None:
+            return None
+        unit = _unit(state)
+        self._units[entity] = unit
+        watts = to_watts(value, unit)
+        if watts is None:
+            if entity not in self._rejected:
+                self._rejected.add(entity)
+                _LOGGER.warning(
+                    "%s reports in %r, which is not a power unit - excluding it. "
+                    "Every figure in this integration is in watts.",
+                    entity,
+                    unit,
+                )
+            return None
+        return watts
 
     def _match_live(self, entity: str, watts: float) -> dict[str, object]:
         """Identify what is running on one circuit, right now.
@@ -162,8 +199,16 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             return
 
         for entity in self.circuits:
+            # `no_attributes=True` above strips unit_of_measurement from every
+            # history row, so the unit comes from the entity's live state and
+            # is applied to the whole seeded window. Asking the recorder for
+            # attributes instead would mean loading and de-duplicating an
+            # attributes blob per row across 24 hours of samples, which is the
+            # expensive half of a history query and buys nothing: a sensor
+            # does not change its unit mid-stream.
+            unit = _unit(self.hass.states.get(entity))
             for st in data.get(entity, []):
-                val = _as_float(st)
+                val = to_watts(_raw(st), unit)
                 if val is not None:
                     self._window[entity].append((st.last_changed, val))
         _LOGGER.debug(
@@ -179,13 +224,13 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         now: datetime = dt_util.utcnow()
         live: dict[str, float] = {}
         for entity in self.circuits:
-            val = _as_float(self.hass.states.get(entity))
+            val = self._watts(entity, self.hass.states.get(entity))
             if val is None:
                 continue
             live[entity] = val
             self._window[entity].append((now, val))
 
-        mains_val = _as_float(self.hass.states.get(self.mains))
+        mains_val = self._watts(self.mains, self.hass.states.get(self.mains))
 
         cov = coverage(mains_val, live) if mains_val is not None else None
         floors = {
@@ -232,3 +277,32 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         to show whether the rolling window has actually filled - a standby
         figure from a nearly empty window is not yet meaningful."""
         return {e: len(self._window[e]) for e in self.circuits}
+
+    def source_profile(self) -> dict[str, object]:
+        """What the power source actually is, measured rather than assumed.
+
+        This integration was developed against one meter, and the two things
+        that differ between meters - the unit and the reporting cadence - are
+        exactly the two that fail silently when they are wrong. Reporting both
+        means a bug report from an unfamiliar meter arrives already diagnosed.
+
+        The cadence here is the SEEDED cadence where the window came from the
+        recorder, which is the meter's own rate. Once the window has turned
+        over it converges on the coordinator's poll interval instead, since
+        that is then what is doing the sampling.
+        """
+        cadences = {
+            e: sample_interval(list(self._window[e]))
+            for e in self.circuits
+            if self._window[e]
+        }
+        measured = sorted(v for v in cadences.values() if v)
+        return {
+            "units": dict(self._units),
+            "rejected_non_power_units": sorted(self._rejected),
+            "poll_seconds": POLL_SECONDS,
+            "median_report_interval_s": (
+                measured[len(measured) // 2] if measured else None
+            ),
+            "per_circuit_interval_s": cadences,
+        }

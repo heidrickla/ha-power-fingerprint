@@ -42,7 +42,7 @@ def resample(
     """Put a trace on a fixed grid by holding the last known value forward.
 
     Traces from different integrations arrive on unrelated cadences - Z-Wave
-    reports on change, an Emporia every ~12 s - so they cannot be compared
+    reports on change, an Emporia every ~6 s - so they cannot be compared
     point by point without this.
     """
     if not samples:

@@ -29,18 +29,100 @@ prototyping this against a live 36-circuit Emporia Vue install:
     discriminator found so far, and it came from the homeowner, not from the
     data.
 
-A note on what this cannot do. At the ~12 s sample interval an Emporia Vue
-reports, a 30-second appliance is two or three data points. Kettles, microwaves
-and disposals sit at or below the resolution limit and will be detected
-unreliably or not at all. That is a property of the meter, not of the code.
+A note on what this cannot do. At the ~6 s sample interval measured on the
+development install, a 30-second appliance is five data points, and a shorter
+one is fewer. Kettles, microwaves and disposals sit at or near the resolution
+limit and will be detected unreliably or not at all. That is a property of the
+meter, not of the code - and it is why the cadence is measured rather than
+assumed.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from itertools import pairwise
 
 Sample = tuple[datetime, float]
+
+
+# ⛔ EVERY THRESHOLD IN THIS MODULE IS DENOMINATED IN WATTS, AND A SENSOR THAT
+# REPORTS KILOWATTS FAILS SILENTLY IN THE WORST WAY.
+#
+# Home Assistant's `device_class: power` says nothing about the unit. Emporia
+# Vue, Shelly EM and IotaWatt report W; SolarEdge, Powerwall, many Modbus
+# meters and most inverters report kW. Feed kW into `on_threshold` and the
+# 15 W margin becomes a 15 kW margin, so nothing is ever above threshold and
+# every circuit reports zero runs forever - a clean-looking empty rather than
+# an error. The 5 W silent-CT check inverts the same way: a real 4 kW circuit
+# arrives as 4.0 and gets reported as a dead clamp.
+#
+# So units are converted once, at ingestion, and everything downstream may
+# assume watts.
+_TO_WATTS: dict[str, float] = {
+    "W": 1.0,
+    "mW": 0.001,
+    "kW": 1000.0,
+    "MW": 1_000_000.0,
+    "GW": 1_000_000_000.0,
+    "TW": 1_000_000_000_000.0,
+    # Home Assistant's UnitOfPower includes thermal BTU/h, which a heat pump or
+    # a boiler integration will genuinely report.
+    "BTU/h": 0.29307107,
+}
+
+
+def to_watts(value: float | None, unit: str | None) -> float | None:
+    """Convert one reading to watts, or None if the unit is not power.
+
+    A missing unit is treated as watts. That is the pragmatic call rather than
+    the pedantic one: template sensors and many custom integrations omit
+    `unit_of_measurement` entirely, and refusing them would reject working
+    setups, whereas the units that are actually ambiguous - kW against W - are
+    both always declared.
+
+    Returns None rather than raising, so one mislabelled sensor drops out of
+    the analysis instead of taking the whole coordinator refresh with it.
+    """
+    if value is None:
+        return None
+    if unit is None or unit == "":
+        return float(value)
+    factor = _TO_WATTS.get(unit.strip())
+    if factor is None:
+        return None
+    return float(value) * factor
+
+
+def sample_interval(samples: list[Sample]) -> float | None:
+    """The meter's actual reporting cadence, in seconds - measured, not assumed.
+
+    ⭐ MEASURE THIS RATHER THAN HARDCODING IT. The step-matching window in
+    `attribution` has to be about one reporting interval wide: too narrow and
+    a real coincidence falls between cells, too wide and chance coincidences
+    on a busy circuit start matching. Both failures were observed. An Emporia
+    Vue publishes every ~6 s, a Shelly EM every ~1 s, a cloud-polled meter every
+    60 s or worse, so a constant that is right for one is wrong for the rest.
+
+    The MEDIAN gap, not the mean: recorder history has gaps where the meter
+    dropped out or Home Assistant restarted, and a handful of hour-long holes
+    drag a mean far past anything the meter actually does.
+    """
+    if len(samples) < 3:
+        return None
+    times = sorted(t for t, _ in samples)
+    gaps = [
+        (b - a).total_seconds()
+        for a, b in pairwise(times)
+        if (b - a).total_seconds() > 0
+    ]
+    if not gaps:
+        return None
+    ordered = sorted(gaps)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
 def percentile(values: list[float], pct: float) -> float:

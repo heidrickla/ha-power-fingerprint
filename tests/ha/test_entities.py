@@ -100,3 +100,61 @@ async def test_entities_group_under_one_service_device(
     device = devices.async_get(entry.device_id)
     assert device.name == "Power Fingerprint"
     assert device.entry_type is dr.DeviceEntryType.SERVICE
+
+
+async def test_a_kilowatt_mains_against_watt_circuits_is_not_a_coverage_fault(
+    hass: HomeAssistant, config_entry, powered
+):
+    """The exact configuration found on the development install.
+
+    `emporiavue_total_power` reports kW while all 27 circuits report W. Read
+    raw, a healthy 1,380 W panel arrives as 1.38 and the coverage check sees a
+    catastrophic negative remainder that never clears - a permanent fault on a
+    panel with nothing wrong with it. Converted at ingestion it is ordinary.
+    """
+    from .conftest import CIRCUIT_A, CIRCUIT_B, MAINS
+
+    hass.states.async_set(
+        MAINS,
+        0.155,  # 155 W, expressed the way a kW sensor expresses it
+        {
+            "device_class": "power",
+            "state_class": "measurement",
+            "unit_of_measurement": "kW",
+        },
+    )
+    coordinator = await _setup(hass, config_entry)
+    await coordinator.async_refresh()
+
+    assert coordinator.data["coverage"]["mains_w"] == 155.0
+    assert hass.states.get("sensor.power_fingerprint_unmonitored_load").state == "5.0"
+    assert hass.states.get("binary_sensor.power_fingerprint_coverage_fault").state == (
+        "off"
+    )
+    assert coordinator.source_profile()["units"][MAINS] == "kW"
+    assert coordinator.source_profile()["units"][CIRCUIT_A] == "W"
+    assert coordinator.source_profile()["units"][CIRCUIT_B] == "W"
+
+
+async def test_a_sensor_reporting_a_non_power_unit_is_dropped_and_named(
+    hass: HomeAssistant, config_entry, powered, caplog
+):
+    """Dropped rather than trusted, and named once rather than every poll."""
+    from .conftest import CIRCUIT_B
+
+    coordinator = await _setup(hass, config_entry)
+    hass.states.async_set(
+        CIRCUIT_B,
+        50.0,
+        {
+            "device_class": "power",
+            "state_class": "measurement",
+            "unit_of_measurement": "A",
+        },
+    )
+    await coordinator.async_refresh()
+
+    assert CIRCUIT_B in coordinator.source_profile()["rejected_non_power_units"]
+    assert caplog.text.count("which is not a power unit") == 1
+    await coordinator.async_refresh()
+    assert caplog.text.count("which is not a power unit") == 1
