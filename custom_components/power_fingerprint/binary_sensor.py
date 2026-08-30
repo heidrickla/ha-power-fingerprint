@@ -18,7 +18,8 @@ from .entity import FingerprintEntity
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator: FingerprintCoordinator = hass.data[DOMAIN][entry.entry_id]
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    coordinator: FingerprintCoordinator = entry_data["coordinator"]
     async_add_entities([CoverageFault(coordinator), Contradiction(coordinator)])
 
 

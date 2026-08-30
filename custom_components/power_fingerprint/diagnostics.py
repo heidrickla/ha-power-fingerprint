@@ -30,7 +30,8 @@ def _anon(entity_id: str) -> str:
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
-    coordinator: FingerprintCoordinator = hass.data[DOMAIN][entry.entry_id]
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    coordinator: FingerprintCoordinator = entry_data["coordinator"]
     data = coordinator.data or {}
 
     standby = [

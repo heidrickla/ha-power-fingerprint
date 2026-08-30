@@ -63,6 +63,47 @@ and diagnostics files routinely end up in public issue trackers.
 Publication status and the HACS submission checklist are in
 [PUBLISHING.md](PUBLISHING.md).
 
+## Learning fingerprints
+
+Two services. The split matters: clustering finds the recurring shapes and
+genuinely cannot name them, because naming needs someone who knows what is
+plugged in.
+
+```yaml
+# Propose candidates from history. Returns a description of each shape.
+action: power_fingerprint.learn
+data:
+  days: 7
+```
+
+```text
+sensor.circuit_21_power: 22 runs -> 4 distinct shape(s)
+  [unnamed_0]  7 runs - runs 5 min,  peaks 335 W, holds a 212 W floor, 3 levels
+  [unnamed_1]  7 runs - runs 8 min,  peaks 703 W, holds a 3 W floor,  12 levels
+  [unnamed_2]  7 runs - runs 59 min, peaks 839 W, holds a 202 W floor, 11 levels
+```
+
+Read the floors: the ones holding ~200 W are the dryer, the one dropping to 3 W
+is the washer. Then name them:
+
+```yaml
+action: power_fingerprint.label
+data:
+  circuit: sensor.circuit_21_power
+  current_label: unnamed_1
+  new_label: Washing machine
+```
+
+**Only named fingerprints drive anything.** An `unnamed_N` centroid is a
+candidate, not an identification, and reporting "unnamed_2 is running" would be
+worse than reporting nothing.
+
+Re-running `learn` later keeps the names you applied, matched by position.
+Position is used because clusters come back largest-first and a re-run over more
+data usually preserves that order. When it does not, a label lands on the wrong
+shape and you can see it and fix it — a visible wrong label beats silently
+throwing your naming work away.
+
 ## Tools
 
 Two offline tools run against a live Home Assistant from a workstation that does
