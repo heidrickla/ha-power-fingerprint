@@ -35,6 +35,7 @@ from .verify import (
     decide,
     grade,
     interference,
+    is_battery_powered,
     may_probe,
     rank_deltas,
     safe_to_pause,
@@ -206,6 +207,33 @@ def _pausable(
     return sorted(pausable), refused
 
 
+def _device_siblings(hass: HomeAssistant, entity_id: str) -> dict[str, str | None]:
+    """device_class of every entity sharing a device with this one.
+
+    Used to tell a battery device from a mains one. Returns empty if the entity
+    is not in the registry or has no device, which is treated as "unknown"
+    rather than "battery" - refusing to probe something on missing metadata
+    would be worse than probing it.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    entry = registry.async_get(entity_id)
+    if entry is None or entry.device_id is None:
+        return {}
+    out: dict[str, str | None] = {}
+    for other in er.async_entries_for_device(
+        registry, entry.device_id, include_disabled_entities=True
+    ):
+        state = hass.states.get(other.entity_id)
+        out[other.entity_id] = (
+            state.attributes.get("device_class")
+            if state
+            else other.original_device_class
+        )
+    return out
+
+
 async def async_register(hass: HomeAssistant, entry_id: str) -> None:
     """Register the services once, on the first config entry."""
 
@@ -270,6 +298,16 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
         state = hass.states.get(device)
         if state is None or state.state in ("unavailable", "unknown"):
             raise ServiceValidationError(f"{device} is not available to probe")
+
+        # A battery device draws no mains current, so no CT can ever see it
+        # switch. Refuse up front rather than spending the full settle time
+        # arriving at "no answer" - and rather than risking an unrelated load
+        # that moved during those minutes being credited to it.
+        if is_battery_powered(_device_siblings(hass, device)):
+            raise ServiceValidationError(
+                f"{device} is battery powered - it draws no mains current, so no "
+                "circuit can show it switching. There is nothing to measure."
+            )
 
         prior = state.state
         domain = device.split(".", 1)[0]

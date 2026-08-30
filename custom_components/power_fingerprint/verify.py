@@ -59,6 +59,26 @@ def may_probe(entity_id: str) -> tuple[bool, str]:
     return True, ""
 
 
+def is_battery_powered(sibling_device_classes: dict[str, str | None]) -> bool:
+    """Whether a device runs on batteries, given the entities on that device.
+
+    ⛔ BATTERY DEVICES CANNOT BE ATTRIBUTED TO A CIRCUIT AT ALL. They draw no
+    mains current, so no CT will ever see them switch. Probing one burns the
+    full settle time to produce "no answer", and worse, an unrelated load that
+    happened to move during those two minutes can be credited to it.
+
+    ⚠ "HAS A BATTERY SENSOR" IS NOT THE TEST, AND GETTING THAT WRONG EXCLUDES
+    REAL LOADS. A UPS reports a battery level and draws mains; so do some
+    thermostats and a mains smoke alarm with a backup cell. The discriminator is
+    a battery reading AND the absence of any power, energy or current reading -
+    a device that meters its own consumption is, by definition, consuming.
+    """
+    classes = {c for c in sibling_device_classes.values() if c}
+    if "battery" not in classes:
+        return False
+    return not (classes & {"power", "energy", "current", "apparent_power"})
+
+
 def rank_deltas(
     baseline: dict[str, float],
     active: dict[str, float],

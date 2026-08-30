@@ -209,3 +209,35 @@ def test_the_check_fails_closed_on_an_unknown_domain():
     """A domain nobody anticipated should not silently become pausable."""
     ok, _ = v.safe_to_pause({"lock.side_door"})
     assert not ok
+
+
+# ------------------------------------------------------ battery devices
+
+
+def test_a_battery_sensor_is_not_probeable():
+    """No mains current means no CT will ever see it switch."""
+    assert v.is_battery_powered(
+        {"sensor.motion_battery": "battery", "binary_sensor.motion": "motion"}
+    )
+
+
+def test_a_ups_reports_a_battery_and_is_still_mains_powered():
+    """Regression guard: excluding anything with a battery sensor would drop
+    real loads - a UPS, some thermostats, a mains smoke alarm with a backup
+    cell."""
+    assert not v.is_battery_powered(
+        {"sensor.ups_battery": "battery", "sensor.ups_load": "power"}
+    )
+
+
+def test_a_plain_mains_device_is_not_battery_powered():
+    assert not v.is_battery_powered({"sensor.lamp_power": "power"})
+
+
+def test_energy_or_current_also_prove_mains():
+    assert not v.is_battery_powered(
+        {"sensor.x_battery": "battery", "sensor.x_energy": "energy"}
+    )
+    assert not v.is_battery_powered(
+        {"sensor.x_battery": "battery", "sensor.x_current": "current"}
+    )
