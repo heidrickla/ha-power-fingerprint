@@ -696,6 +696,59 @@ circuit steps in the subtraction pass.
 - **Unknown-signature detection** — an unrecognised shape means something new
   was plugged in, or an appliance changed behaviour.
 
+## Virtual circuits — for houses with no per-circuit clamps
+
+⭐ **Not everyone has a clamp per breaker, and the separation is still worth
+something.** A whole-house meter plus this module infers large appliances from
+the aggregate: a dryer, an oven, an air conditioner, a well pump, an EV
+charger. It does not infer lamps, and it refuses rather than pretending.
+
+⛔ **This is a weaker problem than the rest of the integration and is never
+presented as the same one.** With a clamp on each breaker the separation is
+already done in hardware. With one meter every appliance is layered onto one
+trace, and small loads are simply not in it any more.
+
+### What the measurement actually showed
+
+The development install has both a whole-panel meter and 27 real circuits, so
+it can answer this rather than guess. Three findings, and the second one killed
+the first implementation:
+
+**1. Adjacent-sample stepping finds nothing, and looks like a quiet house.**
+Two air conditioners drawing 2000–2900 W produced **two** sample-to-sample
+steps above 1000 W in two days. A compressor does not appear between one
+6-second sample and the next — it ramps over half a minute, so a 2000 W load
+arrives as five 400 W deltas and no single delta clears the bar.
+
+**2. Those fragments cluster into confident nonsense.** At a 300 W floor the
+first version reported **four virtual circuits averaging 380–530 W**, all of
+which validated at 85–97% against *both* air conditioners — because those run
+42% of the time, so everything coincides with them. Four names for two
+appliances, chopped up.
+
+**3. Level shifts are the right primitive.** Comparing the median of the
+samples *before* a point against the median *after* it sees a slow ramp as one
+step. Same house, same window: **168 runs at 1572 W / 2263 W / 2628 W over
+19–24 minutes** — appliance-shaped magnitudes and durations instead of debris.
+
+### ⚠ And it still only half works here, which is the point
+
+Validated against the real clamps with magnitude matching, only **9–26%** of
+inferred runs match a specific circuit. The cause is structural: this house has
+two air conditioners and two furnaces cycling continuously, so most level
+shifts are *combinations* rather than single appliances. That is close to the
+worst case for aggregate disaggregation.
+
+A house whose large loads run **alone and intermittently** — a dryer, an oven,
+a charger — is the good case. A house with a constantly cycling HVAC baseline
+is the bad one. ⭐ **So the useful thing to ship is not the feature but the
+measurement**: point `tools/virtual_circuits.py --validate` at your meter and
+it tells you which house you have, before you rely on any of it.
+
+```bash
+python tools/virtual_circuits.py --days 3 --floor 1000
+```
+
 ### Deliberate non-goals
 
 - **No deep learning.** The data volumes do not justify it and an unexplainable
