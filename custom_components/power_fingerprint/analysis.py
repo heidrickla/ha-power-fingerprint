@@ -39,6 +39,7 @@ assumed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import pairwise
@@ -424,6 +425,71 @@ def absence(
             f"({patience:g} x its own p90 gap)"
         )
     return "ok", f"last ran {observed / 3600:.1f}h ago"
+
+
+@dataclass
+class Evidence:
+    """A score, what the same score would be by chance, and the gap.
+
+    ⛔ A MATCH RATE WITHOUT ITS CONTROL IS NOT A RESULT, AND THIS PROJECT
+    LEARNED THAT THE EXPENSIVE WAY THREE TIMES IN ONE NIGHT:
+
+      * four "virtual circuits" each matched BOTH air conditioners at 85-97%,
+        because those run 42% of the time and everything coincides with them;
+      * a garage refrigerator scored 91% against the mains - and 78% when its
+        runs were shifted three hours into a time they did not happen;
+      * an 18-device probe sweep at `probes: 1` returned every placement as
+        `measured`, and six of seven collapsed when three probes had to agree.
+
+    Each was caught by a human remembering to check. Nobody installing this has
+    that human, so the check belongs here: `lift` is the only number that is
+    evidence, and `verdict` refuses to dress a coincidence up as a finding.
+    """
+
+    measured: float
+    chance: float
+
+    @property
+    def lift(self) -> float:
+        return self.measured - self.chance
+
+    @property
+    def verdict(self) -> str:
+        if self.measured < 0.5:
+            return "no"
+        if self.lift < 0.15:
+            return "chance"
+        if self.lift < 0.35:
+            return "weak"
+        return "clear"
+
+    def to_dict(self) -> dict[str, float | str]:
+        return {
+            "measured": round(self.measured, 3),
+            "chance": round(self.chance, 3),
+            "lift": round(self.lift, 3),
+            "verdict": self.verdict,
+        }
+
+
+def control(
+    score: Callable[[float], float],
+    offsets_h: tuple[float, ...] = (3.0, 7.0, 13.0, 19.0),
+) -> Evidence:
+    """Score the real alignment, then score it again at times it did not happen.
+
+    `score` is called with an offset in hours: 0 for the truth, and each of
+    `offsets_h` for a world where the same events happened at a different time.
+    Whatever still scores is what coincidence alone buys.
+
+    ⭐ SEVERAL OFFSETS, AND THE LOWEST WINS. A three-hour shift still overlaps
+    the house's own daily rhythm - on the development install it scored 78%
+    against a real 91% - while nineteen hours scored 40%. Taking the minimum
+    across a spread is what stops autocorrelation being mistaken for signal.
+    """
+    measured = score(0.0)
+    chances = [score(off) for off in offsets_h]
+    return Evidence(measured=measured, chance=min(chances) if chances else 0.0)
 
 
 def coverage(mains_w: float, circuit_w: dict[str, float]) -> dict[str, float]:
