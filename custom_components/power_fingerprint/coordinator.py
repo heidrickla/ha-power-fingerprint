@@ -23,6 +23,7 @@ from .analysis import (
     circuit_floor,
     contradictions,
     coverage,
+    on_threshold,
     parse_pairs,
     standby_ranking,
 )
@@ -38,6 +39,7 @@ from .const import (
     POLL_SECONDS,
     WINDOW_HOURS,
 )
+from .fingerprint import match
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +79,60 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         maxlen = int(WINDOW_HOURS * 3600 / POLL_SECONDS)
         self._window: dict[str, deque] = defaultdict(lambda: deque(maxlen=maxlen))
         self._seeded = False
+        # Samples of the run currently in progress on each circuit, if any.
+        self._live_run: dict[str, list[float]] = defaultdict(list)
+
+    def _match_live(self, entity: str, watts: float) -> dict[str, object]:
+        """Identify what is running on one circuit, right now.
+
+        Matching happens on a PARTIAL run - the samples seen so far - rather
+        than waiting for it to finish. That works here only because of an
+        earlier decision: duration and energy are weighted to zero for
+        identity, and every feature that does count (peak, floor, plateau
+        count, duty) is computable mid-run. Had duration mattered, nothing
+        could be identified until it was already over, which is useless for
+        driving an automation.
+
+        Three outcomes, and the third is not a failure:
+          running + matched   -> the appliance name
+          not running         -> idle
+          running + no match  -> unknown, meaning something new was plugged in
+                                 or an appliance changed behaviour
+        """
+        window = list(self._window[entity])
+        if len(window) < 10:
+            return {"state": None, "reason": "window still filling"}
+
+        threshold = on_threshold(window)
+        if watts <= threshold:
+            self._live_run[entity].clear()
+            return {"state": "idle", "threshold_w": round(threshold, 1)}
+
+        self._live_run[entity].append(watts)
+        samples = self._live_run[entity]
+        if len(samples) < 3:
+            return {"state": "starting", "threshold_w": round(threshold, 1)}
+
+        library = self.store.for_circuit(entity) if self.store else []
+        if not library:
+            return {"state": "unknown", "reason": "no named fingerprint yet"}
+
+        peak = max(samples)
+        features = {
+            "peak_w": peak,
+            "floor_w": min(samples),
+            "mean_w": sum(samples) / len(samples),
+            "plateaus": len({round(w / 50.0) for w in samples}),
+            "duty_above_half_peak": sum(1 for w in samples if w > peak / 2)
+            / len(samples),
+        }
+        best, distance = match(features, library)
+        return {
+            "state": best.label if best else "unknown",
+            "distance": round(distance, 3),
+            "samples": len(samples),
+            "threshold_w": round(threshold, 1),
+        }
 
     async def _async_seed_from_recorder(self) -> None:
         """Fill the window from history once, so standby is not blank on boot."""
@@ -157,6 +213,8 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             if self._window[e] and max(w for _, w in self._window[e]) < 5.0
         ]
 
+        running = {e: self._match_live(e, live[e]) for e in self.circuits if e in live}
+
         return {
             "coverage": cov,
             "standby": ranking,
@@ -166,6 +224,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             "silent_circuits": silent,
             "tolerance_pct": self.tolerance,
             "labelled_fingerprints": (len(self.store.labelled()) if self.store else 0),
+            "running": running,
         }
 
     def window_sizes(self) -> dict[str, int]:
