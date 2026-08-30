@@ -122,3 +122,36 @@ def test_a_dashboard_style_name_yields_the_room_or_appliance():
 def test_a_dashboard_name_that_is_only_a_number_still_returns_none():
     assert fp.suggest_label("Circuit 30") is None
     assert fp.suggest_label("Circuit 32") is None
+
+
+# --- label names (a label wants the breaker number; an appliance name does not)
+
+
+def _label_name(title, prefix="Circuit"):
+    """Mirror of services._label_name, which cannot be imported without HA."""
+    cleaned = " ".join(
+        w for w in title.split() if not w.lower().startswith("emporiavue")
+    )
+    for noise in (" Power", " Energy"):
+        if cleaned.endswith(noise):
+            cleaned = cleaned[: -len(noise)]
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return prefix
+    if cleaned.lower().startswith(prefix.lower()):
+        return cleaned
+    return f"{prefix} {cleaned}".strip()
+
+
+def test_a_dashboard_name_is_already_a_good_label():
+    """⛔ The bug this replaced produced "Circuit Circuit 30"."""
+    assert _label_name("Circuit 30") == "Circuit 30"
+    assert _label_name("Circuit 16 Study") == "Circuit 16 Study"
+
+
+def test_a_firmware_title_is_trimmed_but_keeps_its_number():
+    """Unlike an appliance name, a label wants the breaker it refers to."""
+    assert _label_name("EmporiaVue Circuit 15 Dish Washer Power") == (
+        "Circuit 15 Dish Washer"
+    )
+    assert _label_name("EmporiaVueSecondary Circuit 25 Power") == "Circuit 25"

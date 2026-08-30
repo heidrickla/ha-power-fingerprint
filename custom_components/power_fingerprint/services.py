@@ -30,6 +30,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import label_registry as lr
 from homeassistant.util import dt as dt_util
 
 from .analysis import Sample, cadences_by_cluster, sample_interval, segment, to_watts
@@ -67,6 +68,7 @@ SERVICE_LABEL = "label"
 SERVICE_VERIFY = "verify_circuit"
 SERVICE_MAP = "map_devices"
 SERVICE_AUTOLABEL = "autolabel"
+SERVICE_LABELS = "apply_circuit_labels"
 
 LEARN_SCHEMA = vol.Schema(
     {
@@ -86,6 +88,17 @@ VERIFY_SCHEMA = vol.Schema(
         vol.Optional("settle", default=30): vol.All(int, vol.Range(min=10, max=120)),
         vol.Optional("pause_automations", default=False): cv.boolean,
         vol.Optional("force", default=False): cv.boolean,
+    }
+)
+
+LABELS_SCHEMA = vol.Schema(
+    {
+        # Default TRUE. This writes into the user's own label namespace, for
+        # which no integration API is documented, so the safe direction is to
+        # show what it would do and let a person ask again.
+        vol.Optional("dry_run", default=True): cv.boolean,
+        vol.Optional("remove", default=False): cv.boolean,
+        vol.Optional("prefix", default="Circuit"): cv.string,
     }
 )
 
@@ -306,6 +319,27 @@ def _device_siblings(hass: HomeAssistant, entity_id: str) -> dict[str, str | Non
             else other.original_device_class
         )
     return out
+
+
+def _label_name(title: str, prefix: str) -> str:
+    """A label for a circuit: its own name, with the prefix only if it needs one.
+
+    Meter firmware titles ("EmporiaVue Circuit 16 Power") get trimmed to the
+    part a person would recognise; energy-dashboard names ("Circuit 16 Study")
+    are already right and are used as they are.
+    """
+    cleaned = " ".join(
+        w for w in title.split() if not w.lower().startswith("emporiavue")
+    )
+    for noise in (" Power", " Energy"):
+        if cleaned.endswith(noise):
+            cleaned = cleaned[: -len(noise)]
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return prefix
+    if cleaned.lower().startswith(prefix.lower()):
+        return cleaned
+    return f"{prefix} {cleaned}".strip()
 
 
 def _entry_id(hass: HomeAssistant) -> str | None:
@@ -860,6 +894,108 @@ def async_setup_services(hass: HomeAssistant) -> None:
         return {"named": applied, "left_for_you": skipped}
 
     hass.services.async_register(DOMAIN, SERVICE_LABEL, _label, schema=LABEL_SCHEMA)
+
+    async def _apply_labels(call: ServiceCall) -> ServiceResponse:
+        """Label each mapped device with the circuit it sits on.
+
+        ⛔ WHY LABELS AND NOT THE OBVIOUS THING. `via_device` is what Home
+        Assistant means by "related" - 149 devices on the development install
+        already use it - but an integration may only set it on devices IT
+        OWNS, and these belong to ZHA and Z-Wave. Creating a device per circuit
+        was the alternative and was rejected on Lewis's objection: 27 entries
+        called "Circuit 30" beside 519 real ones read as duplicate devices, and
+        that registry already has `emporiavue` and `EmporiaVue` confusing
+        people.
+
+        ⚠ Labels are the USER'S namespace and no integration API for them is
+        documented - there is simply no ownership check stopping this. So it
+        defaults to a dry run, only ever ADDS to a device's existing labels,
+        and `remove: true` takes every label back off.
+        """
+        runtime = _runtime(hass)
+        devices = dr.async_get(hass)
+        entities = er.async_get(hass)
+        labels = lr.async_get(hass)
+        dashboard_names = await async_circuit_names(hass)
+        prefix = str(call.data["prefix"]).strip()
+        dry = call.data["dry_run"]
+
+        planned: list[dict[str, Any]] = []
+        for device_entity, row in sorted(runtime.store.assignments().items()):
+            circuit = str(row.get("circuit") or "")
+            if not circuit:
+                continue
+            entity_row = entities.async_get(device_entity)
+            if entity_row is None or entity_row.device_id is None:
+                continue
+            state = hass.states.get(circuit)
+            title = dashboard_names.get(circuit) or (
+                str(state.attributes.get("friendly_name", "")) if state else circuit
+            )
+            # ⭐ A LABEL WANTS THE BREAKER NUMBER, unlike an appliance name.
+            # The dashboard names are already exactly right - "Circuit 16
+            # Study", "Circuit 30" - so use them verbatim. Stripping the number
+            # the way `suggest_label` does and then prefixing "Circuit" back on
+            # produced "Circuit Circuit 30", and lost the number where the name
+            # was only a number.
+            name = _label_name(title, prefix)
+            planned.append(
+                {
+                    "device_entity": device_entity,
+                    "device_id": entity_row.device_id,
+                    "label": name,
+                    "established_by": row.get("source"),
+                }
+            )
+
+        if dry:
+            return {
+                "dry_run": True,
+                "would_label": planned,
+                "note": (
+                    "Nothing was changed. Call again with dry_run: false to "
+                    "apply, or remove: true to take them off."
+                ),
+            }
+
+        touched = 0
+        for item in planned:
+            device = devices.async_get(str(item["device_id"]))
+            if device is None:
+                continue
+            existing = lr.async_get(hass).async_get_label_by_name(str(item["label"]))
+            if call.data["remove"]:
+                if existing is None or existing.label_id not in device.labels:
+                    continue
+                devices.async_update_device(
+                    device.id, labels=device.labels - {existing.label_id}
+                )
+                touched += 1
+                continue
+            if existing is None:
+                existing = labels.async_create(str(item["label"]))
+            if existing.label_id in device.labels:
+                continue
+            # ⛔ ADD, never replace - the other labels on that device are
+            # somebody else's and none of our business.
+            devices.async_update_device(
+                device.id, labels=device.labels | {existing.label_id}
+            )
+            touched += 1
+
+        return {
+            "dry_run": False,
+            "removed" if call.data["remove"] else "labelled": touched,
+            "devices": planned,
+        }
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LABELS,
+        _apply_labels,
+        schema=LABELS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_AUTOLABEL,

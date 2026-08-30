@@ -71,6 +71,31 @@ and a three-probe agreement are not the same claim:
 resolves nothing never erases a previous answer — "I could not tell this time"
 is not "it is not there".
 
+#### Filtering by breaker: labels, not devices
+
+`power_fingerprint.apply_circuit_labels` puts a label like **`Circuit 16 Study`**
+on every device it has mapped, so you can filter by breaker anywhere in Home
+Assistant.
+
+⛔ **`via_device` is what HA actually means by "related" and it is not
+available.** 149 devices on the development install already use it — Zigbee
+devices under their coordinator, cameras under the NVR — but an integration may
+only set it on devices **it owns**, and these belong to ZHA and Z-Wave.
+
+⛔ **A device per circuit was the alternative and is worse.** Twenty-seven
+entries called "Circuit 30" sitting beside 519 real devices read as duplicate
+devices — and that registry already contains both `emporiavue` and `EmporiaVue`
+confusing people.
+
+⚠ **Labels are the user's namespace, and no integration API for them is
+documented** — there is simply no ownership check stopping this. So the service
+**defaults to a dry run**, only ever *adds* to a device's existing labels, and
+`remove: true` takes them all back off.
+
+The label is the circuit's own name kept whole, because a label wants the
+breaker number even though an appliance name does not. Trimming the number and
+prefixing "Circuit" back on produced `Circuit Circuit 30`.
+
 #### ⛔ How NOT to attach an entity to another integration's device
 
 Returning the target device's own `identifiers` in `DeviceInfo` was the

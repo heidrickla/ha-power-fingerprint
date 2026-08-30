@@ -139,6 +139,24 @@
       "name": "Name the obvious ones",
       "description": "Name every learned shape whose circuit already says what it is - a circuit titled 'Dish Washer' with a single recurring shape. Circuits with several shapes, or with no appliance name, are listed for you rather than guessed at.",
       "fields": {}
+    },
+    "apply_circuit_labels": {
+      "name": "Label devices with their circuit",
+      "description": "Add a label naming the circuit each mapped device sits on, so you can filter by breaker anywhere in Home Assistant. Defaults to a dry run - it shows what it would do and changes nothing until you say otherwise.",
+      "fields": {
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Show what would happen without changing anything. On by default."
+        },
+        "remove": {
+          "name": "Remove instead",
+          "description": "Take the circuit labels back off every device."
+        },
+        "prefix": {
+          "name": "Label prefix",
+          "description": "What each label is called before the circuit's name."
+        }
+      }
     }
   },
   "options": {
