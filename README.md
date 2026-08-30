@@ -171,6 +171,15 @@ about it:
 - **Very small loads are below the noise floor.** An RGB light drawing 1.1 W
   cannot be picked out of a circuit's normal variation. The probe refuses rather
   than guessing.
+- **Battery devices cannot be attributed to a circuit at all** and are refused
+  up front. They draw no mains current, so no CT will ever see them switch;
+  probing one burns the full settle time to reach "no answer", and an unrelated
+  load that moved during those minutes could be credited to it.
+  ⚠ The test is *not* "has a battery sensor" — a UPS reports one and draws
+  600 W, as do some thermostats and mains smoke alarms with a backup cell. It is
+  a battery reading **and** no power, energy or current reading: a device that
+  meters its own consumption is by definition consuming. Checked against a
+  499-device install: 34 correctly excluded, and the UPS correctly kept.
 - **An automation can move the device mid-probe and nothing in the power trace
   reveals it.** So the probe snapshots `last_triggered` for every automation
   that references the device or a circuit, either side of the measurement, and
