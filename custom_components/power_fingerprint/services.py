@@ -12,6 +12,7 @@ name them - naming needs someone who knows what is plugged in.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 
@@ -29,11 +30,13 @@ from homeassistant.util import dt as dt_util
 from .analysis import segment
 from .const import DOMAIN
 from .fingerprint import cluster, normalize, summarize
+from .verify import agree, combine, decide, may_probe, rank_deltas
 
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_LEARN = "learn"
 SERVICE_LABEL = "label"
+SERVICE_VERIFY = "verify_circuit"
 
 LEARN_SCHEMA = vol.Schema(
     {
@@ -42,6 +45,15 @@ LEARN_SCHEMA = vol.Schema(
         vol.Optional("threshold", default=0.9): vol.All(
             vol.Coerce(float), vol.Range(min=0.1, max=5.0)
         ),
+    }
+)
+
+VERIFY_SCHEMA = vol.Schema(
+    {
+        vol.Required("device"): cv.entity_id,
+        vol.Optional("power_sensor"): cv.entity_id,
+        vol.Optional("probes", default=2): vol.All(int, vol.Range(min=1, max=5)),
+        vol.Optional("settle", default=30): vol.All(int, vol.Range(min=10, max=120)),
     }
 )
 
@@ -79,6 +91,41 @@ async def _history(hass: HomeAssistant, entity: str, days: int):
         except (TypeError, ValueError):
             continue  # unavailable/unknown - a fabricated zero would lie
     return out
+
+
+async def _sample_circuits(
+    hass: HomeAssistant, circuits: list[str], seconds: int
+) -> dict[str, float]:
+    """Average each circuit over a window rather than taking one reading.
+
+    An Emporia reports about every 12 s, so a single snapshot can be up to a
+    full reporting interval stale and will disagree with itself between the
+    baseline and the active read. Averaging over the settle window removes that
+    and most of the noise from other loads.
+    """
+    samples: dict[str, list[float]] = {c: [] for c in circuits}
+    ticks = max(3, seconds // 5)
+    for _ in range(ticks):
+        for c in circuits:
+            state = hass.states.get(c)
+            if state is None:
+                continue
+            try:
+                samples[c].append(float(state.state))
+            except (TypeError, ValueError):
+                continue
+        await asyncio.sleep(seconds / ticks)
+    return {c: sum(v) / len(v) for c, v in samples.items() if v}
+
+
+def _read(hass: HomeAssistant, entity: str) -> float | None:
+    state = hass.states.get(entity)
+    if state is None:
+        return None
+    try:
+        return float(state.state)
+    except (TypeError, ValueError):
+        return None
 
 
 async def async_register(hass: HomeAssistant, entry_id: str) -> None:
@@ -132,6 +179,102 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
             )
         await hass.data[DOMAIN][entry_id]["coordinator"].async_request_refresh()
 
+    async def _verify(call: ServiceCall) -> ServiceResponse:
+        coordinator = hass.data[DOMAIN][entry_id]["coordinator"]
+        device = call.data["device"]
+        meter = call.data.get("power_sensor")
+        probes = call.data["probes"]
+        settle = call.data["settle"]
+
+        allowed, why = may_probe(device)
+        if not allowed:
+            raise ServiceValidationError(why)
+        state = hass.states.get(device)
+        if state is None or state.state in ("unavailable", "unknown"):
+            raise ServiceValidationError(f"{device} is not available to probe")
+
+        prior = state.state
+        domain = device.split(".", 1)[0]
+        observations: list[str | None] = []
+        detail: list[dict] = []
+
+        try:
+            for _ in range(probes):
+                base_circuits = await _sample_circuits(
+                    hass, coordinator.circuits, settle
+                )
+                base_device = _read(hass, meter) if meter else None
+
+                # Toggle AWAY from whatever it is now, so a device that is
+                # already on is probed by switching it off. Insisting on
+                # "on" would refuse to verify anything already running.
+                target = "turn_off" if prior == "on" else "turn_on"
+                await hass.services.async_call(
+                    domain, target, {"entity_id": device}, blocking=True
+                )
+                await asyncio.sleep(settle)
+
+                active_circuits = await _sample_circuits(
+                    hass, coordinator.circuits, settle
+                )
+                active_device = _read(hass, meter) if meter else None
+
+                if base_device is not None and active_device is not None:
+                    expected = active_device - base_device
+                else:
+                    # Without the device's own meter, fall back to the largest
+                    # coherent circuit change. Weaker, and flagged as such.
+                    expected = max(
+                        (
+                            active_circuits.get(c, 0.0) - base_circuits.get(c, 0.0)
+                            for c in base_circuits
+                        ),
+                        key=abs,
+                        default=0.0,
+                    )
+
+                ranked = rank_deltas(base_circuits, active_circuits, expected)
+                circuit, reason = decide(ranked)
+                observations.append(circuit)
+                detail.append(
+                    {
+                        "expected_w": round(expected, 1),
+                        "circuit": circuit,
+                        "reason": reason,
+                        "candidates": ranked[:3],
+                        "device_metered": meter is not None,
+                    }
+                )
+
+                await hass.services.async_call(
+                    domain,
+                    "turn_on" if prior == "on" else "turn_off",
+                    {"entity_id": device},
+                    blocking=True,
+                )
+                await asyncio.sleep(settle)
+        finally:
+            # ⛔ RESTORE IS IN `finally`, NOT ON THE HAPPY PATH. A probe that
+            # leaves the house in a different state than it found it is a bug
+            # regardless of what it learned, and an exception mid-probe is
+            # exactly when that would otherwise happen.
+            await hass.services.async_call(
+                domain,
+                "turn_on" if prior == "on" else "turn_off",
+                {"entity_id": device},
+                blocking=True,
+            )
+
+        measured, agree_reason = agree(observations)
+        verdict, confidence = combine(None, measured)
+        return {
+            "device": device,
+            "circuit": verdict,
+            "confidence": confidence,
+            "reason": agree_reason,
+            "probes": detail,
+        }
+
     if not hass.services.has_service(DOMAIN, SERVICE_LEARN):
         hass.services.async_register(
             DOMAIN,
@@ -141,9 +284,16 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
             supports_response=SupportsResponse.ONLY,
         )
         hass.services.async_register(DOMAIN, SERVICE_LABEL, _label, schema=LABEL_SCHEMA)
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_VERIFY,
+            _verify,
+            schema=VERIFY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
 
 
 def async_unregister(hass: HomeAssistant) -> None:
-    for service in (SERVICE_LEARN, SERVICE_LABEL):
+    for service in (SERVICE_LEARN, SERVICE_LABEL, SERVICE_VERIFY):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
