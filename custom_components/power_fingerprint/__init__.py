@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers.typing import ConfigType
 
 from . import services
-from .const import DOMAIN
-from .coordinator import FingerprintCoordinator
+from .const import CONF_CIRCUITS, CONF_MAINS
+from .coordinator import (
+    FingerprintCoordinator,
+    PowerFingerprintConfigEntry,
+    PowerFingerprintData,
+)
 from .store import FingerprintStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -18,8 +24,40 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    options = {**entry.data, **entry.options}
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the service actions.
+
+    ⛔ REGISTERED HERE, NOT IN `async_setup_entry`. Actions registered per
+    entry vanish while the entry is unloaded, and every automation that calls
+    one then fails validation with "action not found" - which reads as a typo
+    in the automation rather than as an integration that is temporarily down.
+    Registered at component setup they always exist, and each one raises a
+    translated error explaining that the integration is not loaded.
+    """
+    services.async_setup_services(hass)
+    return True
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: PowerFingerprintConfigEntry
+) -> bool:
+    options: dict[str, Any] = {**entry.data, **entry.options}
+
+    # ⛔ CHECK THE SOURCES BEFORE CLAIMING SETUP SUCCEEDED. This integration
+    # derives everything from other integrations' sensors, and those can load
+    # after this one. Setting up anyway produces a device full of entities
+    # reading `unknown` with no explanation; raising ConfigEntryNotReady makes
+    # Home Assistant retry with backoff, which is what actually fixes it.
+    missing = [
+        entity
+        for entity in (options[CONF_MAINS], *options[CONF_CIRCUITS])
+        if hass.states.get(entity) is None
+    ]
+    if missing:
+        raise ConfigEntryNotReady(
+            f"Waiting for {len(missing)} power sensor(s) to appear, "
+            f"starting with {missing[0]}"
+        )
 
     store = FingerprintStore(hass, entry.entry_id)
     await store.async_load()
@@ -44,26 +82,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = FingerprintCoordinator(hass, options, entry.entry_id, store)
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "coordinator": coordinator,
-        "store": store,
-    }
-    await services.async_register(hass, entry.entry_id)
+    entry.runtime_data = PowerFingerprintData(coordinator=coordinator, store=store)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unloaded:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
-        # Services are registered once and shared; only tear them down when the
-        # last entry goes, or unloading one entry would break the others.
-        if not hass.data[DOMAIN]:
-            services.async_unregister(hass)
+async def async_unload_entry(
+    hass: HomeAssistant, entry: PowerFingerprintConfigEntry
+) -> bool:
+    # The services are deliberately left registered - see `async_setup`. They
+    # are component-level, not entry-level, and they refuse politely while
+    # nothing is loaded.
+    unloaded: bool = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     return unloaded
 
 
-async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _async_reload(
+    hass: HomeAssistant, entry: PowerFingerprintConfigEntry
+) -> None:
     await hass.config_entries.async_reload(entry.entry_id)

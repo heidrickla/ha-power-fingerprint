@@ -15,20 +15,26 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
     ServiceResponse,
+    State,
     SupportsResponse,
 )
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from .analysis import segment, to_watts
+from .analysis import Sample, segment, to_watts
 from .const import DOMAIN
+from .coordinator import (
+    PowerFingerprintConfigEntry,
+    PowerFingerprintData,
+)
 from .fingerprint import cluster, normalize, summarize
 from .verify import (
     agree,
@@ -76,7 +82,7 @@ LABEL_SCHEMA = vol.Schema(
 )
 
 
-async def _history(hass: HomeAssistant, entity: str, days: int):
+async def _history(hass: HomeAssistant, entity: str, days: int) -> list[Sample]:
     """Pull one entity's history through the recorder's own API.
 
     Note this is NOT the REST history endpoint, which returns only ~24 hours
@@ -88,10 +94,11 @@ async def _history(hass: HomeAssistant, entity: str, days: int):
     start = dt_util.utcnow() - timedelta(days=days)
     end = dt_util.utcnow()
 
-    def _fetch():
-        return history.state_changes_during_period(
+    def _fetch() -> dict[str, list[State]]:
+        rows: dict[str, list[State]] = history.state_changes_during_period(
             hass, start, end, entity_id=entity, no_attributes=True
         )
+        return rows
 
     data = await get_instance(hass).async_add_executor_job(_fetch)
     # `no_attributes=True` strips the unit from every row, so it comes from
@@ -249,19 +256,37 @@ def _device_siblings(hass: HomeAssistant, entity_id: str) -> dict[str, str | Non
     return out
 
 
-async def async_register(hass: HomeAssistant, entry_id: str) -> None:
-    """Register the services once, on the first config entry."""
+def _runtime(hass: HomeAssistant) -> PowerFingerprintData:
+    """The loaded entry's runtime data, or a translated refusal.
+
+    The actions are registered at component setup and therefore exist even
+    while the entry is unloaded - so each one has to say so itself. A bare
+    KeyError here would surface as an unhandled exception in the automation
+    trace, which tells the user nothing about what to do.
+    """
+    entries = hass.config_entries.async_loaded_entries(DOMAIN)
+    if not entries:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="not_loaded"
+        )
+    entry: PowerFingerprintConfigEntry = entries[0]
+    runtime: PowerFingerprintData = entry.runtime_data
+    return runtime
+
+
+def async_setup_services(hass: HomeAssistant) -> None:
+    """Register the actions at component setup, independent of any entry."""
 
     async def _learn(call: ServiceCall) -> ServiceResponse:
-        entry_data = hass.data[DOMAIN][entry_id]
-        coordinator = entry_data["coordinator"]
-        store = entry_data["store"]
+        runtime = _runtime(hass)
+        coordinator = runtime.coordinator
+        store = runtime.store
 
         circuits = call.data.get("circuits") or coordinator.circuits
         days = call.data["days"]
         threshold = call.data["threshold"]
 
-        report: dict[str, list[dict]] = {}
+        report: dict[str, list[dict[str, Any]]] = {}
         for entity in circuits:
             samples = await _history(hass, entity, days)
             if not samples:
@@ -289,19 +314,24 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
         return {"circuits": report}
 
     async def _label(call: ServiceCall) -> None:
-        store = hass.data[DOMAIN][entry_id]["store"]
-        ok = await store.async_relabel(
+        runtime = _runtime(hass)
+        ok = await runtime.store.async_relabel(
             call.data["circuit"], call.data["current_label"], call.data["new_label"]
         )
         if not ok:
             raise ServiceValidationError(
-                f"No fingerprint {call.data['current_label']!r} on "
-                f"{call.data['circuit']}. Run the learn service first."
+                translation_domain=DOMAIN,
+                translation_key="unknown_fingerprint",
+                translation_placeholders={
+                    "label": str(call.data["current_label"]),
+                    "circuit": str(call.data["circuit"]),
+                },
             )
-        await hass.data[DOMAIN][entry_id]["coordinator"].async_request_refresh()
+        await runtime.coordinator.async_request_refresh()
 
     async def _verify(call: ServiceCall) -> ServiceResponse:
-        coordinator = hass.data[DOMAIN][entry_id]["coordinator"]
+        runtime = _runtime(hass)
+        coordinator = runtime.coordinator
         device = call.data["device"]
         meter = call.data.get("power_sensor")
         probes = call.data["probes"]
@@ -309,10 +339,18 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
 
         allowed, why = may_probe(device)
         if not allowed:
-            raise ServiceValidationError(why)
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="may_not_probe",
+                translation_placeholders={"device": device, "reason": why},
+            )
         state = hass.states.get(device)
         if state is None or state.state in ("unavailable", "unknown"):
-            raise ServiceValidationError(f"{device} is not available to probe")
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="device_unavailable",
+                translation_placeholders={"device": device},
+            )
 
         # A battery device draws no mains current, so no CT can ever see it
         # switch. Refuse up front rather than spending the full settle time
@@ -320,14 +358,15 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
         # that moved during those minutes being credited to it.
         if is_battery_powered(_device_siblings(hass, device)):
             raise ServiceValidationError(
-                f"{device} is battery powered - it draws no mains current, so no "
-                "circuit can show it switching. There is nothing to measure."
+                translation_domain=DOMAIN,
+                translation_key="battery_powered",
+                translation_placeholders={"device": device},
             )
 
         prior = state.state
         domain = device.split(".", 1)[0]
         observations: list[str | None] = []
-        detail: list[dict] = []
+        detail: list[dict[str, Any]] = []
         notes: list[str] = []
 
         # Watch every automation that touches the device OR any circuit, so
@@ -341,7 +380,9 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
         # returns a confident "no change". Say so rather than returning a
         # clean-looking wrong answer. The cadence is measured from this
         # install's own history, not assumed from any particular meter.
-        cadence = coordinator.source_profile().get("median_report_interval_s")
+        profile = coordinator.source_profile()
+        raw_cadence = profile.get("median_report_interval_s")
+        cadence = float(raw_cadence) if isinstance(raw_cadence, int | float) else None
         if cadence and settle < cadence * 2:
             warning = (
                 f"settle={settle}s is short for a meter reporting every "
@@ -351,7 +392,7 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
             _LOGGER.warning("%s: %s", device, warning)
             notes.append(warning)
 
-        store = hass.data[DOMAIN][entry_id]["store"]
+        store = runtime.store
         paused: list[str] = []
         refused: list[dict[str, str]] = []
         if call.data["pause_automations"]:
@@ -470,25 +511,18 @@ async def async_register(hass: HomeAssistant, entry_id: str) -> None:
             "probes": detail,
         }
 
-    if not hass.services.has_service(DOMAIN, SERVICE_LEARN):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_LEARN,
-            _learn,
-            schema=LEARN_SCHEMA,
-            supports_response=SupportsResponse.ONLY,
-        )
-        hass.services.async_register(DOMAIN, SERVICE_LABEL, _label, schema=LABEL_SCHEMA)
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_VERIFY,
-            _verify,
-            schema=VERIFY_SCHEMA,
-            supports_response=SupportsResponse.ONLY,
-        )
-
-
-def async_unregister(hass: HomeAssistant) -> None:
-    for service in (SERVICE_LEARN, SERVICE_LABEL, SERVICE_VERIFY):
-        if hass.services.has_service(DOMAIN, service):
-            hass.services.async_remove(DOMAIN, service)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LEARN,
+        _learn,
+        schema=LEARN_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(DOMAIN, SERVICE_LABEL, _label, schema=LABEL_SCHEMA)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_VERIFY,
+        _verify,
+        schema=VERIFY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )

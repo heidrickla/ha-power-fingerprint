@@ -34,3 +34,38 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+# `strict-typing` is the Platinum rule that has actual teeth: Home Assistant
+# runs mypy in strict mode over integrations that claim it. The settings below
+# mirror the strict block core applies to a strict-typed integration.
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+# Off, and only because Home Assistant is absent: the ignores this file needs
+# locally (see config_flow.py) are exactly the ones that become unnecessary
+# once HA is importable, so warning about unused ignores would make the run
+# fail in CI instead. Better to lose the unused-ignore warning than to switch
+# off a whole error code for a file.
+warn_unused_ignores = false
+disallow_untyped_defs = true
+disallow_any_generics = true
+no_implicit_reexport = true
+# Home Assistant itself is not installed on every machine this is linted from,
+# and the analysis layer is deliberately importable without it. Missing HA
+# stubs must not be reported as errors in the integration's own code.
+ignore_missing_imports = true
+follow_imports = "silent"
+# ⚠ THESE TWO ARE RELAXED ONLY BECAUSE HOME ASSISTANT IS NOT INSTALLED HERE.
+# Without HA's own package on the path every class it exports is `Any`, so
+# subclassing Entity or DataUpdateCoordinator reads as "subclassing Any" and
+# `@callback` reads as an untyped decorator. Both check families are noise in
+# that state and neither says anything about this integration's own types.
+# Everything else stays strict, including warn_return_any.
+disallow_subclassing_any = false
+disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict = false
+disallow_untyped_defs = false

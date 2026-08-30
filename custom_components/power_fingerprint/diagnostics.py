@@ -13,11 +13,10 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_CIRCUITS, CONF_MAINS, CONF_PAIRS, DOMAIN
-from .coordinator import FingerprintCoordinator
+from .const import CONF_CIRCUITS, CONF_MAINS, CONF_PAIRS
+from .coordinator import PowerFingerprintConfigEntry
 
 
 def _anon(entity_id: str) -> str:
@@ -57,10 +56,9 @@ def _unit_histogram(units: dict[str, str | None]) -> dict[str, int]:
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: PowerFingerprintConfigEntry
 ) -> dict[str, Any]:
-    entry_data = hass.data[DOMAIN][entry.entry_id]
-    coordinator: FingerprintCoordinator = entry_data["coordinator"]
+    coordinator = entry.runtime_data.coordinator
     data = coordinator.data or {}
 
     standby = [

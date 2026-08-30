@@ -2,29 +2,40 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-from .coordinator import FingerprintCoordinator
+from .coordinator import FingerprintCoordinator, PowerFingerprintConfigEntry
 from .entity import FingerprintEntity
+
+# Nothing here talks to a device or a network service - every value is derived
+# from state already in memory - so there is no external system to be gentle
+# with and no reason to serialise updates.
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: PowerFingerprintConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    entry_data = hass.data[DOMAIN][entry.entry_id]
-    coordinator: FingerprintCoordinator = entry_data["coordinator"]
+    coordinator = entry.runtime_data.coordinator
     async_add_entities([CoverageFault(coordinator), Contradiction(coordinator)])
 
 
 class _Base(FingerprintEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    # Both of these describe the health of the measurement rather than the
+    # house, which is what the diagnostic category is for: they belong in the
+    # device's diagnostic section, not on a dashboard beside the power figures.
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
 
 class CoverageFault(_Base):
@@ -35,8 +46,7 @@ class CoverageFault(_Base):
     usually means a CT is reversed or double-counting a leg.
     """
 
-    _attr_name = "CT coverage fault"
-    _attr_icon = "mdi:alert-circle-check"
+    _attr_translation_key = "coverage_fault"
 
     def __init__(self, coordinator: FingerprintCoordinator) -> None:
         super().__init__(coordinator, "coverage_fault")
@@ -52,10 +62,10 @@ class CoverageFault(_Base):
         if cov["mains_w"] < 200:
             return False
         off_by = abs(cov["unmonitored_w"]) / cov["mains_w"] * 100.0
-        return off_by > data.get("tolerance_pct", 5.0)
+        return bool(off_by > data.get("tolerance_pct", 5.0))
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         cov = (self.coordinator.data or {}).get("coverage") or {}
         return {
             "unmonitored_w": cov.get("unmonitored_w"),
@@ -71,8 +81,7 @@ class Contradiction(_Base):
     clamp is the one measuring reality.
     """
 
-    _attr_name = "State contradiction"
-    _attr_icon = "mdi:flash-alert"
+    _attr_translation_key = "contradiction"
 
     def __init__(self, coordinator: FingerprintCoordinator) -> None:
         super().__init__(coordinator, "contradiction")
@@ -82,5 +91,5 @@ class Contradiction(_Base):
         return bool((self.coordinator.data or {}).get("contradictions"))
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, Any]:
         return {"detail": (self.coordinator.data or {}).get("contradictions", [])}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -36,6 +37,69 @@ VALID_IOT_CLASS = {
 
 failures: list[str] = []
 notes: list[str] = []
+
+
+# Pinned from developers.home-assistant.io/docs/core/integration-quality-scale/checklist
+ALL_RULES = {
+    # Bronze
+    "action-setup",
+    "appropriate-polling",
+    "brands",
+    "common-modules",
+    "config-flow-test-coverage",
+    "config-flow",
+    "dependency-transparency",
+    "docs-actions",
+    "docs-conditions",
+    "docs-high-level-description",
+    "docs-installation-instructions",
+    "docs-removal-instructions",
+    "docs-triggers",
+    "entity-event-setup",
+    "entity-unique-id",
+    "has-entity-name",
+    "runtime-data",
+    "test-before-configure",
+    "test-before-setup",
+    "unique-config-entry",
+    # Silver
+    "action-exceptions",
+    "config-entry-unloading",
+    "docs-configuration-parameters",
+    "docs-installation-parameters",
+    "entity-unavailable",
+    "integration-owner",
+    "log-when-unavailable",
+    "parallel-updates",
+    "reauthentication-flow",
+    "test-coverage",
+    # Gold
+    "devices",
+    "diagnostics",
+    "discovery-update-info",
+    "discovery",
+    "docs-data-update",
+    "docs-examples",
+    "docs-known-limitations",
+    "docs-supported-devices",
+    "docs-supported-functions",
+    "docs-troubleshooting",
+    "docs-use-cases",
+    "dynamic-devices",
+    "entity-category",
+    "entity-device-class",
+    "entity-disabled-by-default",
+    "entity-translations",
+    "exception-translations",
+    "icon-translations",
+    "reconfiguration-flow",
+    "repair-issues",
+    "stale-devices",
+    # Platinum
+    "async-dependency",
+    "inject-websession",
+    "strict-typing",
+}
 
 
 def read(*parts: str) -> str:
@@ -128,6 +192,98 @@ def main() -> int:
         )
     except ImportError:
         notes.append("PyYAML not installed - services.yaml not parsed")
+
+    # ---------------------------------------------------------- quality scale
+    # The rule list is pinned here on purpose. A quality_scale.yaml that is
+    # missing a rule reads as complete - nothing complains, the file just does
+    # not mention it - which is the same silent-empty failure this project
+    # keeps running into. Checking against the full list turns an omission
+    # into a failure.
+    scale_path = os.path.join(COMP, "quality_scale.yaml")
+    if os.path.isfile(scale_path):
+        try:
+            import yaml
+
+            declared = yaml.safe_load(read(scale_path)).get("rules", {})
+            missing = ALL_RULES - set(declared)
+            check(not missing, f"quality_scale.yaml does not mention {sorted(missing)}")
+            unknown = set(declared) - ALL_RULES
+            check(not unknown, f"quality_scale.yaml invents rules {sorted(unknown)}")
+            for rule, value in sorted(declared.items()):
+                if isinstance(value, dict):
+                    check(
+                        value.get("status") in {"done", "todo", "exempt"},
+                        f"{rule}: status must be done/todo/exempt",
+                    )
+                    check(
+                        bool(str(value.get("comment", "")).strip()),
+                        f"{rule}: a non-done status needs a comment saying why",
+                    )
+                else:
+                    check(value == "done", f"{rule}: bare value must be 'done'")
+            todo = sorted(
+                r
+                for r, v in declared.items()
+                if isinstance(v, dict) and v.get("status") == "todo"
+            )
+            if todo:
+                notes.append(f"quality scale still todo: {', '.join(todo)}")
+            claimed = manifest.get("quality_scale")
+            if claimed:
+                check(
+                    not todo,
+                    f"manifest claims quality_scale {claimed!r} while "
+                    f"{len(todo)} rule(s) are still todo",
+                )
+        except ImportError:
+            notes.append("PyYAML not installed - quality_scale.yaml not parsed")
+    else:
+        notes.append("no quality_scale.yaml")
+
+    # ------------------------------------------------------ icon translations
+    # Every translation_key used by an entity needs an icon entry, and every
+    # icon entry needs an entity using it - a stale icons.json key is dead
+    # weight that looks like coverage.
+    icons_path = os.path.join(COMP, "icons.json")
+    if os.path.isfile(icons_path):
+        icons = read_json(COMP, "icons.json")
+        for platform in ("sensor", "binary_sensor"):
+            used = set(
+                re.findall(
+                    r'_attr_translation_key = "([^"]+)"', read(COMP, f"{platform}.py")
+                )
+            )
+            declared_icons = set(icons.get("entity", {}).get(platform, {}))
+            check(
+                used <= declared_icons,
+                f"{platform}: no icon for {sorted(used - declared_icons)}",
+            )
+            check(
+                declared_icons <= used,
+                f"{platform}: icons.json has unused keys "
+                f"{sorted(declared_icons - used)}",
+            )
+            entity_strings = set(strings.get("entity", {}).get(platform, {}))
+            check(
+                used == entity_strings,
+                f"{platform}: translation keys {sorted(used)} do not match "
+                f"strings.json entity names {sorted(entity_strings)}",
+            )
+    else:
+        notes.append("no icons.json")
+
+    # ------------------------------------------------- exception translations
+    raised = set(re.findall(r'translation_key="([^"]+)"', read(COMP, "services.py")))
+    declared_exc = set(strings.get("exceptions", {}))
+    check(
+        raised <= declared_exc,
+        f"services.py raises undeclared translation keys "
+        f"{sorted(raised - declared_exc)}",
+    )
+    check(
+        declared_exc <= raised,
+        f"strings.json declares unused exceptions {sorted(declared_exc - raised)}",
+    )
 
     # ---------------------------------------------------------- syntax
     for dirpath, _dirs, files in os.walk(COMP):

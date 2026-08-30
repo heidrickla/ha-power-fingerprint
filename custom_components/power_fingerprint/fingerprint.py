@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
+from typing import Any
 
 # Feature -> (log-scaled?, weight, linear divisor).
 #
@@ -150,7 +151,7 @@ class Fingerprint:
             bits.append("brief spikes")
         return ", ".join(bits)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "label": self.label,
             "circuit": self.circuit,
@@ -160,7 +161,7 @@ class Fingerprint:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> Fingerprint:
+    def from_dict(cls, d: dict[str, Any]) -> Fingerprint:
         return cls(
             label=d["label"],
             circuit=d["circuit"],

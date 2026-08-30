@@ -2,14 +2,12 @@
 
 from homeassistant.core import HomeAssistant
 
-from custom_components.power_fingerprint.const import DOMAIN
-
 
 async def _setup(hass, entry):
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    return hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    return entry.runtime_data.coordinator
 
 
 async def test_unmonitored_load_is_mains_minus_circuits(

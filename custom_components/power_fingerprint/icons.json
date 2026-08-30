@@ -1,0 +1,37 @@
+{
+  "entity": {
+    "sensor": {
+      "appliance": {
+        "default": "mdi:fingerprint"
+      },
+      "unmonitored_load": {
+        "default": "mdi:transmission-tower"
+      },
+      "standby_power": {
+        "default": "mdi:sleep"
+      },
+      "standby_annual_cost": {
+        "default": "mdi:cash-clock"
+      }
+    },
+    "binary_sensor": {
+      "coverage_fault": {
+        "default": "mdi:alert-circle-check",
+        "state": {
+          "on": "mdi:alert-circle"
+        }
+      },
+      "contradiction": {
+        "default": "mdi:flash-alert",
+        "state": {
+          "off": "mdi:flash"
+        }
+      }
+    }
+  },
+  "services": {
+    "learn": "mdi:school",
+    "label": "mdi:tag-text",
+    "verify_circuit": "mdi:check-decagram"
+  }
+}
