@@ -177,6 +177,36 @@ about it:
   reports any that fired. A result with interference is graded `suspect` and the
   automation is named, rather than being silently trusted or silently discarded.
 
+### Field results, 2026-08-30
+
+First live run, three devices, two probes each, on a 27-circuit panel at 01:00.
+
+| Device | Result |
+|---|---|
+| Foyer archway *(control)* | probe 2 → **circuit 30**, match **0.998** (39.3 W expected, 39.4 W measured) — **matching the passive inference exactly** |
+| Front porch | probe 1 → circuit 30, match **0.68** (12.0 W expected, 17.6 W measured) |
+| Office desk light | **1.1 W** — below the noise floor, refused on both probes |
+
+All three devices restored to their prior state, verified afterwards rather than
+assumed.
+
+The control is the important one: two independent methods, one statistical and
+one by measurement, produced the same circuit. That is what makes the rest of
+this trustworthy.
+
+⚠ **And eight automations fired during that window, three of them touching a
+probed device** — including the outside-lights automation firing *during* the
+front porch probe. That is very likely why the porch match was 0.68 rather than
+0.99: the automation also controls the driveway and side-door lights, which may
+share the circuit, adding a delta that was not the porch light.
+
+So the porch result is **suspect, not accepted**. The interference detector was
+built because of this run, and would now grade it as such automatically.
+
+The wider lesson: 01:00 was chosen because the house should be quiet, and it was
+not. Motion automations fired throughout — laundry, kitchen, garage. Probing
+when the house *seems* quiet is not a substitute for detecting interference.
+
 ### Safety
 
 Active probing actuates real devices, so the rules are enforced in code:
