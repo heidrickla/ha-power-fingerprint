@@ -27,7 +27,9 @@ if TYPE_CHECKING:
     from .store import FingerprintStore
 
 from .analysis import (
+    Cadence,
     Sample,
+    absence,
     circuit_floor,
     contradictions,
     coverage,
@@ -129,6 +131,14 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         # Which sources have gone away, so their disappearance is logged once
         # rather than every 30 seconds, and logged again when they return.
         self._missing: set[str] = set()
+        # Seconds each circuit spent unreadable since its appliance was last
+        # seen. ⛔ THIS IS THE WHOLE POINT OF ABSENCE DETECTION: time nobody was
+        # watching is not evidence that nothing happened.
+        self._blind_s: dict[str, float] = defaultdict(float)
+        self._last_seen: dict[str, str] = {}
+        self._seen_dirty = False
+        # Resolved once, on the first refresh after startup.
+        self._last_poll_gap: float | None = None
 
     def _watts(self, entity: str, state: State | None) -> float | None:
         """One reading, converted to watts, or None if it is unusable.
@@ -312,6 +322,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         if mains_val is not None:
             seen.add(self.mains)
         self._note_availability(seen)
+        self._accrue_blind_time(now, seen)
 
         cov = coverage(mains_val, live) if mains_val is not None else None
         floors = {
@@ -340,6 +351,9 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         ]
 
         running = {e: self._match_live(e, live[e]) for e in self.circuits if e in live}
+        self._note_seen(now, running)
+        quiet = self._absences(now)
+        await self.async_persist_seen(now)
 
         return {
             "coverage": cov,
@@ -351,7 +365,105 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             "tolerance_pct": self.tolerance,
             "labelled_fingerprints": (len(self.store.labelled()) if self.store else 0),
             "running": running,
+            "absent": [row for row in quiet if row["state"] == "overdue"],
+            "absence_detail": quiet,
         }
+
+    def _accrue_blind_time(self, now: datetime, seen: set[str]) -> None:
+        """Count the seconds each circuit was unreadable.
+
+        Two sources, and the second is the one that is easy to forget. A
+        circuit that is `unavailable` at a poll contributes one poll interval.
+        A Home Assistant restart contributes the whole gap since the last
+        recorded poll, during which this coordinator was not running at all -
+        that is the longest blind stretch most installs will ever have, and
+        counting it as silence would fire an absence alert on every reboot.
+        """
+        if self.store is not None and self._last_poll_gap is None:
+            recorded = self.store.last_poll()
+            gap = 0.0
+            if recorded:
+                try:
+                    gap = max(
+                        0.0, (now - datetime.fromisoformat(recorded)).total_seconds()
+                    )
+                except ValueError:
+                    gap = 0.0
+            self._last_poll_gap = gap
+            if gap > POLL_SECONDS * 2:
+                _LOGGER.debug(
+                    "Home Assistant was down or this entry unloaded for %.0f s - "
+                    "counting it as unobserved, not as silence",
+                    gap,
+                )
+                for entity in self.circuits:
+                    self._blind_s[entity] += gap
+
+        for entity in self.circuits:
+            if entity not in seen:
+                self._blind_s[entity] += float(POLL_SECONDS)
+
+    def _note_seen(self, now: datetime, running: dict[str, dict[str, object]]) -> None:
+        """Record any named appliance observed running, and clear its blindness."""
+        if self.store is None:
+            return
+        stamp = now.isoformat()
+        for circuit, info in running.items():
+            state = info.get("state")
+            if not isinstance(state, str) or state in ("idle", "starting", "unknown"):
+                continue
+            self._last_seen[self.store.seen_key(circuit, state)] = stamp
+            # Blind time is only ever measured BACK TO the last sighting, so a
+            # fresh sighting resets it. Otherwise an install that was offline
+            # for a week could never raise an absence alert again.
+            self._blind_s[circuit] = 0.0
+            self._seen_dirty = True
+
+    def _absences(self, now: datetime) -> list[dict[str, Any]]:
+        """Which named appliances have gone quiet, and which cannot be judged."""
+        if self.store is None:
+            return []
+        known = {**self.store.last_seen(), **self._last_seen}
+        out: list[dict[str, Any]] = []
+        for fp in self.store.labelled():
+            if not fp.cadence:
+                continue
+            key = self.store.seen_key(fp.circuit, fp.label)
+            stamp = known.get(key)
+            if stamp is None:
+                # Never seen since learning. Honest answer is "not yet", not
+                # "overdue" - the library was built from history this
+                # coordinator did not watch.
+                continue
+            try:
+                silent_s = (now - datetime.fromisoformat(stamp)).total_seconds()
+            except ValueError:
+                continue
+            rhythm = Cadence(
+                runs=int(fp.cadence.get("runs", 0)),
+                median_gap_s=float(fp.cadence.get("median_gap_s", 0.0)),
+                p90_gap_s=float(fp.cadence.get("p90_gap_s", 0.0)),
+            )
+            state, why = absence(rhythm, silent_s, self._blind_s[fp.circuit])
+            out.append(
+                {
+                    "appliance": fp.label,
+                    "circuit": fp.circuit,
+                    "state": state,
+                    "reason": why,
+                    "silent_h": round(silent_s / 3600.0, 1),
+                    "unobserved_h": round(self._blind_s[fp.circuit] / 3600.0, 1),
+                    "expected_every_h": round(rhythm.median_gap_s / 3600.0, 1),
+                }
+            )
+        return out
+
+    async def async_persist_seen(self, now: datetime) -> None:
+        """Write last-seen times out, but only when something changed."""
+        if self.store is None or not self._seen_dirty:
+            return
+        self._seen_dirty = False
+        await self.store.async_record_seen(self._last_seen, now.isoformat())
 
     def window_sizes(self) -> dict[str, int]:
         """How many samples each circuit has accumulated. Used by diagnostics

@@ -321,6 +321,111 @@ def _emit(
 # --------------------------------------------------------------------------
 
 
+@dataclass
+class Cadence:
+    """How often one named appliance actually runs, learned from its own runs.
+
+    Not a schedule and not a spec sheet. A fridge that cycles every 40 minutes
+    and a dryer used twice a week both get a description of themselves, which
+    is the only fair basis for saying one of them has gone quiet.
+    """
+
+    runs: int
+    median_gap_s: float
+    p90_gap_s: float
+
+    def to_dict(self) -> dict[str, float]:
+        return {
+            "runs": self.runs,
+            "median_gap_s": round(self.median_gap_s, 1),
+            "p90_gap_s": round(self.p90_gap_s, 1),
+        }
+
+
+def cadence(starts: list[datetime], min_runs: int = 5) -> Cadence | None:
+    """Learn an appliance's rhythm from when it ran.
+
+    Returns None below `min_runs`, because four gaps cannot distinguish "runs
+    weekly" from "ran four times and stopped", and an absence alert built on
+    that would be noise. Refusing to characterise is the correct output here,
+    not a wide guess.
+    """
+    if len(starts) < min_runs:
+        return None
+    ordered = sorted(starts)
+    gaps = [(b - a).total_seconds() for a, b in pairwise(ordered)]
+    gaps = [g for g in gaps if g > 0]
+    if len(gaps) < min_runs - 1:
+        return None
+    return Cadence(
+        runs=len(ordered),
+        median_gap_s=percentile(gaps, 50),
+        p90_gap_s=percentile(gaps, 90),
+    )
+
+
+def cadences_by_cluster(
+    labels: list[int], starts: list[datetime], min_runs: int = 5
+) -> dict[int, dict[str, float]]:
+    """Learn one rhythm per cluster, given each event's label and start time.
+
+    Lives here rather than in `fingerprint` because `cadence` does, and the
+    pure modules deliberately do not import one another - they are loaded by
+    path. The HA layer joins the two.
+    """
+    grouped: dict[int, list[datetime]] = {}
+    for label, start in zip(labels, starts, strict=True):
+        grouped.setdefault(label, []).append(start)
+    out: dict[int, dict[str, float]] = {}
+    for label, times in grouped.items():
+        rhythm = cadence(times, min_runs=min_runs)
+        if rhythm is not None:
+            out[label] = rhythm.to_dict()
+    return out
+
+
+def absence(
+    cadence_: Cadence | None,
+    silent_s: float,
+    blind_s: float = 0.0,
+    patience: float = 2.0,
+) -> tuple[str, str]:
+    """Has an expected appliance gone quiet? Returns (state, reason).
+
+    ⭐ EVERY OTHER CHECK IN THIS INTEGRATION ALERTS ON TOO MUCH. The expensive
+    failures are silence: the fridge that stopped cycling, the sump pump that
+    never ran through a storm, the freezer nobody opened for a fortnight. None
+    of those trip a threshold, because nothing exceeded anything.
+
+    ⛔ BLIND TIME IS NOT SILENCE, AND CONFLATING THEM IS THE ONE FAILURE THAT
+    MATTERS HERE. If the circuit sensor was unavailable for six hours, the
+    appliance may well have run during them. Reporting that as "it has not run"
+    is a fabricated observation - the integration would be asserting something
+    it did not see. `blind_s` is subtracted from the silence before judging,
+    and when too much of the window was blind the answer is `unknown`, which is
+    the honest state and not a failure of the check.
+
+    Three states, and only one of them is an alert:
+      ok       - ran within the expected window
+      overdue  - genuinely silent for `patience` x its own p90 gap
+      unknown  - not enough was observed to say either way
+    """
+    if cadence_ is None:
+        return "unknown", "not enough runs to know its rhythm"
+    observed = silent_s - blind_s
+    if observed < 0:
+        observed = 0.0
+    limit = cadence_.p90_gap_s * patience
+    if blind_s > silent_s * 0.5:
+        return "unknown", f"{blind_s / 3600:.1f}h of the window was unobserved"
+    if observed > limit:
+        return "overdue", (
+            f"silent {observed / 3600:.1f}h against a {limit / 3600:.1f}h limit "
+            f"({patience:g} x its own p90 gap)"
+        )
+    return "ok", f"last ran {observed / 3600:.1f}h ago"
+
+
 def coverage(mains_w: float, circuit_w: dict[str, float]) -> dict[str, float]:
     """How much of the panel the circuit CTs actually account for.
 

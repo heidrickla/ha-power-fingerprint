@@ -164,6 +164,9 @@
       },
       "contradiction": {
         "name": "State contradiction"
+      },
+      "silent_appliance": {
+        "name": "Silent appliance"
       }
     }
   },

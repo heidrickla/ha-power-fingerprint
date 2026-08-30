@@ -27,18 +27,33 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data.coordinator
-    async_add_entities([CoverageFault(coordinator), Contradiction(coordinator)])
+    async_add_entities(
+        [
+            CoverageFault(coordinator),
+            Contradiction(coordinator),
+            SilentAppliance(coordinator),
+        ]
+    )
 
 
 class _Base(FingerprintEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
-    # Both of these describe the health of the measurement rather than the
-    # house, which is what the diagnostic category is for: they belong in the
-    # device's diagnostic section, not on a dashboard beside the power figures.
+
+
+class _Diagnostic(_Base):
+    """For checks about the health of the MEASUREMENT rather than the house.
+
+    Coverage and contradiction both say "this integration's own view is
+    suspect", which belongs in the device's diagnostic section rather than on a
+    dashboard beside the power figures. ⚠ A silent appliance is NOT one of
+    these - it is a fact about the house and the whole reason someone installs
+    this, so it stays a primary entity.
+    """
+
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
 
-class CoverageFault(_Base):
+class CoverageFault(_Diagnostic):
     """On when the circuits stop adding up to the mains.
 
     Deliberately checks the absolute value: a NEGATIVE remainder (circuits
@@ -74,7 +89,7 @@ class CoverageFault(_Base):
         }
 
 
-class Contradiction(_Base):
+class Contradiction(_Diagnostic):
     """On when a switch claims to be on and its circuit draws nothing.
 
     The state machine says one thing and the current clamp says another. The
@@ -93,3 +108,50 @@ class Contradiction(_Base):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"detail": (self.coordinator.data or {}).get("contradictions", [])}
+
+
+class SilentAppliance(_Base):
+    """On when a named appliance has stopped running when it should have.
+
+    ⭐ THE ONLY CHECK HERE THAT ALERTS ON TOO LITTLE. Everything else in this
+    integration fires when something exceeds something; the expensive failures
+    are the quiet ones. A freezer that stopped cycling crosses no threshold, a
+    sump pump silent through a storm draws no current, and neither shows up in
+    a dashboard of maxima. They show up as a rhythm that stopped.
+
+    ⛔ Returns `None` - unknown - rather than `off` when the circuit was not
+    observable for a meaningful part of the window. `off` would assert the
+    appliance is fine; `None` says nobody was watching. Those are different
+    claims and only one of them is true after a restart or a dropout.
+    """
+
+    _attr_translation_key = "silent_appliance"
+
+    def __init__(self, coordinator: FingerprintCoordinator) -> None:
+        super().__init__(coordinator, "silent_appliance")
+
+    @property
+    def is_on(self) -> bool | None:
+        detail = (self.coordinator.data or {}).get("absence_detail") or []
+        if not detail:
+            return None
+        if any(row["state"] == "overdue" for row in detail):
+            return True
+        if all(row["state"] == "unknown" for row in detail):
+            return None
+        return False
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data or {}
+        detail = data.get("absence_detail") or []
+        return {
+            "overdue": [row["appliance"] for row in data.get("absent", [])],
+            "watching": len(detail),
+            # Named separately from `off`: these are the ones the integration
+            # is deliberately declining to judge.
+            "unjudgeable": [
+                row["appliance"] for row in detail if row["state"] == "unknown"
+            ],
+            "detail": detail,
+        }

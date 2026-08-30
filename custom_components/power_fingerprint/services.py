@@ -29,7 +29,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from .analysis import Sample, segment, to_watts
+from .analysis import Sample, cadences_by_cluster, segment, to_watts
 from .const import DOMAIN
 from .coordinator import (
     PowerFingerprintConfigEntry,
@@ -299,7 +299,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 continue
             rows = [e.as_features() for e in events]
             labels = cluster(normalize(rows), threshold=threshold)
-            fps = summarize(entity, rows, labels)
+            # Each shape's own rhythm, learned from when its runs actually
+            # happened. This is what absence detection judges against later.
+            rhythms = cadences_by_cluster(labels, [e.start for e in events])
+            fps = summarize(entity, rows, labels, rhythms)
             await store.async_replace_circuit(entity, fps)
             report[entity] = [
                 {
