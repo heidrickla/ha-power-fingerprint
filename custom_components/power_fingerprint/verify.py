@@ -256,3 +256,56 @@ def grade(
         # clean sweep.
         return circuit, INFERRED
     return circuit, MEASURED
+
+
+# Domains an automation may touch that make it unsafe to pause, even briefly.
+# An allowlist is not possible here - an automation can reference anything - so
+# this is a denylist, and it is deliberately broad. The cost of leaving one
+# automation running during a probe is a slightly worse measurement. The cost of
+# pausing the wrong one is a door that does not unlock, an alarm that trips, or
+# a leak that goes unannounced.
+NEVER_PAUSE_DOMAINS = frozenset(
+    {
+        "lock",
+        "alarm_control_panel",
+        "cover",  # garage doors
+        "valve",  # water shutoff
+        "water_heater",
+        "climate",
+        "siren",
+        "humidifier",
+        "vacuum",
+        "notify",
+        "persistent_notification",
+        "device_tracker",  # arrival/departure logic
+        "person",
+    }
+)
+
+# device_class values that mark a sensor as safety-relevant.
+NEVER_PAUSE_DEVICE_CLASSES = frozenset(
+    {"moisture", "smoke", "gas", "carbon_monoxide", "safety", "problem", "tamper"}
+)
+
+
+def safe_to_pause(
+    referenced: set[str], device_classes: dict[str, str | None] | None = None
+) -> tuple[bool, str]:
+    """Whether an automation may be paused for the duration of a probe.
+
+    ⛔ THIS FAILS CLOSED AND SHOULD STAY THAT WAY.
+    The worst outcome of refusing to pause something is a noisier measurement.
+    The worst outcome of pausing the wrong thing is a leak alert that never
+    fires, an alarm that trips because the arrival automation did not disarm it,
+    or a door that stays locked. Those are not comparable, so the test is
+    deliberately over-broad.
+    """
+    device_classes = device_classes or {}
+    for entity in referenced:
+        domain = entity.split(".", 1)[0] if "." in entity else ""
+        if domain in NEVER_PAUSE_DOMAINS:
+            return False, f"touches {entity} ({domain})"
+        dc = device_classes.get(entity)
+        if dc in NEVER_PAUSE_DEVICE_CLASSES:
+            return False, f"touches {entity} (device_class {dc})"
+    return True, ""

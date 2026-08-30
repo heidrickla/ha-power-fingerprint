@@ -71,6 +71,10 @@
         "settle": {
           "name": "Settle time",
           "description": "Seconds to wait for the meter."
+        },
+        "pause_automations": {
+          "name": "Pause interfering automations",
+          "description": "Temporarily switch off automations that could move this device mid-probe. Safety-related automations are never paused."
         }
       }
     }

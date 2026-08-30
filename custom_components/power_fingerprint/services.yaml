@@ -120,3 +120,17 @@ verify_circuit:
           max: 120
           unit_of_measurement: seconds
           mode: slider
+    pause_automations:
+      name: Pause interfering automations
+      description: >-
+        Temporarily switch off automations that touch this device or a circuit,
+        so they cannot move it mid-measurement, then switch them back on. Only
+        automations judged safe are paused - anything touching a lock, alarm,
+        cover, valve, water heater, siren, notification, presence, or a
+        moisture, smoke or gas sensor is left running and reported as refused.
+        If a probe dies mid-run, the integration re-enables them at next startup
+        and logs a warning.
+      required: false
+      default: false
+      selector:
+        boolean:

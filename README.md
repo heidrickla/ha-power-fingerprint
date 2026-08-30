@@ -207,6 +207,35 @@ The wider lesson: 01:00 was chosen because the house should be quiet, and it was
 not. Motion automations fired throughout — laundry, kitchen, garage. Probing
 when the house *seems* quiet is not a substitute for detecting interference.
 
+### Pausing interfering automations
+
+Detecting interference is the default. Removing it is opt-in:
+
+```yaml
+action: power_fingerprint.verify_circuit
+data:
+  device: light.hall
+  power_sensor: sensor.hall_power
+  pause_automations: true
+```
+
+This switches off automations that touch the device or a circuit, probes, then
+switches them back on. It is more invasive than detection, so it is guarded
+three ways:
+
+- **A denylist, deliberately over-broad.** Anything referencing a lock, alarm
+  panel, cover, valve, water heater, climate, siren, notification, presence
+  entity, or a moisture / smoke / gas / CO / safety sensor is **never paused**,
+  and is reported back as refused. Refusing costs a noisier measurement; pausing
+  the wrong thing costs a leak alert that never fires.
+- **The record is written before the switch-off, not after.** If the process
+  dies between the two, the worst case is a stale record that re-enables
+  something already running.
+- **Orphans are restored at startup.** If a probe dies mid-run — killed process,
+  Home Assistant restart, power cut — the next setup re-enables anything left
+  paused and logs a warning for each. A house whose automations are silently off
+  is far worse than a bad measurement.
+
 ### Safety
 
 Active probing actuates real devices, so the rules are enforced in code:

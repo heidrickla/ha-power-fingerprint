@@ -164,3 +164,48 @@ def test_each_method_alone_is_reported_as_such():
     assert v.combine(None, "sensor.c1") == ("sensor.c1", v.MEASURED)
     assert v.combine("sensor.c1", None) == ("sensor.c1", v.INFERRED)
     assert v.combine(None, None) == (None, v.UNKNOWN)
+
+
+# ---------------------------------------- pausing automations for a probe
+
+
+def test_safety_domains_are_never_paused():
+    """Refusing to pause costs a noisier measurement. Pausing the wrong thing
+    costs a leak alert that never fires."""
+    for entity in (
+        "lock.front_door",
+        "alarm_control_panel.house",
+        "cover.garage",
+        "valve.main_shutoff",
+        "water_heater.tank",
+        "siren.alarm",
+        "notify.mobile_app_phone",
+        "device_tracker.phone",
+        "person.lewis",
+    ):
+        ok, why = v.safe_to_pause({"light.lamp", entity})
+        assert not ok, entity
+        assert entity in why
+
+
+def test_safety_device_classes_are_never_paused():
+    for dc in ("moisture", "smoke", "gas", "carbon_monoxide", "safety"):
+        ok, why = v.safe_to_pause(
+            {"binary_sensor.leak", "light.lamp"}, {"binary_sensor.leak": dc}
+        )
+        assert not ok, dc
+        assert dc in why
+
+
+def test_an_ordinary_motion_light_automation_may_be_paused():
+    ok, why = v.safe_to_pause(
+        {"binary_sensor.hall_motion", "light.hall"},
+        {"binary_sensor.hall_motion": "motion"},
+    )
+    assert ok and why == ""
+
+
+def test_the_check_fails_closed_on_an_unknown_domain():
+    """A domain nobody anticipated should not silently become pausable."""
+    ok, _ = v.safe_to_pause({"lock.side_door"})
+    assert not ok
