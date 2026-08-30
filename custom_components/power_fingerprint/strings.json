@@ -7,12 +7,47 @@
         "data": {
           "mains": "Whole-panel power sensor",
           "circuits": "Circuit power sensors",
-          "price_per_kwh": "Electricity price per kWh"
+          "price_per_kwh": "Electricity price per kWh",
+          "coverage_tolerance_pct": "Coverage tolerance",
+          "contradiction_pairs": "Switch/circuit pairs"
+        },
+        "data_description": {
+          "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
+          "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
+          "price_per_kwh": "Used only to turn standby watts into an annual figure.",
+          "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
+          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Power Fingerprint",
+        "description": "Pick the sensor that measures the whole panel, then the per-circuit power sensors.",
+        "data": {
+          "mains": "Whole-panel power sensor",
+          "circuits": "Circuit power sensors",
+          "price_per_kwh": "Electricity price per kWh",
+          "coverage_tolerance_pct": "Coverage tolerance",
+          "contradiction_pairs": "Switch/circuit pairs"
+        },
+        "data_description": {
+          "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
+          "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
+          "price_per_kwh": "Used only to turn standby watts into an annual figure.",
+          "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
+          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
         }
       }
     },
     "abort": {
-      "single_instance_allowed": "Power Fingerprint is already configured."
+      "single_instance_allowed": "Power Fingerprint is already configured.",
+      "reconfigure_successful": "Power Fingerprint has been reconfigured."
+    },
+    "error": {
+      "mains_missing": "{entity} does not exist. Pick a sensor that is currently loaded.",
+      "mains_not_numeric": "{entity} is not reporting a number right now, so it cannot be used as the mains reading.",
+      "not_power_unit": "{entity} reports in {unit}, which is not a power unit. Every figure in this integration is in watts.",
+      "no_circuits": "Pick at least one circuit sensor.",
+      "mains_in_circuits": "The mains sensor is also in the circuit list, so it would be counted on both sides and coverage would never balance."
     }
   },
   "services": {
@@ -77,6 +112,82 @@
           "description": "Temporarily switch off automations that could move this device mid-probe. Safety-related automations are never paused."
         }
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Power Fingerprint options",
+        "description": "Pick the sensor that measures the whole panel, then the per-circuit power sensors.",
+        "data": {
+          "mains": "Whole-panel power sensor",
+          "circuits": "Circuit power sensors",
+          "price_per_kwh": "Electricity price per kWh",
+          "coverage_tolerance_pct": "Coverage tolerance",
+          "contradiction_pairs": "Switch/circuit pairs"
+        },
+        "data_description": {
+          "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
+          "circuits": "One sensor per breaker. Leave out phase and total sensors, or they will be counted twice.",
+          "price_per_kwh": "Used only to turn standby watts into an annual figure.",
+          "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
+          "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing."
+        }
+      }
+    },
+    "error": {
+      "mains_missing": "{entity} does not exist. Pick a sensor that is currently loaded.",
+      "mains_not_numeric": "{entity} is not reporting a number right now, so it cannot be used as the mains reading.",
+      "not_power_unit": "{entity} reports in {unit}, which is not a power unit. Every figure in this integration is in watts.",
+      "no_circuits": "Pick at least one circuit sensor.",
+      "mains_in_circuits": "The mains sensor is also in the circuit list, so it would be counted on both sides and coverage would never balance."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "appliance": {
+        "name": "{circuit} appliance"
+      },
+      "unmonitored_load": {
+        "name": "Unmonitored load"
+      },
+      "standby_power": {
+        "name": "Standby power"
+      },
+      "standby_annual_cost": {
+        "name": "Standby annual cost"
+      }
+    },
+    "binary_sensor": {
+      "coverage_fault": {
+        "name": "CT coverage fault"
+      },
+      "contradiction": {
+        "name": "State contradiction"
+      }
+    }
+  },
+  "exceptions": {
+    "not_loaded": {
+      "message": "Power Fingerprint is not loaded, so this action cannot run. Check the integration on the Devices & services page."
+    },
+    "unknown_fingerprint": {
+      "message": "There is no fingerprint named {label} on {circuit}. Run the learn action first, then name one of the candidates it returns."
+    },
+    "may_not_probe": {
+      "message": "{device} cannot be probed: {reason}"
+    },
+    "device_unavailable": {
+      "message": "{device} is not available right now, so switching it would prove nothing."
+    },
+    "battery_powered": {
+      "message": "{device} is battery powered. It draws no mains current, so no circuit can show it switching and there is nothing to measure."
+    }
+  },
+  "issues": {
+    "bad_unit": {
+      "title": "A configured sensor is not reporting power",
+      "description": "{entity} reports in {unit}, which is not a power unit, so it has been excluded from every total. Every figure in Power Fingerprint is in watts. Either correct the sensor's unit, or remove it from the circuit list in the integration options."
     }
   }
 }

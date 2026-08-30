@@ -13,13 +13,21 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, State
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+if TYPE_CHECKING:
+    from .store import FingerprintStore
+
 from .analysis import (
+    Sample,
     circuit_floor,
     contradictions,
     coverage,
@@ -46,9 +54,25 @@ from .fingerprint import match
 _LOGGER = logging.getLogger(__name__)
 
 
-def _raw(state) -> float | None:
+@dataclass
+class PowerFingerprintData:
+    """Everything one config entry owns at runtime.
+
+    Held on `entry.runtime_data` rather than in `hass.data`, so the type is
+    carried by the entry itself and every consumer gets it checked rather than
+    fishing an untyped dict out of a shared dictionary.
+    """
+
+    coordinator: FingerprintCoordinator
+    store: FingerprintStore
+
+
+type PowerFingerprintConfigEntry = ConfigEntry[PowerFingerprintData]
+
+
+def _raw(state: State | None) -> float | None:
     """The numeric part of a state, with no unit interpretation."""
-    if state is None or state.state in ("unknown", "unavailable", "", None):
+    if state is None or state.state in ("unknown", "unavailable", ""):
         return None
     try:
         return float(state.state)
@@ -56,8 +80,9 @@ def _raw(state) -> float | None:
         return None
 
 
-def _unit(state) -> str | None:
-    return state.attributes.get("unit_of_measurement") if state else None
+def _unit(state: State | None) -> str | None:
+    unit = state.attributes.get("unit_of_measurement") if state else None
+    return str(unit) if unit is not None else None
 
 
 class FingerprintCoordinator(DataUpdateCoordinator):
@@ -66,14 +91,20 @@ class FingerprintCoordinator(DataUpdateCoordinator):
     def __init__(
         self,
         hass: HomeAssistant,
-        options: dict,
+        options: dict[str, Any],
         entry_id: str,
-        store: object | None = None,
+        store: FingerprintStore | None = None,
     ) -> None:
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
+            # Polls the state machine rather than a device or a network
+            # service, so the interval is not a politeness question. 30 s is
+            # the standby window's resolution: standby is a 5th percentile over
+            # 24 hours and does not move faster than that. The live appliance
+            # match reads whatever the meter has most recently published, so a
+            # faster poll would resample the same value.
             update_interval=timedelta(seconds=POLL_SECONDS),
         )
         self.entry_id = entry_id
@@ -84,7 +115,9 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         self.tolerance: float = float(options.get(CONF_TOLERANCE, DEFAULT_TOLERANCE))
         self.pairs: list[tuple[str, str]] = parse_pairs(options.get(CONF_PAIRS, ""))
         maxlen = int(WINDOW_HOURS * 3600 / POLL_SECONDS)
-        self._window: dict[str, deque] = defaultdict(lambda: deque(maxlen=maxlen))
+        self._window: dict[str, deque[Sample]] = defaultdict(
+            lambda: deque(maxlen=maxlen)
+        )
         self._seeded = False
         # Samples of the run currently in progress on each circuit, if any.
         self._live_run: dict[str, list[float]] = defaultdict(list)
@@ -93,8 +126,11 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         # the single biggest unknown in any bug report about this integration.
         self._units: dict[str, str | None] = {}
         self._rejected: set[str] = set()
+        # Which sources have gone away, so their disappearance is logged once
+        # rather than every 30 seconds, and logged again when they return.
+        self._missing: set[str] = set()
 
-    def _watts(self, entity: str, state) -> float | None:
+    def _watts(self, entity: str, state: State | None) -> float | None:
         """One reading, converted to watts, or None if it is unusable.
 
         A sensor whose unit is not a power unit is dropped and named once in
@@ -116,8 +152,48 @@ class FingerprintCoordinator(DataUpdateCoordinator):
                     entity,
                     unit,
                 )
+                # A repair issue rather than only a log line: the consequence
+                # is a circuit silently missing from every total, which is
+                # invisible in the UI and would otherwise be found by nobody.
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    f"bad_unit_{entity}",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="bad_unit",
+                    translation_placeholders={"entity": entity, "unit": str(unit)},
+                )
             return None
+        if entity in self._rejected:
+            self._rejected.discard(entity)
+            ir.async_delete_issue(self.hass, DOMAIN, f"bad_unit_{entity}")
         return watts
+
+    def _note_availability(self, seen: set[str]) -> None:
+        """Log a source going away once, and its return once.
+
+        Every 30 seconds is not a log, it is a denial of service on the log
+        file - and the transition is the only part anyone needs.
+        """
+        configured = {self.mains, *self.circuits}
+        missing = configured - seen
+        for entity in sorted(missing - self._missing):
+            _LOGGER.warning("%s is unavailable - it is no longer being read", entity)
+        for entity in sorted(self._missing - missing):
+            _LOGGER.info("%s is available again", entity)
+        self._missing = missing
+
+    @property
+    def sources_available(self) -> bool:
+        """False when nothing configured is readable.
+
+        Deliberately not "any source missing": one circuit dropping out is a
+        real condition the coverage sensor is there to report, and marking
+        every entity unavailable would hide it. Only a total loss means the
+        derived numbers are meaningless.
+        """
+        return len(self._missing) < len(self.circuits) + 1
 
     def _match_live(self, entity: str, watts: float) -> dict[str, object]:
         """Identify what is running on one circuit, right now.
@@ -181,8 +257,8 @@ class FingerprintCoordinator(DataUpdateCoordinator):
 
         start = dt_util.utcnow() - timedelta(hours=WINDOW_HOURS)
 
-        def _fetch():
-            return history.state_changes_during_period(
+        def _fetch() -> dict[str, list[State]]:
+            rows: dict[str, list[State]] = history.state_changes_during_period(
                 self.hass,
                 start,
                 dt_util.utcnow(),
@@ -190,6 +266,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
                 include_start_time_state=False,
                 no_attributes=True,
             )
+            return rows
 
         try:
             data = await get_instance(self.hass).async_add_executor_job(_fetch)
@@ -217,7 +294,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         )
         self._seeded = True
 
-    async def _async_update_data(self) -> dict:
+    async def _async_update_data(self) -> dict[str, Any]:
         if not self._seeded:
             await self._async_seed_from_recorder()
 
@@ -231,6 +308,10 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             self._window[entity].append((now, val))
 
         mains_val = self._watts(self.mains, self.hass.states.get(self.mains))
+        seen = set(live)
+        if mains_val is not None:
+            seen.add(self.mains)
+        self._note_availability(seen)
 
         cov = coverage(mains_val, live) if mains_val is not None else None
         floors = {

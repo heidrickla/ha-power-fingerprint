@@ -349,7 +349,7 @@ def standby_ranking(
     flat 640 W is a legitimate 640 W. Ranking is the useful output; deciding
     what is waste is the owner's call, so this deliberately does not editorialise.
     """
-    rows = [
+    rows: list[dict[str, float | str]] = [
         {
             "circuit": name,
             "floor_w": round(w, 1),

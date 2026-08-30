@@ -20,6 +20,16 @@ class FingerprintEntity(CoordinatorEntity[FingerprintCoordinator]):
 
     _attr_has_entity_name = True
 
+    @property
+    def available(self) -> bool:
+        """Unavailable only when every source is gone.
+
+        A single circuit dropping out is not an outage - it is exactly the
+        condition the coverage sensor exists to report, and blanking every
+        entity would hide the report along with the fault.
+        """
+        return bool(super().available) and self.coordinator.sources_available
+
     def __init__(self, coordinator: FingerprintCoordinator, key: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry_id}_{key}"

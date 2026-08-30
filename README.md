@@ -60,6 +60,84 @@ reading zero is otherwise indistinguishable from an appliance that is switched
 off — a distinction that cost real debugging time during development, twice, on
 the same circuit.
 
+## What people use it for
+
+- **"Tell me when the laundry is done"** — the appliance sensor goes from the
+  dryer's name back to `idle`, with no vibration sensor, no contact sensor and
+  nothing stuck to the machine.
+- **"Which of these 27 breakers is the garage fridge on?"** — `learn` proposes
+  the recurring shapes, `verify_circuit` switches a device and watches which
+  circuit moves, and the two agree or the answer is refused.
+- **"What is my house drawing while nobody is home?"** — standby power with a
+  per-circuit ranking, and what it costs a year.
+- **"Did a CT come off?"** — the coverage fault fires when the circuits stop
+  adding up to the mains, in either direction. A reversed clamp reads as
+  negative unmonitored load.
+- **"That switch says it is on but nothing happened"** — the contradiction
+  sensor compares what the state machine claims against what the clamp
+  measures, and the clamp wins.
+
+### Automation examples
+
+Notify when a named appliance finishes:
+
+```yaml
+automation:
+  - alias: Laundry is done
+    triggers:
+      - trigger: state
+        entity_id: sensor.circuit_21_appliance
+        from: Dryer
+        to: idle
+    actions:
+      - action: notify.mobile_app_phone
+        data:
+          message: The dryer has finished.
+```
+
+Raise the alarm when a clamp comes off, but only once it has persisted:
+
+```yaml
+automation:
+  - alias: CT coverage fault persists
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.power_fingerprint_ct_coverage_fault
+        to: "on"
+        for: "00:15:00"
+    actions:
+      - action: persistent_notification.create
+        data:
+          title: Panel coverage
+          message: >-
+            {{ state_attr('sensor.power_fingerprint_unmonitored_load',
+            'mains_w') }} W at the mains against
+            {{ state_attr('sensor.power_fingerprint_unmonitored_load',
+            'circuits_w') }} W across the circuits.
+```
+
+Learn on a schedule, so the library tracks appliances as they age:
+
+```yaml
+automation:
+  - alias: Re-learn fingerprints monthly
+    triggers:
+      - trigger: time_pattern
+        hours: "3"
+    conditions:
+      - condition: template
+        value_template: "{{ now().day == 1 }}"
+    actions:
+      - action: power_fingerprint.learn
+        data:
+          days: 14
+        response_variable: found
+```
+
+⚠ `learn` **replaces** a circuit's candidates. Names you have already given
+survive — they are carried onto the matching new shapes — but a shape that no
+longer occurs disappears with its name.
+
 ## Installation
 
 **HACS (custom repository)** — add this repository as a custom repository of
@@ -77,6 +155,39 @@ and diagnostics files routinely end up in public issue trackers.
 
 Publication status and the HACS submission checklist are in
 [PUBLISHING.md](PUBLISHING.md).
+
+### What you need before installing
+
+| Requirement | Detail |
+|---|---|
+| **A whole-panel power sensor** | Any `device_class: power` sensor reading the mains. ⚠ Check its unit — see below. |
+| **At least one circuit power sensor** | One per breaker. Leave out phase and total sensors, or they get counted twice. |
+| **The recorder** | Used to seed the 24-hour window at startup and to read history for learning. Without it the integration still runs, but standby figures take a day to converge and `learn` has nothing to read. |
+
+Setup validates all of this before the entry is created: a sensor that does not
+exist, is not reporting a number, or reports in something other than a power
+unit is refused **by name** at the point you can still pick a different one.
+If a sensor's unit changes to a non-power unit later, a repair issue appears
+naming it rather than the circuit quietly vanishing from the totals.
+
+### Removing it
+
+Settings → Devices & Services → Power Fingerprint → ⋮ → **Delete**. That
+removes the entry, its device and every entity it created. The learned
+fingerprint library is stored under `.storage/power_fingerprint.<entry_id>` and
+is deleted with the entry.
+
+⭐ Nothing outside the integration is left behind. The one thing that could be
+— an automation switched off for an active probe — is recorded to storage
+*before* it is switched off and restored at the next startup, so a probe killed
+mid-run cannot leave the house silently unresponsive.
+
+### Reconfiguring
+
+Settings → Devices & Services → Power Fingerprint → ⋮ → **Reconfigure** to
+change the mains or circuit list after re-clamping a panel, or **Configure**
+for the same fields plus price, tolerance and contradiction pairs. Both run the
+same validation as setup.
 
 ## Learning fingerprints
 
@@ -283,6 +394,44 @@ Settings → Devices & Services → Add Integration → Power Fingerprint.
 - **Coverage tolerance** — percent of mains the remainder may drift before a fault
 - **Contradiction pairs** — one `switch.entity: sensor.circuit_power` per line
 
+## How it updates
+
+The coordinator polls Home Assistant's state machine every **30 seconds** and
+keeps its own 24-hour rolling window in memory. It does not query the recorder
+on every refresh — the recorder purges (30 days by default), and repeated
+history queries against a multi-gigabyte database are slow enough to matter at
+that rate. The window *is* seeded from the recorder once at startup, so standby
+figures are meaningful immediately after a restart instead of taking a day.
+
+30 seconds is the resolution the standby figure needs (a 5th percentile over 24
+hours does not move faster than that), and the live appliance match reads
+whatever the meter last published — polling faster would resample the same
+value. The meter's own cadence is measured separately and reported in
+diagnostics.
+
+Learning and probing are **actions you run**, not background work. Nothing
+switches anything in your house unless you call `verify_circuit`.
+
+## Troubleshooting
+
+| Symptom | What it means |
+|---|---|
+| **Every circuit reports zero runs** | Almost always a unit mismatch. Check the `source` block in diagnostics: if `units` shows `kW`, older versions read those numbers raw and every threshold was 1000× too high. Current versions convert and log a warning naming the sensor. |
+| **Coverage fault that never clears** | The mains sensor and the circuits are not measuring the same thing. A panel with two physical units has a total sensor per unit — picking one of them as mains leaves the other's whole load unaccounted for. Look for a `whole_panel`-style sensor covering both. |
+| **A circuit is listed as silent** | Its maximum over 24 hours is under 5 W. That is information, not an alarm: an unused circuit legitimately reads zero forever. A circuit you *know* is loaded reading zero means a CT is off or on the wrong conductor. |
+| **`learn` returns `no history in window`** | The recorder has nothing for that entity in the requested window. Empty history is UNREAD, not "nothing ran" — the report says which. |
+| **A probe says `suspect`** | An automation fired during the probe and may have moved something. Re-run with `pause_automations: true`, or at a quieter time. |
+| **A probe says the settle window is too short** | Your meter reports more slowly than the probe waits, so both reads came from the same stale value. The message names the settle time to use. |
+| **Entities are unavailable** | Every configured source is gone at once. A *single* circuit dropping out deliberately does not blank the others — that is the condition the coverage sensor exists to report. |
+
+Turn on debug logging with:
+
+```yaml
+logger:
+  logs:
+    custom_components.power_fingerprint: debug
+```
+
 ## Design notes
 
 Four things in `analysis.py` exist because the obvious approach failed first,
@@ -446,6 +595,29 @@ measured or given.
 - **No occupancy inference.** Power traces reveal when people shower, sleep and
   leave the house. That capability arrives free whether or not it is wanted, so
   it is declined deliberately rather than by omission.
+
+## Quality scale
+
+Built to Home Assistant's Integration Quality Scale, tracked rule by rule in
+[`quality_scale.yaml`](custom_components/power_fingerprint/quality_scale.yaml)
+with a written reason on every exemption. What that actually bought:
+
+| Rule | What changed |
+|---|---|
+| `runtime-data` | Runtime state lives on `entry.runtime_data` behind a typed dataclass, not in an untyped `hass.data` dict. |
+| `action-setup` | Actions register at component setup, so an automation calling one still validates while the entry is unloaded — and gets a translated "not loaded" error instead of a `KeyError`. |
+| `test-before-configure` | Setup refuses a sensor that does not exist, is not reporting a number, or is not in a power unit — **by name**, while you can still pick another. |
+| `test-before-setup` | `ConfigEntryNotReady` while the meter's own integration is still loading, instead of a device full of blank entities. |
+| `entity-unavailable` / `log-when-unavailable` | Sources going away is logged once and once on return, not every 30 seconds. A single circuit dropping out deliberately does *not* blank everything — that is what the coverage sensor is for. |
+| `repair-issues` | A sensor that starts reporting a non-power unit raises a repair issue naming it, rather than quietly leaving a circuit out of every total. |
+| `reconfiguration-flow` | Re-clamped the panel? Reconfigure the entry instead of deleting and re-adding it. |
+| `entity-translations` / `icon-translations` / `exception-translations` | Names, icons and error messages come from `strings.json` and `icons.json` and can be translated. |
+| `strict-typing` | `mypy --strict` clean across the integration. |
+| `parallel-updates` | `PARALLEL_UPDATES = 0`: nothing here talks to a device, so there is nothing to be gentle with. |
+
+Two rules are honestly `todo` — the Home Assistant layer's test coverage,
+written but never executed on Windows. `tools/validate_local.py` refuses to let
+`manifest.json` claim a tier while anything is `todo`.
 
 ## Tests
 

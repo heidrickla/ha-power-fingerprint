@@ -15,10 +15,12 @@ None of these are code problems. The code is ready; the hosting is not.
 
 ## The Home Assistant layer tests run on Linux, not here
 
-`tests/ha/` covers setup and unload, the config and options flow, the derived
-sensor values, the coverage fault in both directions, device grouping, the
-orphaned-pause safety backstop, and unit conversion at ingestion — including
-the kilowatt-mains-against-watt-circuits case that was found on the development
+`tests/ha/` is 27 tests covering setup and unload, the config, reconfigure and
+options flows and their validation refusals, the derived sensor values, the
+coverage fault in both directions, device grouping, the orphaned-pause safety
+backstop, component-level action registration, `ConfigEntryNotReady` while the
+power sensors are missing, and unit conversion at ingestion — including the
+kilowatt-mains-against-watt-circuits case that was found on the development
 install itself.
 
 They have not been executed yet. Home Assistant supports Linux, macOS and the
@@ -30,6 +32,24 @@ CI, running against Home Assistant, which is where they will run.
 They skip when the harness is absent, so the default run reports **66 passed,
 1 skipped** and does not imply coverage it does not have. Expect some to need
 fixing the first time they actually execute.
+
+## Quality scale
+
+`custom_components/power_fingerprint/quality_scale.yaml` tracks every rule in
+Home Assistant's Integration Quality Scale, with a written reason on each
+exemption. `tools/validate_local.py` checks it against the pinned rule list, so
+a rule that is simply *missing* from the file fails rather than reading as
+complete.
+
+**Two rules are `todo`, both the same one thing**: `config-flow-test-coverage`
+and `test-coverage`. The Home Assistant layer tests are written but have never
+executed, for the reason in the section above. Everything else is `done` or
+`exempt`.
+
+⛔ **`quality_scale` is deliberately absent from `manifest.json` until those
+two clear.** The validator enforces that: claiming a tier while a rule is
+`todo` is a failure, not a note. The scale is also a core-integration concept —
+a custom integration builds to the rules, it does not get the badge.
 
 ## Already done
 

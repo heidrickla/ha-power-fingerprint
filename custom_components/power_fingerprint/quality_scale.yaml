@@ -1,0 +1,113 @@
+rules:
+  # Bronze
+  action-setup: done
+  appropriate-polling: done
+  brands: done
+  common-modules: done
+  config-flow-test-coverage:
+    status: todo
+    comment: |
+      tests/ha/test_config_flow.py covers the user step, validation failures,
+      the reconfigure step and the options flow, but has never been executed -
+      this repository was written on Windows and the Home Assistant test
+      harness runs on Linux. The coverage is written, not yet proven.
+  config-flow: done
+  dependency-transparency:
+    status: exempt
+    comment: |
+      No external dependencies. `requirements` is empty and everything is
+      stdlib plus Home Assistant itself, so there is no supply chain to be
+      transparent about.
+  docs-actions: done
+  docs-conditions:
+    status: exempt
+    comment: This integration does not provide conditions.
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  docs-triggers:
+    status: exempt
+    comment: This integration does not provide triggers.
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure: done
+  test-before-setup: done
+  unique-config-entry: done
+
+  # Silver
+  action-exceptions: done
+  config-entry-unloading: done
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable: done
+  integration-owner: done
+  log-when-unavailable: done
+  parallel-updates: done
+  reauthentication-flow:
+    status: exempt
+    comment: |
+      Nothing to authenticate against. The integration reads sensors that are
+      already in the state machine.
+  test-coverage:
+    status: todo
+    comment: |
+      The pure analysis, fingerprinting, attribution and probe-safety layers
+      are covered by 66 tests that run anywhere. The Home Assistant layer is
+      written but unexecuted for the reason given under config-flow-test-coverage.
+
+  # Gold
+  devices: done
+  diagnostics: done
+  discovery:
+    status: exempt
+    comment: |
+      There is nothing on the network to find. The panel is discovered by
+      whichever integration owns the meter; this one consumes the sensors that
+      integration has already created.
+  discovery-update-info:
+    status: exempt
+    comment: No network connection of its own, so no network info to update.
+  docs-data-update: done
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices: done
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices:
+    status: exempt
+    comment: |
+      A fixed single service device. New circuits appear as ENTITIES on that
+      device as they are learned and named, which is handled by the platform's
+      coordinator listener rather than by device discovery.
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default:
+    status: exempt
+    comment: |
+      Nothing is noisy enough to warrant it, and the one entity type that could
+      have been - the per-circuit appliance sensor - is not created at all
+      until a circuit has a named fingerprint. On a 27-circuit panel, creating
+      27 disabled entities up front would be worse than creating none.
+  entity-translations: done
+  exception-translations: done
+  icon-translations: done
+  reconfiguration-flow: done
+  repair-issues: done
+  stale-devices:
+    status: exempt
+    comment: A fixed single service device that is removed with the entry.
+
+  # Platinum
+  async-dependency:
+    status: exempt
+    comment: |
+      No external dependency. All work is in-process, and the two places that
+      could block - recorder history reads - go through the recorder's own
+      executor rather than blocking the event loop.
+  inject-websession:
+    status: exempt
+    comment: No HTTP client, so there is no session to inject.
+  strict-typing: done

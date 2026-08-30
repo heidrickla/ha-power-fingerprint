@@ -1,15 +1,20 @@
-"""Config and options flow."""
+"""Config, reconfigure and options flow."""
 
 from __future__ import annotations
 
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
-from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 
+from .analysis import to_watts
 from .const import (
     CONF_CIRCUITS,
     CONF_MAINS,
@@ -57,29 +62,126 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Initial setup."""
+def _validate(
+    hass: HomeAssistant, user_input: dict[str, Any]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Prove the chosen sensors can actually be read, before accepting them.
+
+    ⛔ THE SELECTOR IS NOT A CHECK. It filters on `device_class: power`, which
+    constrains neither the unit nor whether the sensor currently reports a
+    number - and both of those failures are silent afterwards. A kilowatt
+    sensor produces thresholds a thousand times too high and every circuit
+    reports zero runs forever; a sensor stuck on `unknown` produces a device
+    full of blank entities. Catching them here means the user is told at the
+    moment they can still pick a different sensor.
+
+    Returns (errors, placeholders) so the caller can render the message with
+    the offending entity named rather than a generic failure.
+    """
+    mains = user_input[CONF_MAINS]
+    circuits = list(user_input.get(CONF_CIRCUITS) or [])
+
+    if not circuits:
+        return {CONF_CIRCUITS: "no_circuits"}, {}
+    if mains in circuits:
+        return {CONF_CIRCUITS: "mains_in_circuits"}, {}
+
+    for field, entity in [(CONF_MAINS, mains), *((CONF_CIRCUITS, c) for c in circuits)]:
+        state = hass.states.get(entity)
+        if state is None:
+            return {field: "mains_missing"}, {"entity": entity}
+        if state.state in ("unknown", "unavailable", ""):
+            return {field: "mains_not_numeric"}, {"entity": entity}
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            return {field: "mains_not_numeric"}, {"entity": entity}
+        unit = state.attributes.get("unit_of_measurement")
+        if to_watts(value, unit) is None:
+            return {field: "not_power_unit"}, {
+                "entity": entity,
+                "unit": str(unit),
+            }
+    return {}, {}
+
+
+# `domain=` is a real keyword on Home Assistant's ConfigFlow.__init_subclass__.
+# It only looks wrong when HA is not installed and the base class degrades to
+# `object`, which is the state a workstation lint runs in.
+class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
+    """Initial setup and reconfiguration."""
 
     VERSION = 1
 
-    async def async_step_user(self, user_input: dict | None = None) -> FlowResult:
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="Power Fingerprint", data=user_input)
-        return self.async_show_form(step_id="user", data_schema=_schema({}))
+            errors, placeholders = _validate(self.hass, user_input)
+            if not errors:
+                return self.async_create_entry(
+                    title="Power Fingerprint", data=user_input
+                )
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_schema(user_input or {}),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the panel wiring without deleting and re-adding the entry.
+
+        The options flow can edit the same fields, but only reconfigure can be
+        reached from the entry's own menu, and only reconfigure survives the
+        entry being renamed or moved. Re-clamping a panel is exactly the kind
+        of change this exists for.
+        """
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+        if user_input is not None:
+            errors, placeholders = _validate(self.hass, user_input)
+            if not errors:
+                return self.async_update_reload_and_abort(entry, data=user_input)
+        merged = {**entry.data, **entry.options, **(user_input or {})}
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_schema(merged),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
 
     @staticmethod
     @callback
-    def async_get_options_flow(entry: ConfigEntry) -> OptionsFlow:
+    def async_get_options_flow(entry: ConfigEntry) -> PowerFingerprintOptionsFlow:
         return PowerFingerprintOptionsFlow()
 
 
 class PowerFingerprintOptionsFlow(OptionsFlow):
     """Let the circuit list, price and pairs be edited after setup."""
 
-    async def async_step_init(self, user_input: dict | None = None) -> FlowResult:
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            errors, placeholders = _validate(self.hass, user_input)
+            if not errors:
+                return self.async_create_entry(title="", data=user_input)
         merged = {**self.config_entry.data, **self.config_entry.options}
-        return self.async_show_form(step_id="init", data_schema=_schema(merged))
+        if user_input is not None:
+            merged.update(user_input)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_schema(merged),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
