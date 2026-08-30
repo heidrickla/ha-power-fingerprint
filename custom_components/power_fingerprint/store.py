@@ -104,6 +104,22 @@ class FingerprintStore:
             self._last_seen = dict(data.get("last_seen", {}))
             self._last_poll = data.get("last_poll")
             self._assignments = dict(data.get("assignments", {}))
+            # ⛔ SELF-HEAL: drop any assignment for this integration's OWN
+            # sensors. `unmonitored_load` is mains minus the circuits, so
+            # correlating it against a circuit is circular by construction, and
+            # an early version did exactly that and persisted the result.
+            # Fixing the mapper stops it recurring; this clears what it wrote.
+            circular = [
+                k for k in self._assignments if k.startswith(f"sensor.{DOMAIN}")
+            ]
+            for key in circular:
+                del self._assignments[key]
+            if circular:
+                _LOGGER.info(
+                    "Dropped %d self-referential circuit assignment(s): %s",
+                    len(circular),
+                    ", ".join(circular),
+                )
         self._loaded = True
         _LOGGER.debug("Loaded %d fingerprints", len(self._fingerprints))
 
