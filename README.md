@@ -34,6 +34,7 @@ install it:
 | `sensor.standby_power` | Total permanent draw, with a per-circuit ranking in the attributes. |
 | `sensor.standby_annual_cost` | What that costs per year at your price. |
 | `binary_sensor.state_contradiction` | A switch reports `on` while its circuit draws nothing. |
+| `binary_sensor.silent_appliance` | A named appliance has stopped running when its own history says it should have. |
 
 Plus, once you have named at least one fingerprint on a circuit, an
 **appliance sensor** for that circuit reading `idle`, `starting`, the appliance
@@ -600,9 +601,6 @@ circuit steps in the subtraction pass.
   ask once which is which. Unsupervised clustering finds the shapes but cannot
   name them; a human names them in one pass and it remembers. Metered devices
   skip the asking entirely.
-- **Absence detection** — alert when an expected signature *fails* to appear.
-  The fridge stopped cycling, the sump pump was silent through a storm. Every
-  tool alerts on too much; the expensive failures are silence.
 - **Signature drift as health** — compare an appliance against its own history,
   not a spec. A fridge duty cycle creeping 40% → 70%, a compressor's inrush
   changing, a pump's start current climbing.
@@ -625,6 +623,52 @@ circuit steps in the subtraction pass.
 - **No occupancy inference.** Power traces reveal when people shower, sleep and
   leave the house. That capability arrives free whether or not it is wanted, so
   it is declined deliberately rather than by omission.
+
+## Absence detection
+
+⭐ **The only check here that alerts on too little.** Everything else fires when
+something exceeds something. The expensive failures are the quiet ones: a
+freezer that stopped cycling crosses no threshold, a sump pump silent through a
+storm draws no current, and neither appears in a dashboard of maxima. They
+appear as a rhythm that stopped.
+
+`learn` already segments each circuit's history into runs and clusters them by
+shape. It now also records **when each shape ran**, so every named fingerprint
+carries its own cadence — median and 90th-percentile gap between runs. A
+fridge cycling every 40 minutes and a dryer used twice a week each get a
+description of themselves, which is the only fair basis for calling one of them
+quiet. Below five runs it records **nothing**, because four gaps cannot tell
+"runs weekly" from "ran four times and stopped".
+
+`binary_sensor.silent_appliance` turns on when a named appliance has been
+silent for more than **twice its own p90 gap**, and lists which in its
+attributes.
+
+### ⛔ Blind time is not silence
+
+This is the one failure that matters, and it is the same mistake this project
+keeps finding elsewhere: **"I could not look" is not "nothing happened".**
+
+If the circuit sensor was unavailable for six hours, the appliance may well
+have run during them. Reporting that as "it has not run" would be asserting an
+observation that was never made. So unobserved seconds are tracked per circuit
+and subtracted before judging, from two sources:
+
+| Source | Why it counts |
+|---|---|
+| A circuit `unavailable` at a poll | One poll interval nobody was watching |
+| Home Assistant restarted | The **whole gap** since the last recorded poll — usually the longest blind stretch an install ever has. Counting it as silence would fire an absence alert after every reboot. |
+
+When more than half the window was unobserved the answer is **`unknown`**, not
+`off`. `off` asserts the appliance is fine; `unknown` says nobody was watching.
+The entity reports `unknown` for that, and its `unjudgeable` attribute names
+exactly which appliances it is declining to judge rather than quietly counting
+them as healthy.
+
+Last-seen times are **persisted**, so a restart does not reset every appliance
+to "never seen" and start the clock again — otherwise a fridge that stopped a
+week ago would look freshly quiet after every reboot, and the one alert worth
+having would never mature.
 
 ## Quality scale
 

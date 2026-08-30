@@ -133,6 +133,11 @@ class Fingerprint:
     count: int
     centroid: dict[str, float] = field(default_factory=dict)
     spread: dict[str, float] = field(default_factory=dict)
+    # How often this shape actually ran during the learning window, so absence
+    # detection can judge an appliance against its own rhythm rather than
+    # against a number someone picked. None when there were too few runs to
+    # characterise, which is a real answer and not a missing value.
+    cadence: dict[str, float] | None = None
 
     def describe(self) -> str:
         """Plain English, because a human has to recognise this to name it."""
@@ -158,6 +163,7 @@ class Fingerprint:
             "count": self.count,
             "centroid": self.centroid,
             "spread": self.spread,
+            "cadence": self.cadence,
         }
 
     @classmethod
@@ -168,18 +174,35 @@ class Fingerprint:
             count=int(d.get("count", 0)),
             centroid=d.get("centroid", {}),
             spread=d.get("spread", {}),
+            # Absent in libraries learned before cadence existed. None is the
+            # right value there - it means "not characterised", which absence
+            # detection already knows how to answer honestly.
+            cadence=d.get("cadence"),
         )
 
 
 def summarize(
-    circuit: str, feature_rows: list[dict[str, float]], labels: list[int]
+    circuit: str,
+    feature_rows: list[dict[str, float]],
+    labels: list[int],
+    cadences: dict[int, dict[str, float]] | None = None,
 ) -> list[Fingerprint]:
-    """Turn clustered events into one Fingerprint per cluster."""
+    """Turn clustered events into one Fingerprint per cluster.
+
+    `cadences` maps cluster id to that cluster's learned rhythm, which absence
+    detection later judges against. It is passed in rather than computed here
+    because ⛔ `analysis`, `fingerprint`, `attribution` and `verify` are loaded
+    BY PATH - by the pure test suite and by `tools/_ha.py` - so a relative
+    import between them raises "attempted relative import with no known parent
+    package" and breaks both. They stay mutually independent on purpose.
+    """
+    cadences = cadences or {}
     out: list[Fingerprint] = []
     for cid in sorted(set(labels)):
         members = [f for f, lb in zip(feature_rows, labels, strict=True) if lb == cid]
         if not members:
             continue
+        rhythm = cadences.get(cid)
         centroid, spread = {}, {}
         for key in FEATURES:
             vals = sorted(m.get(key, 0.0) for m in members)
@@ -193,6 +216,7 @@ def summarize(
                 count=len(members),
                 centroid=centroid,
                 spread=spread,
+                cadence=rhythm,
             )
         )
     return out

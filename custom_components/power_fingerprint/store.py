@@ -38,7 +38,28 @@ class FingerprintStore:
         # crash or restart mid-probe cannot leave them off silently - see
         # async_take_orphaned_pauses().
         self._paused: list[str] = []
+        # When each named appliance was last seen running, keyed
+        # "<circuit>|<label>" -> ISO timestamp. ⛔ PERSISTED ON PURPOSE. Held
+        # only in memory, every Home Assistant restart would reset absence
+        # detection to "never seen", so a fridge that stopped a week ago would
+        # look freshly quiet after every reboot and the one alert worth having
+        # would never mature.
+        self._last_seen: dict[str, str] = {}
+        # When the coordinator last ran. The gap between this and startup is
+        # time nobody was watching, and absence detection must not count it as
+        # silence.
+        self._last_poll: str | None = None
         self._loaded = False
+
+    @staticmethod
+    def seen_key(circuit: str, label: str) -> str:
+        return f"{circuit}|{label}"
+
+    def last_seen(self) -> dict[str, str]:
+        return dict(self._last_seen)
+
+    def last_poll(self) -> str | None:
+        return self._last_poll
 
     @property
     def fingerprints(self) -> list[Fingerprint]:
@@ -66,6 +87,8 @@ class FingerprintStore:
                 Fingerprint.from_dict(d) for d in data.get("fingerprints", [])
             ]
             self._paused = list(data.get("paused_automations", []))
+            self._last_seen = dict(data.get("last_seen", {}))
+            self._last_poll = data.get("last_poll")
         self._loaded = True
         _LOGGER.debug("Loaded %d fingerprints", len(self._fingerprints))
 
@@ -74,8 +97,21 @@ class FingerprintStore:
             {
                 "fingerprints": [fp.to_dict() for fp in self._fingerprints],
                 "paused_automations": self._paused,
+                "last_seen": self._last_seen,
+                "last_poll": self._last_poll,
             }
         )
+
+    async def async_record_seen(self, seen: dict[str, str], last_poll: str) -> None:
+        """Update the last-seen times and the heartbeat, then persist.
+
+        Called from the coordinator on any change, not every refresh - this
+        writes to disk, and a 30-second poll writing unconditionally would be
+        thousands of pointless writes a day.
+        """
+        self._last_seen.update(seen)
+        self._last_poll = last_poll
+        await self.async_save()
 
     async def async_record_paused(self, entities: list[str]) -> None:
         """Write down what is about to be switched off, BEFORE switching it off.

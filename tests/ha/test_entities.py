@@ -156,3 +156,37 @@ async def test_a_sensor_reporting_a_non_power_unit_is_dropped_and_named(
     assert caplog.text.count("which is not a power unit") == 1
     await coordinator.async_refresh()
     assert caplog.text.count("which is not a power unit") == 1
+
+
+# --- absence detection -----------------------------------------------------
+
+
+async def test_silent_appliance_is_a_primary_entity_not_a_diagnostic(
+    hass: HomeAssistant, config_entry, powered
+):
+    """It is a fact about the house, not about the measurement.
+
+    Coverage and contradiction say "my own view is suspect" and belong in the
+    diagnostic section. A freezer that stopped is the reason someone installed
+    this at all, and must not be filed behind a collapsed panel.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    await _setup(hass, config_entry)
+    registry = er.async_get(hass)
+    silent = registry.async_get("binary_sensor.power_fingerprint_silent_appliance")
+    coverage = registry.async_get("binary_sensor.power_fingerprint_ct_coverage_fault")
+    assert silent is not None
+    assert silent.entity_category is None
+    assert coverage.entity_category is er.EntityCategory.DIAGNOSTIC
+
+
+async def test_silent_appliance_is_unknown_with_nothing_learned(
+    hass: HomeAssistant, config_entry, powered
+):
+    """Not `off`. `off` would claim every appliance is fine; nothing is known."""
+    await _setup(hass, config_entry)
+    state = hass.states.get("binary_sensor.power_fingerprint_silent_appliance")
+    assert state is not None
+    assert state.state == "unknown"
+    assert state.attributes["watching"] == 0

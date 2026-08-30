@@ -29,7 +29,7 @@ the harness blocks sockets and the ProactorEventLoop needs a local socket pair
 for its own self-pipe. That is expected rather than a defect — these belong in
 CI, running against Home Assistant, which is where they will run.
 
-They skip when the harness is absent, so the default run reports **71 passed,
+They skip when the harness is absent, so the default run reports **79 passed,
 1 skipped** and does not imply coverage it does not have. Expect some to need
 fixing the first time they actually execute.
 

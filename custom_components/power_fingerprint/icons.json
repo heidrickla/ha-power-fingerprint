@@ -26,6 +26,12 @@
         "state": {
           "off": "mdi:flash"
         }
+      },
+      "silent_appliance": {
+        "default": "mdi:volume-off",
+        "state": {
+          "on": "mdi:bell-alert"
+        }
       }
     }
   },

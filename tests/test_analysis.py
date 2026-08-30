@@ -247,3 +247,81 @@ def test_sample_interval_ignores_duplicate_timestamps():
     base = datetime(2026, 8, 30, tzinfo=UTC)
     samples = _at(base, [0, 0, 12, 24, 24, 36])
     assert pf.sample_interval(samples) == 12.0
+
+
+# --- absence detection -----------------------------------------------------
+#
+# Every other check here alerts on too much. The expensive failures are the
+# quiet ones, and the trap is that "I did not see it run" and "it did not run"
+# look identical from the outside.
+
+
+def _every(hours: float, n: int, jitter_h: float = 0.0) -> list[datetime]:
+    base = datetime(2026, 8, 1, tzinfo=UTC)
+    return [
+        base + timedelta(hours=hours * i + (jitter_h if i % 2 else 0.0))
+        for i in range(n)
+    ]
+
+
+def test_cadence_learns_a_rhythm_from_the_runs_themselves():
+    c = pf.cadence(_every(6.0, 12))
+    assert c is not None
+    assert c.runs == 12
+    assert round(c.median_gap_s / 3600) == 6
+
+
+def test_cadence_refuses_to_characterise_too_few_runs():
+    """Four gaps cannot tell "runs weekly" from "ran four times and stopped"."""
+    assert pf.cadence(_every(6.0, 4)) is None
+    assert pf.cadence([]) is None
+
+
+def test_absence_is_ok_inside_the_expected_window():
+    c = pf.cadence(_every(6.0, 12))
+    state, _why = pf.absence(c, silent_s=5 * 3600)
+    assert state == "ok"
+
+
+def test_absence_flags_a_genuinely_silent_appliance():
+    c = pf.cadence(_every(6.0, 12))
+    state, why = pf.absence(c, silent_s=40 * 3600)
+    assert state == "overdue"
+    assert "limit" in why
+
+
+def test_blind_time_is_not_counted_as_silence():
+    """⛔ The failure that matters: the recorder was down, not the fridge.
+
+    Thirty hours of silence, twenty of which nobody was watching, is ten hours
+    of observed silence - inside the limit. Claiming otherwise would be
+    asserting an observation that was never made.
+    """
+    c = pf.cadence(_every(6.0, 12))
+    assert pf.absence(c, silent_s=30 * 3600, blind_s=0.0)[0] == "overdue"
+    assert pf.absence(c, silent_s=30 * 3600, blind_s=20 * 3600)[0] == "unknown"
+
+
+def test_a_mostly_blind_window_answers_unknown_not_ok():
+    """`unknown` is the honest state, and is NOT the same as `ok`.
+
+    Returning `ok` would say the appliance is fine; returning `unknown` says
+    nobody looked. Only one of those is true.
+    """
+    c = pf.cadence(_every(6.0, 12))
+    state, why = pf.absence(c, silent_s=10 * 3600, blind_s=9 * 3600)
+    assert state == "unknown"
+    assert "unobserved" in why
+
+
+def test_an_uncharacterised_appliance_is_unknown_not_overdue():
+    state, why = pf.absence(None, silent_s=10_000 * 3600)
+    assert state == "unknown"
+    assert "rhythm" in why
+
+
+def test_patience_scales_the_limit():
+    c = pf.cadence(_every(6.0, 12))  # p90 gap is 6 h
+    silent = 9 * 3600
+    assert pf.absence(c, silent, patience=2.0)[0] == "ok"  # limit 12 h
+    assert pf.absence(c, silent, patience=1.0)[0] == "overdue"  # limit 6 h
