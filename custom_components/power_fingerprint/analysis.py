@@ -1,40 +1,8 @@
-"""Signal analysis for appliance power fingerprinting.
+"""Pure analysis: thresholds, run segmentation, standby, coverage, absence.
 
-Everything here is pure functions over (timestamp, watts) samples so it can be
-unit-tested without Home Assistant.
-
-Three design decisions are baked in, each one learned from a real failure while
-prototyping this against a live 36-circuit Emporia Vue install:
-
-1.  THRESHOLDS MUST BE PER-CIRCUIT AND MAKE NO DUTY-CYCLE ASSUMPTION.
-    A first pass used `idle * 3`, which scored zero runs on two circuits
-    drawing 663 W and 353 W continuously - on a high-baseline circuit that
-    lands above the 99th percentile. The fix to a fixed percentile was no
-    better: the 40th percentile assumes a circuit is mostly off, and on a
-    furnace at a 68% duty cycle it lands INSIDE a run, reporting zero runs
-    across 98,849 samples. Both failures are silent. Otsu's method is used
-    instead because it assumes nothing about how often the load is on.
-
-2.  MINIMUM RUN LENGTH MUST NOT BE A GLOBAL CONSTANT.
-    The same pass discarded a garbage disposal with a 423 W peak because it
-    used a 2-minute floor and a disposal runs for about twenty seconds. Short
-    loads are legitimate appliances, not noise.
-
-3.  THE FLOOR WHILE RUNNING IS A FIRST-CLASS FEATURE.
-    A gas dryer and a washing machine on one shared circuit have very similar
-    peaks and are not separable on peak, mean or duration. They separate
-    immediately on the *minimum* while running: the washer drops to near zero
-    between fill, soak and spin, while the dryer holds a steady 350-400 W floor.
-    Most published feature sets omit this. It is the single most useful
-    discriminator found so far, and it came from the homeowner, not from the
-    data.
-
-A note on what this cannot do. At the ~6 s sample interval measured on the
-development install, a 30-second appliance is five data points, and a shorter
-one is fewer. Kettles, microwaves and disposals sit at or near the resolution
-limit and will be detected unreliably or not at all. That is a property of the
-meter, not of the code - and it is why the cadence is measured rather than
-assumed.
+Imports nothing from Home Assistant so it can be tested and run from tools
+without it. Everything here is denominated in watts; conversion happens at
+ingestion.
 """
 
 from __future__ import annotations
@@ -47,19 +15,10 @@ from itertools import pairwise
 Sample = tuple[datetime, float]
 
 
-# ⛔ EVERY THRESHOLD IN THIS MODULE IS DENOMINATED IN WATTS, AND A SENSOR THAT
-# REPORTS KILOWATTS FAILS SILENTLY IN THE WORST WAY.
-#
-# Home Assistant's `device_class: power` says nothing about the unit. Emporia
-# Vue, Shelly EM and IotaWatt report W; SolarEdge, Powerwall, many Modbus
-# meters and most inverters report kW. Feed kW into `on_threshold` and the
-# 15 W margin becomes a 15 kW margin, so nothing is ever above threshold and
-# every circuit reports zero runs forever - a clean-looking empty rather than
-# an error. The 5 W silent-CT check inverts the same way: a real 4 kW circuit
-# arrives as 4.0 and gets reported as a dead clamp.
-#
-# So units are converted once, at ingestion, and everything downstream may
-# assume watts.
+# `device_class: power` says nothing about the unit - Vue and Shelly report W,
+# SolarEdge and most Modbus meters report kW. Feeding kW into a watt threshold
+# silently yields zero runs forever, so convert once at ingestion and let
+# everything downstream assume watts.
 _TO_WATTS: dict[str, float] = {
     "W": 1.0,
     "mW": 0.001,
@@ -98,7 +57,7 @@ def to_watts(value: float | None, unit: str | None) -> float | None:
 def sample_interval(samples: list[Sample]) -> float | None:
     """The meter's actual reporting cadence, in seconds - measured, not assumed.
 
-    ⭐ MEASURE THIS RATHER THAN HARDCODING IT. The step-matching window in
+     MEASURE THIS RATHER THAN HARDCODING IT. The step-matching window in
     `attribution` has to be about one reporting interval wide: too narrow and
     a real coincidence falls between cells, too wide and chance coincidences
     on a busy circuit start matching. Both failures were observed. An Emporia
@@ -152,7 +111,7 @@ def on_threshold(samples: list[Sample], margin_w: float = 15.0) -> float:
     Uses Otsu's method - the split that minimises variance within the two
     resulting groups - rather than any fixed percentile.
 
-    ⛔ A PERCENTILE DOES NOT WORK HERE AND THE FAILURE IS SILENT. An earlier
+     A PERCENTILE DOES NOT WORK HERE AND THE FAILURE IS SILENT. An earlier
     version used the 40th percentile as "quiet", which assumes a circuit is off
     most of the time. On a furnace running a 68% duty cycle the 40th percentile
     lands *inside* a run, so the threshold sat above the load and the circuit
@@ -272,7 +231,7 @@ def segment(
     phase does not shatter one wash into fifteen "events". `min_duration_s`
     defaults low enough to keep short loads - see design note 2.
 
-    ⛔ AN EVENT KEEPS EVERY SAMPLE INSIDE ITS TIME SPAN, INCLUDING THE ONES
+     AN EVENT KEEPS EVERY SAMPLE INSIDE ITS TIME SPAN, INCLUDING THE ONES
     BELOW THRESHOLD. This matters more than it looks. If an event held only its
     above-threshold samples, `floor_w` would be pinned at the threshold by
     construction and could never be low - which would destroy the one feature
@@ -393,12 +352,12 @@ def absence(
 ) -> tuple[str, str]:
     """Has an expected appliance gone quiet? Returns (state, reason).
 
-    ⭐ EVERY OTHER CHECK IN THIS INTEGRATION ALERTS ON TOO MUCH. The expensive
+     EVERY OTHER CHECK IN THIS INTEGRATION ALERTS ON TOO MUCH. The expensive
     failures are silence: the fridge that stopped cycling, the sump pump that
     never ran through a storm, the freezer nobody opened for a fortnight. None
     of those trip a threshold, because nothing exceeded anything.
 
-    ⛔ BLIND TIME IS NOT SILENCE, AND CONFLATING THEM IS THE ONE FAILURE THAT
+     BLIND TIME IS NOT SILENCE, AND CONFLATING THEM IS THE ONE FAILURE THAT
     MATTERS HERE. If the circuit sensor was unavailable for six hours, the
     appliance may well have run during them. Reporting that as "it has not run"
     is a fabricated observation - the integration would be asserting something
@@ -431,7 +390,7 @@ def absence(
 class Evidence:
     """A score, what the same score would be by chance, and the gap.
 
-    ⛔ A MATCH RATE WITHOUT ITS CONTROL IS NOT A RESULT, AND THIS PROJECT
+     A MATCH RATE WITHOUT ITS CONTROL IS NOT A RESULT, AND THIS PROJECT
     LEARNED THAT THE EXPENSIVE WAY THREE TIMES IN ONE NIGHT:
 
       * four "virtual circuits" each matched BOTH air conditioners at 85-97%,
@@ -482,7 +441,7 @@ def control(
     `offsets_h` for a world where the same events happened at a different time.
     Whatever still scores is what coincidence alone buys.
 
-    ⭐ SEVERAL OFFSETS, AND THE LOWEST WINS. A three-hour shift still overlaps
+     SEVERAL OFFSETS, AND THE LOWEST WINS. A three-hour shift still overlaps
     the house's own daily rhythm - on the development install it scored 78%
     against a real 91% - while nineteen hours scored 40%. Taking the minimum
     across a spread is what stops autocorrelation being mistaken for signal.

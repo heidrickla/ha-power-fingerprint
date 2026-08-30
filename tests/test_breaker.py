@@ -29,7 +29,7 @@ def test_the_circuits_own_clamp_identifies_the_breaker():
 
 
 def test_a_breaker_with_no_clamp_is_a_refusal_not_a_guess():
-    """⛔ The blind-source rule. If nothing went dead, nothing was seen."""
+    """The blind-source rule. If nothing went dead, nothing was seen."""
     before = {"c15": 420.0, "c16": 700.0}
     after = {"c15": 421.0, "c16": 699.0}
     circuit, why = b.dead_circuit(before, after)
@@ -69,7 +69,7 @@ def test_a_measured_collapse_is_confirmed():
 
 
 def test_a_device_that_merely_vanished_is_only_suspected():
-    """⛔ It might be on the circuit, or its Zigbee parent might have been."""
+    """It might be on the circuit, or its Zigbee parent might have been."""
     confirmed, suspected, _ = b.classify_devices({"sensor": 5.0}, {"sensor": None})
     assert confirmed == []
     assert suspected == ["sensor"]
@@ -115,7 +115,7 @@ def test_a_clean_walk_attributes_only_what_it_measured():
 
 
 def test_without_a_confirmed_circuit_nothing_is_attributed():
-    """⛔ Casualties are reported; none of them are mapped to anything.
+    """Casualties are reported; none of them are mapped to anything.
 
     Something died, but with no circuit confirmed there is nothing to attribute
     it TO, and guessing would be the whole point of this module thrown away.
@@ -133,9 +133,8 @@ def test_without_a_confirmed_circuit_nothing_is_attributed():
 
 # --- what to show someone about to flip a breaker ---------------------------
 #
-# ⛔ Two earlier versions rated circuits as safe or unsafe. Both were wrong, in
-# opposite directions, and the person at the panel knows their own house better
-# than either. These check that it reports and does not judge.
+# It reports measurements and forms no verdict: the person at the panel knows
+# their own house better than any inference from names would.
 
 
 def test_it_returns_measurements_and_no_verdict():
@@ -163,7 +162,7 @@ def test_a_new_install_reports_what_little_it_knows_without_pretending():
 
 
 def test_the_permanent_floor_survives_having_nothing_identified():
-    """⭐ The number that works from day one, before anything is named."""
+    """The number that works from day one, before anything is named."""
     d = b.describe(
         "sensor.c30", "Circuit 30", 40.0, [], standby_w=652.0, observed_hours=24.0
     )

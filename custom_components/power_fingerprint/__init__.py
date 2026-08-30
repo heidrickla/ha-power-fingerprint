@@ -28,7 +28,7 @@ PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the service actions.
 
-    ⛔ REGISTERED HERE, NOT IN `async_setup_entry`. Actions registered per
+     REGISTERED HERE, NOT IN `async_setup_entry`. Actions registered per
     entry vanish while the entry is unloaded, and every automation that calls
     one then fails validation with "action not found" - which reads as a typo
     in the automation rather than as an integration that is temporarily down.
@@ -44,11 +44,9 @@ async def async_setup_entry(
 ) -> bool:
     options: dict[str, Any] = {**entry.data, **entry.options}
 
-    # ⛔ CHECK THE SOURCES BEFORE CLAIMING SETUP SUCCEEDED. This integration
-    # derives everything from other integrations' sensors, and those can load
-    # after this one. Setting up anyway produces a device full of entities
-    # reading `unknown` with no explanation; raising ConfigEntryNotReady makes
-    # Home Assistant retry with backoff, which is what actually fixes it.
+    # Sources belong to other integrations and may load after this one.
+    # Setting up regardless gives a device full of `unknown`; ConfigEntryNotReady
+    # retries with backoff instead.
     missing = [
         entity
         for entity in (options[CONF_MAINS], *options[CONF_CIRCUITS])
@@ -65,12 +63,9 @@ async def async_setup_entry(
     store = FingerprintStore(hass, entry.entry_id)
     await store.async_load()
 
-    # ⛔ A PROBE THAT DIED MID-RUN LEAVES AUTOMATIONS SWITCHED OFF AND SILENT.
-    # Nothing else would ever turn them back on, and the house would simply
-    # stop reacting to things with no error anywhere. Restoring at setup is the
-    # backstop for a killed process, a Home Assistant restart, or a power cut
-    # during a probe. It is deliberately noisy: a warning, because this should
-    # never happen quietly.
+    # A probe killed mid-run leaves automations switched off with nothing
+    # aware of it. Restoring here is the backstop for a crash, restart or power
+    # cut, and warns rather than doing it quietly.
     orphaned = await store.async_take_orphaned_pauses()
     for entity in orphaned:
         _LOGGER.warning(
@@ -95,19 +90,11 @@ async def async_setup_entry(
 def _prune_stray_devices(
     hass: HomeAssistant, entry: PowerFingerprintConfigEntry
 ) -> None:
-    """Remove device entries an earlier version created by mistake.
+    """Remove nameless device entries this integration created by mistake.
 
-    ⛔ Up to 0.10.0 this integration attached its per-device entities by
-    returning the TARGET device's identifiers in `DeviceInfo`. That merged
-    devices for years and no longer does: on Home Assistant 2026.8 it produced
-    a second, nameless device entry per mapping, owned by this integration and
-    sitting beside the real one. Nine of them on the development install.
-
-    The fix is in `AttachedEntity`, but a fix that only stops the bleeding
-    leaves the mess behind on every install that already ran the old version.
-    Only entries this integration owns, carrying no name and not its own
-    service device, are removed - the real devices are owned by whoever created
-    them and are never touched.
+    Attaching an entity by returning another device's identifiers produces a
+    duplicate device rather than merging. Only entries this integration owns,
+    with no name and not its own service device, are removed.
     """
     devices = dr.async_get(hass)
     for device in list(dr.async_entries_for_config_entry(devices, entry.entry_id)):
@@ -116,7 +103,7 @@ def _prune_stray_devices(
         if any(domain == DOMAIN for domain, _ in device.identifiers):
             continue
         _LOGGER.info(
-            "Removing a stray device entry left by an earlier version: %s",
+            "Removing a stray device entry: %s",
             device.identifiers,
         )
         devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)

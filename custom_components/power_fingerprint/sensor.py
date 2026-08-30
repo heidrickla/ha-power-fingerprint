@@ -94,7 +94,7 @@ class _Base(FingerprintEntity, SensorEntity):
 class _StandbyBase(_Base):
     """For the two sensors that are only meaningful once the window has filled.
 
-    ⛔ Refuses to answer rather than answering wrongly. A 5th percentile over
+     Refuses to answer rather than answering wrongly. A 5th percentile over
     four minutes is not a rough standby figure, it is a different quantity
     wearing the same label, and it reads as authoritative on a dashboard.
     """
@@ -122,7 +122,7 @@ class ApplianceSensor(_Base):
     named fingerprint accounts for, which is worth surfacing rather than
     forcing into the nearest bucket.
 
-    ⚠ NOT a `SensorDeviceClass.ENUM`. An enum sensor has to declare its full
+     NOT a `SensorDeviceClass.ENUM`. An enum sensor has to declare its full
     option list up front, and the whole point of this one is that the set of
     appliances grows as they are learned and named.
     """
@@ -226,7 +226,7 @@ class StandbyPowerSensor(_StandbyBase):
 class StandbyCostSensor(_StandbyBase):
     """Annualised cost of that permanent draw, at the configured price.
 
-    ⚠ DELIBERATELY NOT `SensorDeviceClass.MONETARY`. That device class means
+     DELIBERATELY NOT `SensorDeviceClass.MONETARY`. That device class means
     money actually accumulated and Home Assistant requires it to carry a
     `total` state class. This is a projection of a rate - it moves down as well
     as up, and nothing has been spent - so claiming it is monetary would put a
@@ -257,16 +257,12 @@ class StandbyCostSensor(_StandbyBase):
 class CandidatesSensor(_Base):
     """Learned shapes waiting for a human to say what they are.
 
-    ⭐ WITHOUT THIS THE LEARN STEP HAS NO VISIBLE OUTPUT. Clustering finds the
-    recurring shapes and genuinely cannot name them - that needs someone who
-    knows what is plugged in - but until now the candidates existed only in
-    `.storage` and in the `learn` action's response. A person who ran `learn`
-    and then looked at the integration saw six entities and no sign that
-    anything had been learned at all. On the development install that was 39
-    shapes, entirely invisible.
+     Without this the learn step has no visible output: clustering finds the
+    recurring shapes and cannot name them, so the candidates would exist only in
+    `.storage` and in the action's response.
 
-    The attributes carry the plain-English description of each shape, which is
-    the thing a human actually reads to recognise "that's the dishwasher".
+    The attributes carry each shape's plain-English description, which is what a
+    human reads to recognise it.
     """
 
     _attr_translation_key = "candidates"
@@ -315,7 +311,7 @@ class CircuitSensor(AttachedEntity, SensorEntity):
     The state is the circuit sensor's friendly name, because "Circuit 30" on
     the front porch light's own page is the answer to a question somebody asked
     while standing at a breaker panel. The attributes carry how it was
-    established, because ⛔ a passive correlation and a three-probe agreement
+    established, because  a passive correlation and a three-probe agreement
     are not the same claim and must never look the same.
     """
 
@@ -330,17 +326,6 @@ class CircuitSensor(AttachedEntity, SensorEntity):
     ) -> None:
         super().__init__(coordinator, f"circuit_{device_entity}", target_device_id)
         self._device_entity = device_entity
-
-    # ⚠ NO `suggested_object_id` HERE - IT DOES NOT WORK FOR THIS SHAPE OF
-    # ENTITY, AND LOOKED LIKE IT SHOULD. Home Assistant derives the entity id
-    # from the device name plus the entity name at REGISTRATION time, and this
-    # entity has no device until `async_added_to_hass` points its registry row
-    # at one. So the id is built from the name alone and comes out
-    # `sensor.circuit`, `sensor.circuit_2`, `sensor.circuit_3` - a numbered
-    # list that says nothing about which is which. The display name is correct
-    # ("Circuit", shown under the device, which is the house style); only the
-    # id is unlovely, and renaming it is a one-time registry operation rather
-    # than something to contort the entity for.
 
     @property
     def _row(self) -> dict[str, Any]:

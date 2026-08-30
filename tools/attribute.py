@@ -67,15 +67,10 @@ def _measure_step(raw: dict[str, list], fallback: int = 12) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--days", type=int, default=3)
-    # THE GRID MUST BE ABOUT ONE REPORTING INTERVAL WIDE, AND THAT INTERVAL IS
-    # A PROPERTY OF YOUR METER. It is measured from the history below rather
-    # than assumed, because both errors are real and neither announces itself.
-    # Too wide: at 60 s with one cell of slack, a matching-magnitude step
-    # landing anywhere within +/-60 s counted, and on a busy circuit that
-    # happens by chance often enough that one circuit collected devices from
-    # three unrelated areas (Master Bathroom, Guest Bathroom, Front Porch).
-    # Too narrow: a genuine coincidence falls between cells and the device goes
-    # unplaced. Pass --step only to override the measurement.
+    # The grid must be about one reporting interval wide, and that interval is
+    # a property of the meter, so it is measured from the history below. Too
+    # wide and chance coincidences match; too narrow and real ones fall between
+    # cells. Pass --step only to override.
     ap.add_argument(
         "--step",
         type=int,
@@ -93,9 +88,8 @@ def main() -> int:
 
     every = _ha.power_sensors()
     if not args.circuit_filter:
-        # No default here on purpose. The old default named one vendor, which
-        # silently returned zero circuits on anybody else's panel and read as
-        # "no matches" rather than "you have not told me what your panel is".
+        # No default: naming one vendor returns zero circuits on anybody
+        # else's panel, which reads as "no matches" rather than a mistake.
         print("--circuit-filter is required: which substring names your circuits?")
         print("")
         print(f"{len(every)} power sensors visible. Common leading words:")

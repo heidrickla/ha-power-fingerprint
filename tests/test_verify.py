@@ -244,7 +244,7 @@ def test_energy_or_current_also_prove_mains():
 
 
 def test_a_config_switch_may_not_be_probed():
-    """⛔ Found while picking probe targets on a real install.
+    """Found while picking probe targets on a real install.
 
     One Z-Wave dimmer published eleven `switch` entities - smart bulb mode,
     invert switch, local protection, double tap enabled - and one actual light.
@@ -272,7 +272,7 @@ def test_a_real_light_is_still_probeable():
 
 
 def test_a_live_load_is_not_switched_off_for_a_measurement():
-    """⛔ Found by enumerating a real living room before probing it.
+    """Found by enumerating a real living room before probing it.
 
     `switch.living_room_logans_computer`, `switch.living_room_subwolfer_outlet`
     and `switch.living_room_usp_strip_outlet_1` all pass a domain allowlist and
@@ -302,7 +302,7 @@ def test_turning_an_idle_device_ON_is_never_gated():
 
 
 def test_one_probe_can_never_be_measured():
-    """⛔ The regression from a real 18-device sweep at probes: 1.
+    """The regression from a real 18-device sweep at probes: 1.
 
     Every placement came back `measured`, including a chandelier on an
     air-conditioner circuit and six devices from five unrelated areas on one
