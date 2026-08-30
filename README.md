@@ -564,6 +564,36 @@ assignments with a high step match *and* a clear margin should be trusted; the
 tool prints both, and prints which grid it used and whether that grid was
 measured or given.
 
+### "No candidate" and "nothing to look at" are different answers
+
+A device that never switched during the window cannot be placed by any of this.
+Correlation and step matching both work on *transitions*; with none, there is
+nothing to match, and containment alone cannot tell such a device from any
+circuit whose floor happens to clear its draw.
+
+⛔ **This is a fact about the window, not about the device.** The devices it
+catches are not constant loads — network gear draws very differently when it
+starts. They are things nobody switches, because switching them takes the
+network down. Widen the window over a real power cut or a planned maintenance
+reboot and one transition places them outright.
+
+Measured here: **six of the seven rack PDU outlets** report `no transition in
+window` across three days. The rack's aggregate sensor drifted between 211 and
+227 W without a single step above threshold, yet its circuit "contained" it in
+**all 43,201 samples** — a confident-looking placement worth nothing.
+
+⚠ **The test is steps, not spread — and getting that backwards fails in both
+directions at once.** The first version compared a device's 95th-to-5th
+percentile range against the circuit's noise. A bathroom light that is on 3% of
+the time has `p95 == p5 == off`, so it was called untraceable while switching
+several times a day; the PDU's slow thermal drift gave it a non-zero spread, so
+it was called traceable while never switching at all. **Percentiles describe
+where a trace sits. Only steps describe when it moved.**
+
+Separating the two lifted placements from 8 to 9 and moved the shared bathroom
+light from 0.50 to 0.67, because the untraceable devices stopped consuming
+circuit steps in the subtraction pass.
+
 ## Roadmap
 
 - **Fingerprint learning** — cluster recurring event shapes per circuit, then

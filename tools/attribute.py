@@ -191,7 +191,28 @@ def main() -> int:
         for c, a in suspect.items():
             print(f"   {c.replace('sensor.', '')[:40]:<40} {', '.join(sorted(a))}")
 
-    unplaced = [d for d, v in result.items() if not v["circuit"]]
+    # Reported separately from the unplaced. "I looked and found nothing" and
+    # "there was nothing here to look at" are different answers, and lumping a
+    # rack PDU in with a genuinely ambiguous light misrepresents both.
+    constant = [
+        d for d, v in result.items() if str(v.get("reason", "")).startswith("constant")
+    ]
+    if constant:
+        print("")
+        print(
+            f"=== {len(constant)} devices hold a constant draw and cannot be traced ==="
+        )
+        print("    No movement to correlate, and containment alone proves nothing.")
+        for d in sorted(constant):
+            t = dtraces.get(d) or []
+            band = f"{min(t):.0f}-{max(t):.0f} W" if t else "-"
+            print(f"   {d.replace('sensor.', '')[:52]:<52} {band}")
+
+    unplaced = [
+        d
+        for d, v in result.items()
+        if not v["circuit"] and not str(v.get("reason", "")).startswith("constant")
+    ]
     if unplaced:
         print()
         print(f"=== {len(unplaced)} not placed ===")
