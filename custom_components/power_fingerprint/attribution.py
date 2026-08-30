@@ -36,8 +36,9 @@ from datetime import datetime, timedelta
 Sample = tuple[datetime, float]
 
 
-def resample(samples: list[Sample], step_s: int, start: datetime, end: datetime
-             ) -> list[float]:
+def resample(
+    samples: list[Sample], step_s: int, start: datetime, end: datetime
+) -> list[float]:
     """Put a trace on a fixed grid by holding the last known value forward.
 
     Traces from different integrations arrive on unrelated cadences - Z-Wave
@@ -71,12 +72,13 @@ def pearson(a: list[float], b: list[float]) -> float:
     vb = sum((x - mb) ** 2 for x in b)
     if va <= 0 or vb <= 0:
         return 0.0
-    cov = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+    cov = sum((x - ma) * (y - mb) for x, y in zip(a, b, strict=True))
     return cov / math.sqrt(va * vb)
 
 
-def containment(device: list[float], circuit: list[float], margin_w: float = 10.0
-                ) -> float:
+def containment(
+    device: list[float], circuit: list[float], margin_w: float = 10.0
+) -> float:
     """Fraction of the time the circuit carries at least the device's draw.
 
     A device physically cannot exceed the circuit feeding it. Coincidental

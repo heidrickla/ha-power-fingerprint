@@ -45,6 +45,38 @@ reading zero is otherwise indistinguishable from an appliance that is switched
 off — a distinction that cost real debugging time during development, twice, on
 the same circuit.
 
+## Installation
+
+**HACS (custom repository)** — add this repository as a custom repository of
+type *Integration*, install, restart Home Assistant.
+
+**Manual** — copy `custom_components/power_fingerprint/` into your Home
+Assistant `config/custom_components/` directory and restart.
+
+Then: Settings -> Devices & Services -> Add Integration -> Power Fingerprint.
+
+All entities group under a single service device, and
+`Download diagnostics` on that device produces a report with entity ids
+pseudonymised — this integration's entity names describe rooms and appliances,
+and diagnostics files routinely end up in public issue trackers.
+
+Publication status and the HACS submission checklist are in
+[PUBLISHING.md](PUBLISHING.md).
+
+## Tools
+
+Two offline tools run against a live Home Assistant from a workstation that does
+not have Home Assistant installed. `analysis.py`, `fingerprint.py` and
+`attribution.py` import nothing from HA precisely so this works.
+
+```bash
+export HA_URL=https://homeassistant.local:8123 HA_TOKEN=...
+
+python tools/identify.py --all --days 7          # cluster runs, describe shapes
+python tools/attribute.py --days 3               # place metered devices on circuits
+python tools/make_brand.py                       # regenerate brand images
+```
+
 ## Configuration
 
 Settings → Devices & Services → Add Integration → Power Fingerprint.

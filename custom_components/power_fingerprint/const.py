@@ -1,6 +1,11 @@
 """Constants for Power Fingerprint."""
 
 DOMAIN = "power_fingerprint"
+MANUFACTURER = "Power Fingerprint"
+# Must match manifest.json. HACS surfaces the release TAG while Home Assistant
+# reports the MANIFEST version, so a mismatch is a defect users see as a wrong
+# version number. Bump both together.
+VERSION = "0.2.0"
 
 CONF_MAINS = "mains"
 CONF_CIRCUITS = "circuits"

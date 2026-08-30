@@ -3,7 +3,7 @@
 import importlib.util
 import pathlib
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 _PATH = (
     pathlib.Path(__file__).resolve().parents[1]
@@ -16,7 +16,7 @@ at = importlib.util.module_from_spec(_spec)
 sys.modules["pf_attribution"] = at
 _spec.loader.exec_module(at)
 
-T0 = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 
 
 def test_resample_holds_last_value_forward():
