@@ -147,6 +147,47 @@ def step_match(
     return hits / len(dsteps)
 
 
+def _score_one(
+    dtrace: list[float],
+    circuits: dict[str, list[float]],
+    min_r: float,
+    min_containment: float,
+    min_step_match: float,
+    min_margin: float,
+) -> tuple[tuple[str, float, float, float] | None, float, int]:
+    """Score one device against every circuit. Returns (best, margin, n_candidates)."""
+    scored: list[tuple[str, float, float, float]] = []
+    for cname, ctrace in circuits.items():
+        c = containment(dtrace, ctrace)
+        if c < min_containment:
+            continue  # cannot draw more than the circuit feeding it
+        sm = step_match(dtrace, ctrace)
+        r = pearson(dtrace, ctrace)
+        # Either route qualifies: step matching catches small loads on busy
+        # circuits, correlation catches loads that dominate their circuit but
+        # switch too rarely to give many steps.
+        if sm < min_step_match and r < min_r:
+            continue
+        scored.append((cname, sm, r, c))
+
+    scored.sort(key=lambda row: -max(row[1], row[2]))
+    best = scored[0] if scored else None
+    runner = scored[1] if len(scored) > 1 else None
+
+    # ⛔ A WINNER MUST BEAT THE RUNNER-UP, NOT MERELY SCORE HIGHEST.
+    # Without this a busy circuit absorbs every weak match. Measured against
+    # Home Assistant's own area assignments: taking the top score alone put six
+    # devices from THREE different areas - Office, Guest Bathroom and Master
+    # Bathroom - on one circuit, which is not plausible wiring. When several
+    # circuits score alike, none of them is evidence.
+    margin = 0.0
+    if best and runner:
+        margin = max(best[1], best[2]) - max(runner[1], runner[2])
+        if margin < min_margin:
+            best = None
+    return best, margin, len(scored)
+
+
 def assign(
     devices: dict[str, list[float]],
     circuits: dict[str, list[float]],
@@ -157,61 +198,72 @@ def assign(
 ) -> dict[str, dict[str, float | str | None]]:
     """Work out which circuit each metered device sits on.
 
-    Returns the best candidate per device, or circuit=None when nothing clears
-    both bars. Refusing is the right answer surprisingly often: a device that
-    never changed state during the window carries no information, and guessing
-    a circuit for it would poison everything downstream.
+    ⭐ ASSIGNMENT IS ITERATIVE, AND EACH CONFIRMED DEVICE IS SPENT.
+
+    Scoring every device against the raw circuit traces independently lets one
+    circuit's step be claimed by several devices at once - nothing consumes it,
+    so a busy circuit keeps looking like a plausible home for everything. That
+    is the mechanism behind the over-assignment this module keeps fighting.
+
+    So the loop takes the single most confident assignment anywhere, locks it,
+    SUBTRACTS that device's trace from that circuit, and re-scores everyone
+    against the residual. A step that has already been explained by a confirmed
+    device is no longer available to explain a different one. Devices that
+    genuinely share a circuit still match, because their own steps survive the
+    subtraction - only the claimed contribution is removed.
+
+    Ordering by confidence matters: the strongest evidence is committed first,
+    so a marginal match can never consume a step that a near-certain match
+    needed. Anything that never clears the bars is returned unplaced, which is
+    the right answer far more often than a guess would be.
     """
     out: dict[str, dict[str, float | str | None]] = {}
-    for dname, dtrace in devices.items():
-        scored: list[tuple[str, float, float, float]] = []
-        for cname, ctrace in circuits.items():
-            c = containment(dtrace, ctrace)
-            if c < min_containment:
-                continue  # cannot draw more than the circuit feeding it
-            sm = step_match(dtrace, ctrace)
-            r = pearson(dtrace, ctrace)
-            # Either route qualifies: step matching catches small loads on busy
-            # circuits, correlation catches loads that dominate their circuit
-            # but switch too rarely to give many steps.
-            if sm < min_step_match and r < min_r:
+    remaining = dict(devices)
+    residual = {c: list(t) for c, t in circuits.items()}
+    order = 0
+
+    while remaining:
+        winner: tuple[str, tuple[str, float, float, float], float] | None = None
+        for dname, dtrace in remaining.items():
+            best, margin, _n = _score_one(
+                dtrace, residual, min_r, min_containment, min_step_match, min_margin
+            )
+            if best is None:
                 continue
-            scored.append((cname, sm, r, c))
+            score = max(best[1], best[2])
+            if winner is None or score > max(winner[1][1], winner[1][2]):
+                winner = (dname, best, margin)
 
-        scored.sort(key=lambda row: -max(row[1], row[2]))
-        best = scored[0] if scored else None
-        runner = scored[1] if len(scored) > 1 else None
+        if winner is None:
+            break  # nothing left clears the bars
 
-        # ⛔ A WINNER MUST BEAT THE RUNNER-UP, NOT MERELY SCORE HIGHEST.
-        # Without this, a busy circuit absorbs every weak match. Measured
-        # against Home Assistant's own area assignments: taking the top score
-        # alone put six devices from THREE different areas - Office, Guest
-        # Bathroom and Master Bathroom - on one circuit, which is not plausible
-        # wiring. When several circuits score alike, none of them is evidence.
-        margin = 0.0
-        if best and runner:
-            margin = max(best[1], best[2]) - max(runner[1], runner[2])
-            if margin < min_margin:
-                best = None
+        dname, best, margin = winner
+        cname = best[0]
+        out[dname] = {
+            "circuit": cname,
+            "step_match": round(best[1], 3),
+            "r": round(best[2], 3),
+            "containment": round(best[3], 3),
+            "margin": round(margin, 3),
+            "order": order,
+        }
+        residual[cname] = subtract(residual[cname], [remaining[dname]])
+        del remaining[dname]
+        order += 1
 
-        out[dname] = (
-            {
-                "circuit": best[0],
-                "step_match": round(best[1], 3),
-                "r": round(best[2], 3),
-                "containment": round(best[3], 3),
-                "margin": round(margin, 3),
-            }
-            if best
-            else {
-                "circuit": None,
-                "step_match": 0.0,
-                "r": 0.0,
-                "containment": 0.0,
-                "margin": round(margin, 3),
-                "reason": "ambiguous" if scored else "no candidate",
-            }
+    # Whatever is left never cleared the bars, even against the residuals.
+    for dname, dtrace in remaining.items():
+        _best, margin, n = _score_one(
+            dtrace, residual, min_r, min_containment, min_step_match, min_margin
         )
+        out[dname] = {
+            "circuit": None,
+            "step_match": 0.0,
+            "r": 0.0,
+            "containment": 0.0,
+            "margin": round(margin, 3),
+            "reason": "ambiguous" if n else "no candidate",
+        }
     return out
 
 
