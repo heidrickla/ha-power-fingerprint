@@ -144,6 +144,9 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._blind_s: dict[str, float] = defaultdict(float)
         self._last_seen: dict[str, str] = {}
         self._seen_dirty = False
+        # When the poll heartbeat last hit the store, so it can persist on a
+        # throttle even when no sighting dirtied anything.
+        self._last_heartbeat: datetime | None = None
         # Resolved once, on the first refresh after startup.
         self._last_poll_gap: float | None = None
 

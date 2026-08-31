@@ -219,7 +219,7 @@ async def test_reconfigure_refuses_a_broken_sensor_and_keeps_the_old_one(
 
 
 async def test_reconfigure_is_not_shadowed_by_previously_saved_options(
-    hass, config_entry
+    hass, config_entry, powered
 ):
     """Options saved once used to override every later reconfigure silently:
     the runtime merge lets entry.options win over entry.data."""
