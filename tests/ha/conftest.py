@@ -5,10 +5,9 @@ Windows box, where the harness blocks sockets and the ProactorEventLoop needs a
 local socket pair for its own self-pipe. That is expected; HA supports Linux,
 macOS and the devcontainer for development.
 
-They have not been executed yet, so expect some to need fixing the first time
-they do. They skip when the harness is absent, so the pure-module suite one
-level up still runs on a bare checkout and the default run does not imply
-coverage that does not exist.
+They skip when the harness is absent, so the pure-module suite one level up
+still runs on a bare checkout and the default run does not imply coverage that
+does not exist.
 
 THIS CONFTEST LIVES IN ITS OWN DIRECTORY ON PURPOSE.
 
