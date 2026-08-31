@@ -189,7 +189,13 @@ class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[cal
         if user_input is not None:
             errors, placeholders = _validate(self.hass, user_input)
             if not errors:
-                return self.async_update_reload_and_abort(entry, data=user_input)
+                # options={} on purpose: the runtime merge lets entry.options
+                # win, so options saved once would silently override every
+                # later reconfigure. The form was seeded from the merged view
+                # and carries every field, so clearing options loses nothing.
+                return self.async_update_reload_and_abort(
+                    entry, data=user_input, options={}
+                )
         merged = {**entry.data, **entry.options, **(user_input or {})}
         merged, price_note = await _defaults_with_price(self.hass, merged)
         placeholders = {**placeholders, **price_note}

@@ -6,13 +6,16 @@ import logging
 from typing import Any
 
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_track_entity_registry_updated_event
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import dt as dt_util
 
 from . import services
-from .const import CONF_CIRCUITS, CONF_MAINS, DOMAIN
+from .const import CONF_CIRCUITS, CONF_MAINS, CONF_PAIRS, DOMAIN
 from .coordinator import (
     FingerprintCoordinator,
     PowerFingerprintConfigEntry,
@@ -65,8 +68,17 @@ async def async_setup_entry(
 
     # A probe killed mid-run leaves automations switched off with nothing
     # aware of it. Restoring here is the backstop for a crash, restart or power
-    # cut, and warns rather than doing it quietly.
-    orphaned = await store.async_take_orphaned_pauses()
+    # cut, and warns rather than doing it quietly. The record is cleared only
+    # AFTER the restores dispatch - clearing first meant one raised call lost
+    # the list while the automations stayed off. The automation integration is
+    # a manifest dependency, but a missing service still must not strand them:
+    # ConfigEntryNotReady keeps the record and retries.
+    orphaned = store.orphaned_pauses()
+    if orphaned and not hass.services.has_service("automation", "turn_on"):
+        raise ConfigEntryNotReady(
+            "automation.turn_on is not registered yet and paused automations "
+            "need restoring"
+        )
     for entity in orphaned:
         _LOGGER.warning(
             "Re-enabling %s - it was switched off for a power fingerprint probe "
@@ -76,14 +88,76 @@ async def async_setup_entry(
         await hass.services.async_call(
             "automation", "turn_on", {"entity_id": entity}, blocking=False
         )
+    if orphaned:
+        await store.async_clear_paused()
 
-    coordinator = FingerprintCoordinator(hass, options, entry.entry_id, store)
+    coordinator = FingerprintCoordinator(hass, options, entry, store)
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = PowerFingerprintData(coordinator=coordinator, store=store)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
+    _track_source_renames(hass, entry, options, store)
     return True
+
+
+@callback
+def _track_source_renames(
+    hass: HomeAssistant,
+    entry: PowerFingerprintConfigEntry,
+    options: dict[str, Any],
+    store: FingerprintStore,
+) -> None:
+    """Follow the configured sources through entity_id renames.
+
+    The circuit list, the store's keys and this integration's own unique_ids
+    all embed source entity ids, and renaming a sensor on the meter
+    integration is an ordinary, supported user action. Without this, a rename
+    orphaned the learned library and minted duplicate entities.
+
+    Assignments recorded after setup are picked up on the next reload, when
+    the subscription is rebuilt from the store.
+    """
+    tracked = {options[CONF_MAINS], *options[CONF_CIRCUITS]}
+    for pair in str(options.get(CONF_PAIRS, "")).split(";"):
+        for part in pair.split(","):
+            if part.strip():
+                tracked.add(part.strip())
+    tracked.update(store.assignments())
+
+    async def _renamed(event: Event[er.EventEntityRegistryUpdatedData]) -> None:
+        data = event.data
+        if data["action"] != "update" or "old_entity_id" not in data:
+            return
+        old, new = data["old_entity_id"], data["entity_id"]
+        _LOGGER.info("Following a rename of %s to %s", old, new)
+        await store.async_migrate_entity_id(old, new)
+
+        # This integration's own registry rows key their unique_ids on the
+        # source id - migrate them so history stays attached.
+        registry = er.async_get(hass)
+        for row in list(er.async_entries_for_config_entry(registry, entry.entry_id)):
+            if old in row.unique_id:
+                registry.async_update_entity(
+                    row.entity_id, new_unique_id=row.unique_id.replace(old, new)
+                )
+
+        # Last: updating the entry fires the reload listener, which rebuilds
+        # everything - including this subscription - from the new ids.
+        new_data = dict(entry.data)
+        if new_data.get(CONF_MAINS) == old:
+            new_data[CONF_MAINS] = new
+        new_data[CONF_CIRCUITS] = [
+            new if c == old else c for c in new_data.get(CONF_CIRCUITS, [])
+        ]
+        if CONF_PAIRS in new_data:
+            new_data[CONF_PAIRS] = str(new_data[CONF_PAIRS]).replace(old, new)
+        if new_data != dict(entry.data):
+            hass.config_entries.async_update_entry(entry, data=new_data)
+
+    entry.async_on_unload(
+        async_track_entity_registry_updated_event(hass, list(tracked), _renamed)
+    )
 
 
 @callback
@@ -116,6 +190,12 @@ async def async_unload_entry(
     # are component-level, not entry-level, and they refuse politely while
     # nothing is loaded.
     unloaded: bool = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        # A clean unload stamps the heartbeat exactly, so an options-change
+        # reload credits zero blind time instead of the whole debounce window.
+        runtime = entry.runtime_data
+        runtime.store.record_poll(dt_util.utcnow().isoformat())
+        await runtime.store.async_save()
     return unloaded
 
 

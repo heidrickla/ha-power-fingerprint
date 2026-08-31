@@ -216,3 +216,46 @@ async def test_reconfigure_refuses_a_broken_sensor_and_keeps_the_old_one(
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_MAINS: "mains_missing"}
     assert config_entry.data[CONF_MAINS] == MAINS
+
+
+async def test_reconfigure_is_not_shadowed_by_previously_saved_options(
+    hass, config_entry
+):
+    """Options saved once used to override every later reconfigure silently:
+    the runtime merge lets entry.options win over entry.data."""
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAINS: MAINS,
+            CONF_CIRCUITS: [CIRCUIT_A, CIRCUIT_B],
+            CONF_PRICE: 0.31,
+            CONF_TOLERANCE: 5.0,
+            CONF_PAIRS: "",
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options[CONF_PRICE] == 0.31
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "reconfigure", "entry_id": config_entry.entry_id},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_MAINS: MAINS,
+            CONF_CIRCUITS: [CIRCUIT_A],
+            CONF_PRICE: 0.13,
+            CONF_TOLERANCE: 5.0,
+            CONF_PAIRS: "",
+        },
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    # The reconfigured values are effective, not shadowed.
+    assert config_entry.data[CONF_CIRCUITS] == [CIRCUIT_A]
+    assert config_entry.data[CONF_PRICE] == 0.13
+    assert not config_entry.options

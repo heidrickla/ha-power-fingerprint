@@ -33,6 +33,11 @@ POLL_SECONDS = 30
 # Standby is a 5th percentile, so it needs to span a duty cycle or two of
 # whatever cycles slowest. Below this the sensors report `unknown` rather than a
 # number from a window too short to mean anything.
+# How often the poll heartbeat is persisted while nothing else is dirty.
+# After a hard crash the un-persisted stretch is credited as blind time, so
+# minutes - small next to any appliance cadence - not hours.
+HEARTBEAT_SECONDS = 300
+
 MIN_STANDBY_WINDOW_HOURS = 1.0
 
 

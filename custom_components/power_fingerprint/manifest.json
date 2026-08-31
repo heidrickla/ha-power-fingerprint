@@ -13,5 +13,8 @@
   "after_dependencies": [
     "recorder"
   ],
-  "single_config_entry": true
+  "single_config_entry": true,
+  "dependencies": [
+    "automation"
+  ]
 }

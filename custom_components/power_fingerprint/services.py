@@ -18,6 +18,10 @@ from datetime import timedelta
 from typing import Any, cast
 
 import voluptuous as vol
+from homeassistant.components.automation import (
+    automations_with_entity,
+    entities_in_automation,
+)
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -50,6 +54,7 @@ from .fingerprint import (
     summarize,
 )
 from .verify import (
+    INFERRED,
     agree,
     decide,
     grade,
@@ -121,12 +126,16 @@ LABEL_SCHEMA = vol.Schema(
 )
 
 
-async def _history(hass: HomeAssistant, entity: str, days: int) -> list[Sample]:
-    """Pull one entity's history through the recorder's own API.
+async def _histories(
+    hass: HomeAssistant, entities: list[str], days: int
+) -> dict[str, list[Sample]]:
+    """Pull several entities' history in ONE recorder query.
 
     Note this is NOT the REST history endpoint, which returns only ~24 hours
     from the start time unless an explicit end_time is passed. The internal API
-    takes both bounds directly and has no such trap.
+    takes both bounds directly and has no such trap. Batched because a query
+    per entity was a full recorder round-trip each - 27 of them per learn on
+    the development panel - for rows one query returns together.
     """
     from homeassistant.components.recorder import history
     from homeassistant.helpers.recorder import get_instance
@@ -135,26 +144,44 @@ async def _history(hass: HomeAssistant, entity: str, days: int) -> list[Sample]:
     end = dt_util.utcnow()
 
     def _fetch() -> dict[str, list[State]]:
-        rows: dict[str, list[State]] = history.state_changes_during_period(
-            hass, start, end, entity_id=entity, no_attributes=True
+        rows = history.get_significant_states(
+            hass,
+            start,
+            end,
+            entity_ids=list(entities),
+            include_start_time_state=False,
+            no_attributes=True,
         )
-        return rows
+        # Minimal-response rows may appear beside State objects; only States
+        # carry a readable value.
+        return {
+            entity_id: [s for s in states if isinstance(s, State)]
+            for entity_id, states in rows.items()
+        }
 
     data = await get_instance(hass).async_add_executor_job(_fetch)
     # `no_attributes=True` strips the unit from every row, so it comes from
     # the live state and is applied to the whole window - the same approach
     # the coordinator takes when it seeds from the recorder.
-    live = hass.states.get(entity)
-    unit = live.attributes.get("unit_of_measurement") if live else None
-    out = []
-    for state in data.get(entity, []):
-        try:
-            watts = to_watts(float(state.state), unit)
-        except (TypeError, ValueError):
-            continue  # unavailable/unknown - a fabricated zero would lie
-        if watts is not None:
-            out.append((state.last_changed, watts))
+    out: dict[str, list[Sample]] = {}
+    for entity in entities:
+        live = hass.states.get(entity)
+        unit = live.attributes.get("unit_of_measurement") if live else None
+        samples: list[Sample] = []
+        for state in data.get(entity, []):
+            try:
+                watts = to_watts(float(state.state), unit)
+            except (TypeError, ValueError):
+                continue  # unavailable/unknown - a fabricated zero would lie
+            if watts is not None:
+                samples.append((state.last_changed, watts))
+        out[entity] = samples
     return out
+
+
+async def _history(hass: HomeAssistant, entity: str, days: int) -> list[Sample]:
+    """One entity's history. See _histories for the batched form."""
+    return (await _histories(hass, [entity], days))[entity]
 
 
 async def _sample_circuits(
@@ -210,20 +237,12 @@ def _watchers(hass: HomeAssistant, entities: list[str]) -> dict[str, str | None]
     cannot show it.
     """
     snapshot: dict[str, str | None] = {}
-    component = hass.data.get("automation")
-    if component is None:
-        return snapshot
-    targets = set(entities)
-    for auto in component.entities:
-        try:
-            referenced = auto.referenced_entities
-        except AttributeError:  # older core, or a blueprint that cannot resolve
-            continue
-        if targets & set(referenced):
-            state = hass.states.get(auto.entity_id)
-            snapshot[auto.entity_id] = (
-                state.attributes.get("last_triggered") if state else None
-            )
+    watching: set[str] = set()
+    for entity in entities:
+        watching.update(automations_with_entity(hass, entity))
+    for auto_id in watching:
+        state = hass.states.get(auto_id)
+        snapshot[auto_id] = state.attributes.get("last_triggered") if state else None
     return snapshot
 
 
@@ -238,31 +257,27 @@ def _pausable(
     """
     pausable: list[str] = []
     refused: list[dict[str, str]] = []
-    component = hass.data.get("automation")
-    if component is None:
-        return pausable, refused
-
-    targets = set(entities)
-    for auto in component.entities:
-        try:
-            referenced = set(auto.referenced_entities)
-        except AttributeError:
-            continue
-        if not (targets & referenced):
-            continue
-        state = hass.states.get(auto.entity_id)
+    watching: set[str] = set()
+    for entity in entities:
+        watching.update(automations_with_entity(hass, entity))
+    # Sorted so the refused list keeps a stable order across runs - it is
+    # surfaced to the caller, and set order is not deterministic.
+    for auto_id in sorted(watching):
+        state = hass.states.get(auto_id)
         if state is None or state.state != "on":
             continue  # already off; leave it alone and do not re-enable it later
-        referenced_states = {e: hass.states.get(e) for e in referenced}
+        referenced = set(entities_in_automation(hass, auto_id))
         classes = {
-            e: st.attributes.get("device_class") if st else None
-            for e, st in referenced_states.items()
+            e: state.attributes.get("device_class")
+            if (state := hass.states.get(e))
+            else None
+            for e in referenced
         }
         ok, why = safe_to_pause(referenced, classes)
         if ok:
-            pausable.append(auto.entity_id)
+            pausable.append(auto_id)
         else:
-            refused.append({"automation": auto.entity_id, "reason": why})
+            refused.append({"automation": auto_id, "reason": why})
     return sorted(pausable), refused
 
 
@@ -382,23 +397,32 @@ def async_setup_services(hass: HomeAssistant) -> None:
             call.data.get("threshold") or coordinator.profile["cluster_threshold"]
         )
 
-        report: dict[str, list[dict[str, Any]]] = {}
-        for entity in circuits:
-            samples = await _history(hass, entity, days)
-            if not samples:
-                # Empty history is UNREAD, not "nothing ran" - say which.
-                report[entity] = [{"error": "no history in window"}]
-                continue
+        histories = await _histories(hass, list(circuits), days)
+
+        def _crunch(entity: str, samples: list[Sample]) -> list[Fingerprint]:
             events = segment(samples)
             if not events:
-                report[entity] = []
-                continue
+                return []
             rows = [e.as_features() for e in events]
             labels = cluster(normalize(rows), threshold=threshold)
             # Each shape's own rhythm, learned from when its runs actually
             # happened. This is what absence detection judges against later.
             rhythms = cadences_by_cluster(labels, [e.start for e in events])
-            fps = summarize(entity, rows, labels, rhythms)
+            return summarize(entity, rows, labels, rhythms)
+
+        report: dict[str, list[dict[str, Any]]] = {}
+        for entity in circuits:
+            samples = histories.get(entity) or []
+            if not samples:
+                # Empty history is UNREAD, not "nothing ran" - say which.
+                report[entity] = [{"error": "no history in window"}]
+                continue
+            # Pure CPU over days of samples - segmenting and clustering a
+            # 27-circuit panel on the event loop stalled all of Home Assistant.
+            fps = await hass.async_add_executor_job(_crunch, entity, samples)
+            if not fps:
+                report[entity] = []
+                continue
             await store.async_replace_circuit(entity, fps)
             report[entity] = [
                 {
@@ -551,15 +575,19 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 )
                 active_device = _read(hass, meter) if meter else None
 
+                metered = base_device is not None and active_device is not None
                 if base_device is not None and active_device is not None:
                     expected = active_device - base_device
                 else:
                     # Without the device's own meter, fall back to the largest
                     # coherent circuit change. Weaker, and flagged as such.
+                    # Only circuits readable in BOTH windows count: one that
+                    # went unreadable mid-probe would otherwise read as a step
+                    # to 0 W and poison the expected magnitude.
                     expected = max(
                         (
-                            active_circuits.get(c, 0.0) - base_circuits.get(c, 0.0)
-                            for c in base_circuits
+                            active_circuits[c] - base_circuits[c]
+                            for c in base_circuits.keys() & active_circuits.keys()
                         ),
                         key=abs,
                         default=0.0,
@@ -574,7 +602,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
                         "circuit": circuit,
                         "reason": reason,
                         "candidates": ranked[:3],
-                        "device_metered": expected is not None,
+                        # The actual condition, not `expected is not None` -
+                        # that was true on both branches, so every unmetered
+                        # probe was graded as if the device had a meter.
+                        "device_metered": metered,
                     }
                 )
 
@@ -660,7 +691,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_LEARN,
         _learn,
         schema=LEARN_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
     async def _map(call: ServiceCall) -> ServiceResponse:
@@ -680,9 +711,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         start = dt_util.utcnow() - timedelta(days=days)
         end = dt_util.utcnow()
 
-        raw_circuits: dict[str, list[Sample]] = {}
-        for entity in circuits:
-            raw_circuits[entity] = await _history(hass, entity, days)
+        raw_circuits: dict[str, list[Sample]] = await _histories(hass, circuits, days)
 
         # The grid must be about one reporting interval wide, and that is a
         # property of the meter, not a constant. Measured from this install's
@@ -695,17 +724,19 @@ def async_setup_services(hass: HomeAssistant) -> None:
             max(1, round(measured[len(measured) // 2])) if measured else 12
         )
 
-        ctraces = {
-            c: resample(rows, step, start, end) for c, rows in raw_circuits.items()
-        }
+        ctraces = await hass.async_add_executor_job(
+            lambda: {
+                c: resample(rows, step, start, end) for c, rows in raw_circuits.items()
+            }
+        )
         filled = sum(1 for t in ctraces.values() if t)
         if not filled:
             # Empty history is UNREAD, not "no matches". Say which.
             raise HomeAssistantError(
-                f"The recorder returned no history for any of the {len(circuits)} "
-                "circuits, so nothing could be compared. This is an unread "
-                "result, not an absence of matches."
-            )
+                translation_domain=DOMAIN,
+                translation_key="no_history",
+                translation_placeholders={"count": str(len(circuits))},
+            ) from None
 
         # Three kinds of sensor look like devices and are not: this
         # integration's own output (`unmonitored_load` is mains minus circuits,
@@ -722,7 +753,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
         own_entry_id = _entry_id(hass)
         known = {*circuits, coordinator.mains}
-        devices: dict[str, list[float]] = {}
+        candidates: list[str] = []
         for state in hass.states.async_all("sensor"):
             if state.entity_id in known:
                 continue
@@ -737,20 +768,32 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     continue  # (1) our own derived sensors
                 if row.device_id and row.device_id in circuit_devices:
                     continue  # (2)/(3) panel aggregates and phase legs
-            trace = resample(
-                await _history(hass, state.entity_id, days), step, start, end
-            )
-            if trace:
-                devices[state.entity_id] = trace
+            candidates.append(state.entity_id)
+
+        device_histories = await _histories(hass, candidates, days)
 
         p = coordinator.profile
-        result = assign(
-            devices,
-            ctraces,
-            min_r=call.data.get("min_correlation") or p["min_correlation"],
-            min_step_match=p["min_step_match"],
-            min_margin=p["min_margin"],
-        )
+        min_r = call.data.get("min_correlation") or p["min_correlation"]
+
+        def _crunch() -> dict[str, dict[str, Any]]:
+            # Resampling ~40 device traces onto a 6-second grid and the
+            # iterative re-scoring in assign() are minutes of pure CPU on a
+            # real install - on the event loop that stalled every automation
+            # and dashboard in the house for the duration.
+            devices = {
+                entity: trace
+                for entity, rows in device_histories.items()
+                if (trace := resample(rows, step, start, end))
+            }
+            return assign(
+                devices,
+                ctraces,
+                min_r=min_r,
+                min_step_match=p["min_step_match"],
+                min_margin=p["min_margin"],
+            )
+
+        result = await hass.async_add_executor_job(_crunch)
 
         # Areas are REPORTED, NEVER SCORED. Circuit identity is what this is
         # trying to learn, so feeding Home Assistant's own area names back into
@@ -815,9 +858,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
             if await runtime.store.async_record_assignment(
                 str(placement["device"]),
                 str(placement["circuit"]),
-                "measured"
-                if float(placement["step_match"] or 0) >= 0.6
-                else "inferred",
+                # Always INFERRED: "measured" is reserved for active probes,
+                # and a strong history correlation is still a correlation.
+                INFERRED,
                 "correlation",
                 {
                     "step_match": placement["step_match"],
@@ -837,7 +880,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 "grid_source": "given" if call.data.get("step") else "measured",
                 "days": days,
                 "circuits_with_history": filled,
-                "devices_examined": len(devices),
+                "devices_examined": len(device_histories),
                 "placed": sorted(placed, key=lambda r: -float(r["step_match"] or 0)),
                 "unplaced": sorted(unplaced, key=lambda r: str(r["device"])),
                 "no_transition_in_window": sorted(
@@ -1006,25 +1049,25 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_LABELS,
         _apply_labels,
         schema=LABELS_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_AUTOLABEL,
         _autolabel,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_MAP,
         _map,
         schema=MAP_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_VERIFY,
         _verify,
         schema=VERIFY_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
