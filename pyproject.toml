@@ -34,6 +34,11 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# pytest-homeassistant-custom-component's `hass` fixture is async, and pytest
+# does not handle async fixtures natively. Without this every tests/ha test
+# errors with "requested an async fixture with no plugin or hook that handled
+# it" rather than failing on anything real.
+asyncio_mode = "auto"
 
 # `strict-typing` is the Platinum rule that has actual teeth: Home Assistant
 # runs mypy in strict mode over integrations that claim it. The settings below
