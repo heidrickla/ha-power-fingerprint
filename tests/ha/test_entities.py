@@ -130,9 +130,8 @@ async def test_a_kilowatt_mains_against_watt_circuits_is_not_a_coverage_fault(
 
     assert coordinator.data["coverage"]["mains_w"] == 155.0
     assert hass.states.get("sensor.power_fingerprint_unmonitored_load").state == "5.0"
-    assert hass.states.get("binary_sensor.power_fingerprint_ct_coverage_fault").state == (
-        "off"
-    )
+    fault = hass.states.get("binary_sensor.power_fingerprint_ct_coverage_fault")
+    assert fault is not None and fault.state == "off"
     assert coordinator.source_profile()["units"][MAINS] == "kW"
     assert coordinator.source_profile()["units"][CIRCUIT_A] == "W"
     assert coordinator.source_profile()["units"][CIRCUIT_B] == "W"
