@@ -181,6 +181,8 @@ async def test_a_renamed_circuit_is_followed_not_orphaned(
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
 
+    # Rename first: the registry refuses a new id that already has a state.
+    registry.async_update_entity(CIRCUIT_A, new_entity_id="sensor.garage_power")
     hass.states.async_set(
         "sensor.garage_power",
         50.0,
@@ -190,7 +192,6 @@ async def test_a_renamed_circuit_is_followed_not_orphaned(
             "unit_of_measurement": "W",
         },
     )
-    registry.async_update_entity(CIRCUIT_A, new_entity_id="sensor.garage_power")
     await hass.async_block_till_done()
 
     assert "sensor.garage_power" in config_entry.data[CONF_CIRCUITS]
