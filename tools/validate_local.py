@@ -1,9 +1,9 @@
 """Local stand-in for the checks CI would run.
 
-GitHub Actions cannot run on this account (spend cap), so hassfest and the HACS
-action have never executed against this repo. This approximates the parts that
-can be checked offline, so a submission is not the first time anything is
-verified. It is NOT a substitute for the real runs - see PUBLISHING.md.
+GitHub Actions cannot run on this account (spend cap). hassfest and the HACS
+action run on the self-hosted Gitea runner instead; this approximates the parts
+of them that can be checked with no network at all, so a push is not the first
+time anything is verified. See PUBLISHING.md.
 """
 
 from __future__ import annotations

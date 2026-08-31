@@ -30,15 +30,15 @@ recorder seed that asked for every entity in the house, failed, swallowed the
 failure into a debug line, and left standby reporting 5,017 W against a true
 figure of 3 W. Written tests that never run are not coverage.
 
-They have not been executed yet. Home Assistant supports Linux, macOS and the
-devcontainer for development, and this repository was written on Windows, where
-the harness blocks sockets and the ProactorEventLoop needs a local socket pair
-for its own self-pipe. That is expected rather than a defect — these belong in
-CI, running against Home Assistant, which is where they will run.
+They run in CI, on the self-hosted Gitea runner, under the `Home Assistant
+layer` job. They do not run on Windows: the harness blocks sockets and the
+ProactorEventLoop needs a local socket pair for its own self-pipe. That is
+expected rather than a defect — Home Assistant supports Linux, macOS and the
+devcontainer for development.
 
-They skip when the harness is absent, so the default run reports **79 passed,
-1 skipped** and does not imply coverage it does not have. Expect some to need
-fixing the first time they actually execute.
+They skip when the harness is absent, so a bare checkout reports **131 passed,
+1 skipped** and does not imply coverage it does not have. With Home Assistant
+installed, the extra 31 run as well.
 
 ## Quality scale
 
