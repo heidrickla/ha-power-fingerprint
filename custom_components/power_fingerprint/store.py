@@ -36,7 +36,7 @@ class FingerprintStore:
         self._fingerprints: list[Fingerprint] = []
         # Automations this integration switched off for a probe. Persisted so a
         # crash or restart mid-probe cannot leave them off silently - see
-        # async_take_orphaned_pauses().
+        # orphaned_pauses().
         self._paused: list[str] = []
         # When each named appliance was last seen running, keyed
         # "<circuit>|<label>" -> ISO timestamp.  PERSISTED ON PURPOSE. Held
@@ -123,16 +123,17 @@ class FingerprintStore:
         self._loaded = True
         _LOGGER.debug("Loaded %d fingerprints", len(self._fingerprints))
 
+    def _as_dict(self) -> dict[str, Any]:
+        return {
+            "fingerprints": [fp.to_dict() for fp in self._fingerprints],
+            "paused_automations": self._paused,
+            "last_seen": self._last_seen,
+            "last_poll": self._last_poll,
+            "assignments": self._assignments,
+        }
+
     async def async_save(self) -> None:
-        await self._store.async_save(
-            {
-                "fingerprints": [fp.to_dict() for fp in self._fingerprints],
-                "paused_automations": self._paused,
-                "last_seen": self._last_seen,
-                "last_poll": self._last_poll,
-                "assignments": self._assignments,
-            }
-        )
+        await self._store.async_save(self._as_dict())
 
     def assignments(self) -> dict[str, dict[str, Any]]:
         return {k: dict(v) for k, v in self._assignments.items()}
@@ -183,15 +184,29 @@ class FingerprintStore:
         return True
 
     async def async_record_seen(self, seen: dict[str, str], last_poll: str) -> None:
-        """Update the last-seen times and the heartbeat, then persist.
+        """Update the last-seen times and the heartbeat, then persist debounced.
 
-        Called from the coordinator on any change, not every refresh - this
-        writes to disk, and a 30-second poll writing unconditionally would be
-        thousands of pointless writes a day.
+        A named appliance that is RUNNING dirties this every 30-second poll,
+        so an immediate write here was over a thousand full-store writes a day
+        on an SD-booted appliance. The delayed save is trailing-edge: the
+        write lands once the appliance stops dirtying it, and the Store's own
+        final-write listener covers shutdown. What a hard crash can lose is a
+        minute of last-seen freshness against hour-scale absence limits.
         """
         self._last_seen.update(seen)
         self._last_poll = last_poll
-        await self.async_save()
+        self._store.async_delay_save(self._as_dict, 60)
+
+    def record_poll(self, last_poll: str) -> None:
+        """Refresh the poll heartbeat alone, debounced, without touching seen.
+
+        The heartbeat used to persist only on a sighting, so after a restart
+        the whole gap since the last SIGHTING was credited as blind time -
+        muting the overdue alert exactly when an appliance had died. The
+        coordinator calls this on a throttle; the delay coalesces bursts.
+        """
+        self._last_poll = last_poll
+        self._store.async_delay_save(self._as_dict, 60)
 
     async def async_record_paused(self, entities: list[str]) -> None:
         """Write down what is about to be switched off, BEFORE switching it off.
@@ -208,18 +223,46 @@ class FingerprintStore:
         self._paused = []
         await self.async_save()
 
-    async def async_take_orphaned_pauses(self) -> list[str]:
+    def orphaned_pauses(self) -> list[str]:
         """Anything still recorded as paused from a previous run.
 
-        Called at setup. A non-empty list here means a probe did not finish -
+        Read at setup. A non-empty list here means a probe did not finish -
         the process was killed, Home Assistant restarted, the host lost power -
         and these automations have been switched off ever since without anyone
-        being told.
+        being told. Deliberately does NOT clear: the caller clears only after
+        the restore calls have actually been dispatched, so a failed restore
+        keeps the record for the next attempt.
         """
-        orphaned = list(self._paused)
-        if orphaned:
-            await self.async_clear_paused()
-        return orphaned
+        return list(self._paused)
+
+    async def async_migrate_entity_id(self, old: str, new: str) -> None:
+        """Rewrite every stored reference to a renamed entity, then persist.
+
+        Fingerprints are keyed by circuit, last-seen by "circuit|label", and
+        assignments both by device entity id and by circuit value - all of
+        them entity ids a user can legitimately rename on the source
+        integration. Without this, a rename silently orphaned the learned
+        library for that circuit.
+        """
+        changed = False
+        for fp in self._fingerprints:
+            if fp.circuit == old:
+                fp.circuit = new
+                changed = True
+        for key in [k for k in self._last_seen if k.startswith(f"{old}|")]:
+            self._last_seen[key.replace(f"{old}|", f"{new}|", 1)] = self._last_seen.pop(
+                key
+            )
+            changed = True
+        if old in self._assignments:
+            self._assignments[new] = self._assignments.pop(old)
+            changed = True
+        for info in self._assignments.values():
+            if info.get("circuit") == old:
+                info["circuit"] = new
+                changed = True
+        if changed:
+            await self.async_save()
 
     async def async_replace_circuit(
         self, circuit: str, fingerprints: list[Fingerprint]

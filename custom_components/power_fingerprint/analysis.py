@@ -105,7 +105,9 @@ def circuit_floor(samples: list[Sample], pct: float = 5.0) -> float:
     return percentile([w for _, w in samples], pct)
 
 
-def on_threshold(samples: list[Sample], margin_w: float = 15.0) -> float:
+def on_threshold(
+    samples: list[Sample], margin_w: float = 15.0, floor_w: float | None = None
+) -> float:
     """Where "off" ends and "an appliance is running" begins, for THIS circuit.
 
     Uses Otsu's method - the split that minimises variance within the two
@@ -155,8 +157,10 @@ def on_threshold(samples: list[Sample], margin_w: float = 15.0) -> float:
 
     otsu = lo + (best_split + 1) * width
     # Never sit below the circuit's own standby floor, or an always-on circuit
-    # would report itself as permanently running.
-    return max(otsu, circuit_floor(samples) + margin_w)
+    # would report itself as permanently running. Callers that already computed
+    # the floor this cycle pass it in rather than paying the sort twice.
+    floor = circuit_floor(samples) if floor_w is None else floor_w
+    return max(otsu, floor + margin_w)
 
 
 @dataclass

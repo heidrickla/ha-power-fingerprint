@@ -49,6 +49,7 @@ from .const import (
     DEFAULT_PRICE,
     DEFAULT_TOLERANCE,
     DOMAIN,
+    HEARTBEAT_SECONDS,
     POLL_SECONDS,
     WINDOW_HOURS,
     profile,
@@ -89,20 +90,21 @@ def _unit(state: State | None) -> str | None:
     return str(unit) if unit is not None else None
 
 
-class FingerprintCoordinator(DataUpdateCoordinator):
+class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Maintains a rolling sample window and derives the label-free checks."""
 
     def __init__(
         self,
         hass: HomeAssistant,
         options: dict[str, Any],
-        entry_id: str,
+        entry: ConfigEntry,
         store: FingerprintStore | None = None,
     ) -> None:
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
+            config_entry=entry,
             # Polls the state machine rather than a device or a network
             # service, so the interval is not a politeness question. 30 s is
             # the standby window's resolution: standby is a 5th percentile over
@@ -111,7 +113,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             # faster poll would resample the same value.
             update_interval=timedelta(seconds=POLL_SECONDS),
         )
-        self.entry_id = entry_id
+        self.entry_id = entry.entry_id
         self.store = store
         self.mains: str = options[CONF_MAINS]
         self.circuits: list[str] = list(options[CONF_CIRCUITS])
@@ -126,7 +128,6 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         self._window: dict[str, deque[Sample]] = defaultdict(
             lambda: deque(maxlen=maxlen)
         )
-        self._seeded = False
         # Samples of the run currently in progress on each circuit, if any.
         self._live_run: dict[str, list[float]] = defaultdict(list)
         # The unit each source actually reports in, and the sensors whose unit
@@ -211,7 +212,9 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         """
         return len(self._missing) < len(self.circuits) + 1
 
-    def _match_live(self, entity: str, watts: float) -> dict[str, object]:
+    def _match_live(
+        self, entity: str, watts: float, floor_w: float | None = None
+    ) -> dict[str, object]:
         """Identify what is running on one circuit, right now.
 
         Matching happens on a PARTIAL run - the samples seen so far - rather
@@ -232,7 +235,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         if len(window) < 10:
             return {"state": None, "reason": "window still filling"}
 
-        threshold = on_threshold(window)
+        threshold = on_threshold(window, floor_w=floor_w)
         if watts <= threshold:
             self._live_run[entity].clear()
             return {"state": "idle", "threshold_w": round(threshold, 1)}
@@ -263,8 +266,17 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             "threshold_w": round(threshold, 1),
         }
 
+    async def _async_setup(self) -> None:
+        """Fill the window from history once, so standby is not blank on boot.
+
+        The framework runs this exactly once, before the first refresh - but
+        only via async_config_entry_first_refresh, which every real caller
+        uses. A test constructing the coordinator bare and calling
+        async_refresh() skips seeding.
+        """
+        await self._async_seed_from_recorder()
+
     async def _async_seed_from_recorder(self) -> None:
-        """Fill the window from history once, so standby is not blank on boot."""
         try:
             from homeassistant.components.recorder import history
             from homeassistant.helpers.recorder import get_instance
@@ -274,7 +286,6 @@ class FingerprintCoordinator(DataUpdateCoordinator):
                 "an empty window and take up to %d hours to mean anything",
                 WINDOW_HOURS,
             )
-            self._seeded = True
             return
 
         start = dt_util.utcnow() - timedelta(hours=WINDOW_HOURS)
@@ -308,7 +319,6 @@ class FingerprintCoordinator(DataUpdateCoordinator):
                 "figures will be meaningless until the window fills",
                 err,
             )
-            self._seeded = True
             return
 
         for entity in self.circuits:
@@ -320,10 +330,21 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             # expensive half of a history query and buys nothing: a sensor
             # does not change its unit mid-stream.
             unit = _unit(self.hass.states.get(entity))
+            # Downsampled to the poll cadence: the deque holds WINDOW_HOURS at
+            # one sample per POLL_SECONDS, and a 6 s meter's 24 h is ~14,400
+            # rows - appended raw, the deque keeps only the newest ~5 h and
+            # the standby percentile quietly covers an evening, not a day.
+            last_kept: datetime | None = None
             for st in data.get(entity, []):
+                if (
+                    last_kept is not None
+                    and (st.last_changed - last_kept).total_seconds() < POLL_SECONDS
+                ):
+                    continue
                 val = to_watts(_raw(st), unit)
                 if val is not None:
                     self._window[entity].append((st.last_changed, val))
+                    last_kept = st.last_changed
         seeded = sum(1 for c in self.circuits if self._window[c])
         if seeded:
             _LOGGER.debug(
@@ -339,12 +360,8 @@ class FingerprintCoordinator(DataUpdateCoordinator):
                 "window fills",
                 len(self.circuits),
             )
-        self._seeded = True
 
     async def _async_update_data(self) -> dict[str, Any]:
-        if not self._seeded:
-            await self._async_seed_from_recorder()
-
         now: datetime = dt_util.utcnow()
         live: dict[str, float] = {}
         for entity in self.circuits:
@@ -387,7 +404,11 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             if self._window[e] and max(w for _, w in self._window[e]) < 5.0
         ]
 
-        running = {e: self._match_live(e, live[e]) for e in self.circuits if e in live}
+        running = {
+            e: self._match_live(e, live[e], floors.get(e))
+            for e in self.circuits
+            if e in live
+        }
         self._note_seen(now, running)
         quiet = self._absences(now)
         await self.async_persist_seen(now)
@@ -507,11 +528,25 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         return out
 
     async def async_persist_seen(self, now: datetime) -> None:
-        """Write last-seen times out, but only when something changed."""
-        if self.store is None or not self._seen_dirty:
+        """Persist last-seen changes, and the poll heartbeat regardless.
+
+        The heartbeat throttle is minutes, not hours, deliberately: after a
+        hard crash the throttle interval is credited as blind time, so it must
+        stay small next to typical appliance cadences.
+        """
+        if self.store is None:
             return
-        self._seen_dirty = False
-        await self.store.async_record_seen(self._last_seen, now.isoformat())
+        if self._seen_dirty:
+            self._seen_dirty = False
+            await self.store.async_record_seen(self._last_seen, now.isoformat())
+            self._last_heartbeat = now
+            return
+        if (
+            self._last_heartbeat is None
+            or (now - self._last_heartbeat).total_seconds() >= HEARTBEAT_SECONDS
+        ):
+            self.store.record_poll(now.isoformat())
+            self._last_heartbeat = now
 
     def _candidates(self) -> list[dict[str, Any]]:
         """Un-named shapes, described in plain English and ready to name.

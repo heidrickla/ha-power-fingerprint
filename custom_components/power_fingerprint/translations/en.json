@@ -245,6 +245,9 @@
     },
     "carrying_load": {
       "message": "{device} will not be probed: {reason}. Pass force: true only if you are certain nothing on it matters."
+    },
+    "no_history": {
+      "message": "The recorder returned no history for any of the {count} circuits, so nothing could be compared. This is an unread result, not an absence of matches."
     }
   },
   "issues": {

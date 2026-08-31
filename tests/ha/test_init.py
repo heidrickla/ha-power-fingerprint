@@ -9,7 +9,9 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
 
-from custom_components.power_fingerprint.const import DOMAIN
+from custom_components.power_fingerprint.const import CONF_CIRCUITS, DOMAIN
+
+CIRCUIT_A = "sensor.circuit_a_power"
 
 
 async def test_setup_and_unload(hass: HomeAssistant, config_entry, powered):
@@ -50,9 +52,13 @@ async def test_a_dead_probe_does_not_leave_automations_switched_off(
     with (
         patch(
             "custom_components.power_fingerprint.store.FingerprintStore"
-            ".async_take_orphaned_pauses",
+            ".orphaned_pauses",
             return_value=orphaned,
         ),
+        patch(
+            "custom_components.power_fingerprint.store.FingerprintStore"
+            ".async_clear_paused",
+        ) as clear,
     ):
         calls = async_mock_service(hass, "automation", "turn_on")
         assert await hass.config_entries.async_setup(config_entry.entry_id)
@@ -60,6 +66,8 @@ async def test_a_dead_probe_does_not_leave_automations_switched_off(
 
     turned_on = [c.data["entity_id"] for c in calls]
     assert set(turned_on) == set(orphaned), turned_on
+    # The record is cleared only after the restores dispatched.
+    clear.assert_awaited_once()
 
 
 async def test_nothing_is_touched_when_no_pauses_are_orphaned(
@@ -129,3 +137,40 @@ async def test_setup_retries_while_the_power_sensors_are_missing(
     assert not await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     assert config_entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_a_renamed_circuit_is_followed_not_orphaned(
+    hass: HomeAssistant, config_entry, powered
+):
+    """Renaming a source sensor is an ordinary user action on the meter
+    integration. The entry config must follow it instead of the circuit list
+    silently pointing at a dead id."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    row = registry.async_get_or_create(
+        "sensor",
+        "test",
+        "circuit-a-uid",
+        suggested_object_id="circuit_a_power",
+    )
+    assert row.entity_id == CIRCUIT_A
+
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(
+        "sensor.garage_power",
+        50.0,
+        {
+            "device_class": "power",
+            "state_class": "measurement",
+            "unit_of_measurement": "W",
+        },
+    )
+    registry.async_update_entity(CIRCUIT_A, new_entity_id="sensor.garage_power")
+    await hass.async_block_till_done()
+
+    assert "sensor.garage_power" in config_entry.data[CONF_CIRCUITS]
+    assert CIRCUIT_A not in config_entry.data[CONF_CIRCUITS]
