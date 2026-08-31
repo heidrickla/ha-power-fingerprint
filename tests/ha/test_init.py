@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
+from pytest_homeassistant_custom_component.common import async_mock_service
 
 from custom_components.power_fingerprint.const import DOMAIN
 
@@ -52,18 +53,12 @@ async def test_a_dead_probe_does_not_leave_automations_switched_off(
             ".async_take_orphaned_pauses",
             return_value=orphaned,
         ),
-        patch.object(
-            hass.services, "async_call", wraps=hass.services.async_call
-        ) as call,
     ):
+        calls = async_mock_service(hass, "automation", "turn_on")
         assert await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
 
-    turned_on = [
-        c.args[2]["entity_id"]
-        for c in call.call_args_list
-        if c.args[:2] == ("automation", "turn_on")
-    ]
+    turned_on = [c.data["entity_id"] for c in calls]
     assert set(turned_on) == set(orphaned), turned_on
 
 
@@ -72,15 +67,11 @@ async def test_nothing_is_touched_when_no_pauses_are_orphaned(
 ):
     """The backstop must not fire on a normal startup."""
     config_entry.add_to_hass(hass)
-    with patch.object(
-        hass.services, "async_call", wraps=hass.services.async_call
-    ) as call:
-        assert await hass.config_entries.async_setup(config_entry.entry_id)
-        await hass.async_block_till_done()
+    calls = async_mock_service(hass, "automation", "turn_on")
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
 
-    assert not [
-        c for c in call.call_args_list if c.args[:2] == ("automation", "turn_on")
-    ]
+    assert not calls
 
 
 # --- action-setup ----------------------------------------------------------

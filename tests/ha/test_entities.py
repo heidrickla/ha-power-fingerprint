@@ -2,6 +2,12 @@
 
 from homeassistant.core import HomeAssistant
 
+# Declared locally rather than imported from conftest: tests/ha is not a
+# package, so a relative import has no parent to resolve against.
+MAINS = "sensor.mains_power"
+CIRCUIT_A = "sensor.circuit_a_power"
+CIRCUIT_B = "sensor.circuit_b_power"
+
 
 async def _setup(hass, entry):
     entry.add_to_hass(hass)
@@ -110,8 +116,6 @@ async def test_a_kilowatt_mains_against_watt_circuits_is_not_a_coverage_fault(
     catastrophic negative remainder that never clears - a permanent fault on a
     panel with nothing wrong with it. Converted at ingestion it is ordinary.
     """
-    from .conftest import CIRCUIT_A, CIRCUIT_B, MAINS
-
     hass.states.async_set(
         MAINS,
         0.155,  # 155 W, expressed the way a kW sensor expresses it
@@ -138,8 +142,6 @@ async def test_a_sensor_reporting_a_non_power_unit_is_dropped_and_named(
     hass: HomeAssistant, config_entry, powered, caplog
 ):
     """Dropped rather than trusted, and named once rather than every poll."""
-    from .conftest import CIRCUIT_B
-
     coordinator = await _setup(hass, config_entry)
     hass.states.async_set(
         CIRCUIT_B,
