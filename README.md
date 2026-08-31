@@ -614,10 +614,10 @@ Built to Home Assistant's Integration Quality Scale, tracked rule by rule in
 [`quality_scale.yaml`](custom_components/power_fingerprint/quality_scale.yaml)
 with a reason on every exemption.
 
-Two rules are `todo`: `config-flow-test-coverage` and `test-coverage`. The Home
-Assistant layer tests are written but have never executed, since this repository
-was developed on Windows. `tools/validate_local.py` refuses to let
-`manifest.json` claim a tier while anything is `todo`.
+No rule is `todo`. The Home Assistant layer tests run in CI on the self-hosted
+Gitea runner, alongside mypy in strict mode — which is what took
+`strict-typing` from a claim to a fact. `tools/validate_local.py` refuses to
+let `manifest.json` claim a tier while anything is `todo`.
 
 The scale is a core-integration concept. A custom integration builds to the rules
 and is not scored.

@@ -202,7 +202,7 @@ async def test_diagnostics_download_does_not_raise(
     """`window_sizes()` returns COUNTS; diagnostics called len() on them.
 
     TypeError, and the whole diagnostics download returned HTTP 500. Nothing
-    caught it because the HA-layer suite has never executed - installing did.
+    caught it because this suite had never been run; installing did.
     """
     from custom_components.power_fingerprint.diagnostics import (
         async_get_config_entry_diagnostics,
