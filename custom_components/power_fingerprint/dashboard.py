@@ -7,14 +7,15 @@ is a second place for them to be wrong.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, cast
 
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _price_from_source(hass: HomeAssistant, source: dict[str, Any]) -> float | None:
+def _price_from_source(hass: HomeAssistant, source: Mapping[str, Any]) -> float | None:
     """Pull a price out of one energy source, whatever shape it is in.
 
      Home Assistant has carried two shapes for a grid source: the price keys
@@ -22,7 +23,7 @@ def _price_from_source(hass: HomeAssistant, source: dict[str, Any]) -> float | N
     in others. Handling only the shape in front of you works until the next
     upgrade, so both are read here.
     """
-    candidates: list[dict[str, Any]] = [source]
+    candidates: list[Mapping[str, Any]] = [source]
     flow_from = source.get("flow_from")
     if isinstance(flow_from, list):
         candidates.extend(f for f in flow_from if isinstance(f, dict))
@@ -63,8 +64,10 @@ async def async_dashboard_price(hass: HomeAssistant) -> float | None:
         _LOGGER.debug("Could not read the energy dashboard's price: %s", err)
         return None
 
-    data = manager.data or {}
-    for source in data.get("energy_sources", []):
+    # Read as a loose mapping on purpose: the energy schema has changed
+    # shape across versions and this module handles every shape it has had.
+    prefs = cast("Mapping[str, Any] | None", manager.data)
+    for source in (prefs or {}).get("energy_sources", []):
         if not isinstance(source, dict) or source.get("type") != "grid":
             continue
         price = _price_from_source(hass, source)
@@ -99,7 +102,8 @@ async def async_circuit_names(hass: HomeAssistant) -> dict[str, str]:
         return {}
 
     out: dict[str, str] = {}
-    for device in (manager.data or {}).get("device_consumption", []):
+    prefs = cast("Mapping[str, Any] | None", manager.data)
+    for device in (prefs or {}).get("device_consumption", []):
         if not isinstance(device, dict):
             continue
         rate = device.get("stat_rate")
