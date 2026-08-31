@@ -129,7 +129,7 @@ async def _history(hass: HomeAssistant, entity: str, days: int) -> list[Sample]:
     takes both bounds directly and has no such trap.
     """
     from homeassistant.components.recorder import history
-    from homeassistant.components.recorder.util import get_instance
+    from homeassistant.helpers.recorder import get_instance
 
     start = dt_util.utcnow() - timedelta(days=days)
     end = dt_util.utcnow()

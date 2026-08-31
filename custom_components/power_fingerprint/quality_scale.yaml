@@ -5,12 +5,11 @@ rules:
   brands: done
   common-modules: done
   config-flow-test-coverage:
-    status: todo
+    status: done
     comment: |
       tests/ha/test_config_flow.py covers the user step, validation failures,
-      the reconfigure step and the options flow, but has never been executed -
-      this repository was written on Windows and the Home Assistant test
-      harness runs on Linux. The coverage is written, not yet proven.
+      the reconfigure step and the options flow. Executed on the self-hosted
+      runner by the `Home Assistant layer` job of .gitea/workflows/validate.yml.
   config-flow: done
   dependency-transparency:
     status: exempt
@@ -51,11 +50,12 @@ rules:
       Nothing to authenticate against. The integration reads sensors that are
       already in the state machine.
   test-coverage:
-    status: todo
+    status: done
     comment: |
-      The pure analysis, fingerprinting, attribution and probe-safety layers
-      are covered by 66 tests that run anywhere. The Home Assistant layer is
-      written but unexecuted for the reason given under config-flow-test-coverage.
+      131 tests cover the analysis, fingerprinting, attribution and
+      probe-safety layers and run on any interpreter; 31 more exercise the
+      Home Assistant layer against pytest-homeassistant-custom-component.
+      Both suites run in CI on the self-hosted runner.
 
   # Gold
   devices: done

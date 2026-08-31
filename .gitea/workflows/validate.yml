@@ -101,7 +101,6 @@ jobs:
       - name: Pure tests
         run: python -m pytest tests/ -q --ignore=tests/ha
 
-      # These have never executed. Expect failures the first time.
       - name: Home Assistant layer tests
         run: python -m pytest tests/ha -q
 

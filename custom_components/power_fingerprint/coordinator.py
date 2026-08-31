@@ -267,7 +267,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
         """Fill the window from history once, so standby is not blank on boot."""
         try:
             from homeassistant.components.recorder import history
-            from homeassistant.components.recorder.util import get_instance
+            from homeassistant.helpers.recorder import get_instance
         except ImportError:  # recorder disabled
             _LOGGER.warning(
                 "The recorder is not available, so standby figures start from "
