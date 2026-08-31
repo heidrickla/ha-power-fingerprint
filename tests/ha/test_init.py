@@ -45,7 +45,12 @@ async def test_a_dead_probe_does_not_leave_automations_switched_off(
 
     Simulated by seeding the store as though a previous run had paused two
     automations and never finished.
+
+    The automation component is set up FIRST: the manifest declares it as a
+    dependency, so entry setup would otherwise load the real component after
+    the mock and its turn_on registration would replace the mock's.
     """
+    assert await async_setup_component(hass, "automation", {})
     config_entry.add_to_hass(hass)
 
     orphaned = ["automation.hall_motion", "automation.porch"]
@@ -140,7 +145,7 @@ async def test_setup_retries_while_the_power_sensors_are_missing(
 
 
 async def test_a_renamed_circuit_is_followed_not_orphaned(
-    hass: HomeAssistant, config_entry, powered
+    hass: HomeAssistant, config_entry
 ):
     """Renaming a source sensor is an ordinary user action on the meter
     integration. The entry config must follow it instead of the circuit list
@@ -148,6 +153,8 @@ async def test_a_renamed_circuit_is_followed_not_orphaned(
     from homeassistant.helpers import entity_registry as er
 
     registry = er.async_get(hass)
+    # Registered BEFORE any state exists: with a state already in the machine
+    # the registry treats the object id as taken and appends _2.
     row = registry.async_get_or_create(
         "sensor",
         "test",
@@ -155,6 +162,20 @@ async def test_a_renamed_circuit_is_followed_not_orphaned(
         suggested_object_id="circuit_a_power",
     )
     assert row.entity_id == CIRCUIT_A
+    for entity, value in (
+        ("sensor.mains_power", 155.0),
+        (CIRCUIT_A, 100.0),
+        ("sensor.circuit_b_power", 50.0),
+    ):
+        hass.states.async_set(
+            entity,
+            value,
+            {
+                "device_class": "power",
+                "state_class": "measurement",
+                "unit_of_measurement": "W",
+            },
+        )
 
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
