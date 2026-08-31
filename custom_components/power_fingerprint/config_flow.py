@@ -65,13 +65,17 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_PRICE, default=defaults.get(CONF_PRICE, DEFAULT_PRICE)
             ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0, max=5, step=0.001, mode="box")
+                selector.NumberSelectorConfig(
+                    min=0, max=5, step=0.001, mode=selector.NumberSelectorMode.BOX
+                )
             ),
             vol.Optional(
                 CONF_TOLERANCE,
                 default=defaults.get(CONF_TOLERANCE, DEFAULT_TOLERANCE),
             ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=50, step=0.5, mode="box")
+                selector.NumberSelectorConfig(
+                    min=1, max=50, step=0.5, mode=selector.NumberSelectorMode.BOX
+                )
             ),
             # One dial the user can reason about. The individual
             # thresholds are not exposed: almost nobody has 27 real clamps to

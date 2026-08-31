@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant.core import (
@@ -128,7 +128,8 @@ async def _history(hass: HomeAssistant, entity: str, days: int) -> list[Sample]:
     from the start time unless an explicit end_time is passed. The internal API
     takes both bounds directly and has no such trap.
     """
-    from homeassistant.components.recorder import get_instance, history
+    from homeassistant.components.recorder import history
+    from homeassistant.components.recorder.util import get_instance
 
     start = dt_util.utcnow() - timedelta(days=days)
     end = dt_util.utcnow()
@@ -252,13 +253,10 @@ def _pausable(
         state = hass.states.get(auto.entity_id)
         if state is None or state.state != "on":
             continue  # already off; leave it alone and do not re-enable it later
+        referenced_states = {e: hass.states.get(e) for e in referenced}
         classes = {
-            e: (
-                hass.states.get(e).attributes.get("device_class")
-                if hass.states.get(e)
-                else None
-            )
-            for e in referenced
+            e: st.attributes.get("device_class") if st else None
+            for e, st in referenced_states.items()
         }
         ok, why = safe_to_pause(referenced, classes)
         if ok:
@@ -365,6 +363,11 @@ def _runtime(hass: HomeAssistant) -> PowerFingerprintData:
     return runtime
 
 
+def _response(payload: dict[str, Any]) -> ServiceResponse:
+    """A service response is JSON; mypy cannot see that through nesting."""
+    return cast("ServiceResponse", payload)
+
+
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register the actions at component setup, independent of any entry."""
 
@@ -407,7 +410,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
             ]
 
         await coordinator.async_request_refresh()
-        return {"circuits": report}
+        return _response({"circuits": report})
 
     async def _label(call: ServiceCall) -> None:
         runtime = _runtime(hass)
@@ -777,9 +780,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
             area = areas.async_get_area(area_id)
             return area.name if area else None
 
-        placed, unplaced, quiet = [], [], []
+        placed: list[dict[str, Any]] = []
+        unplaced: list[dict[str, Any]] = []
+        quiet: list[dict[str, Any]] = []
         for name, info in result.items():
-            row = {
+            placement = {
                 "device": name,
                 "area": _area(name),
                 "circuit": info.get("circuit"),
@@ -790,32 +795,34 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 "reason": info.get("reason"),
             }
             if info.get("circuit"):
-                placed.append(row)
+                placed.append(placement)
             elif str(info.get("reason", "")) == "no transition in window":
-                quiet.append(row)
+                quiet.append(placement)
             else:
-                unplaced.append(row)
+                unplaced.append(placement)
 
         # A circuit claiming devices from three unrelated areas is a smell, and
         # printing it is the only reason the over-wide grid was ever noticed.
         per_circuit: dict[str, set[str]] = {}
-        for row in placed:
-            area_name = str(row["area"]) if row["area"] else "?"
-            per_circuit.setdefault(str(row["circuit"]), set()).add(area_name)
+        for placement in placed:
+            area_name = str(placement["area"]) if placement["area"] else "?"
+            per_circuit.setdefault(str(placement["circuit"]), set()).add(area_name)
         suspect = sorted(c for c, a in per_circuit.items() if len(a) >= 3)
 
         # Passive results are recorded too, but never over a probe's answer.
         wrote = 0
-        for row in placed:
+        for placement in placed:
             if await runtime.store.async_record_assignment(
-                str(row["device"]),
-                str(row["circuit"]),
-                "measured" if float(row["step_match"] or 0) >= 0.6 else "inferred",
+                str(placement["device"]),
+                str(placement["circuit"]),
+                "measured"
+                if float(placement["step_match"] or 0) >= 0.6
+                else "inferred",
                 "correlation",
                 {
-                    "step_match": row["step_match"],
-                    "correlation": row["correlation"],
-                    "margin": row["margin"],
+                    "step_match": placement["step_match"],
+                    "correlation": placement["correlation"],
+                    "margin": placement["margin"],
                     "grid_seconds": step,
                 },
             ):
@@ -823,18 +830,22 @@ def async_setup_services(hass: HomeAssistant) -> None:
         if wrote:
             await coordinator.async_request_refresh()
 
-        return {
-            "assignments_recorded": wrote,
-            "grid_seconds": step,
-            "grid_source": "given" if call.data.get("step") else "measured",
-            "days": days,
-            "circuits_with_history": filled,
-            "devices_examined": len(devices),
-            "placed": sorted(placed, key=lambda r: -float(r["step_match"] or 0)),
-            "unplaced": sorted(unplaced, key=lambda r: str(r["device"])),
-            "no_transition_in_window": sorted(quiet, key=lambda r: str(r["device"])),
-            "circuits_claiming_three_or_more_areas": suspect,
-        }
+        return _response(
+            {
+                "assignments_recorded": wrote,
+                "grid_seconds": step,
+                "grid_source": "given" if call.data.get("step") else "measured",
+                "days": days,
+                "circuits_with_history": filled,
+                "devices_examined": len(devices),
+                "placed": sorted(placed, key=lambda r: -float(r["step_match"] or 0)),
+                "unplaced": sorted(unplaced, key=lambda r: str(r["device"])),
+                "no_transition_in_window": sorted(
+                    quiet, key=lambda r: str(r["device"])
+                ),
+                "circuits_claiming_three_or_more_areas": suspect,
+            }
+        )
 
     async def _autolabel(call: ServiceCall) -> ServiceResponse:
         """Name every shape whose circuit already says what it is.
@@ -892,7 +903,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
         if applied:
             await runtime.coordinator.async_request_refresh()
-        return {"named": applied, "left_for_you": skipped}
+        return _response({"named": applied, "left_for_you": skipped})
 
     hass.services.async_register(DOMAIN, SERVICE_LABEL, _label, schema=LABEL_SCHEMA)
 
@@ -946,14 +957,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
             )
 
         if dry:
-            return {
-                "dry_run": True,
-                "would_label": planned,
-                "note": (
-                    "Nothing was changed. Call again with dry_run: false to "
-                    "apply, or remove: true to take them off."
-                ),
-            }
+            return _response(
+                {
+                    "dry_run": True,
+                    "would_label": planned,
+                    "note": (
+                        "Nothing was changed. Call again with dry_run: false "
+                        "to apply, or remove: true to take them off."
+                    ),
+                }
+            )
 
         touched = 0
         for item in planned:
@@ -980,11 +993,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
             )
             touched += 1
 
-        return {
-            "dry_run": False,
-            "removed" if call.data["remove"] else "labelled": touched,
-            "devices": planned,
-        }
+        return _response(
+            {
+                "dry_run": False,
+                "removed" if call.data["remove"] else "labelled": touched,
+                "devices": planned,
+            }
+        )
 
     hass.services.async_register(
         DOMAIN,

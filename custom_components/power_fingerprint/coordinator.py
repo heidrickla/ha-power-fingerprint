@@ -266,7 +266,8 @@ class FingerprintCoordinator(DataUpdateCoordinator):
     async def _async_seed_from_recorder(self) -> None:
         """Fill the window from history once, so standby is not blank on boot."""
         try:
-            from homeassistant.components.recorder import get_instance, history
+            from homeassistant.components.recorder import history
+            from homeassistant.components.recorder.util import get_instance
         except ImportError:  # recorder disabled
             _LOGGER.warning(
                 "The recorder is not available, so standby figures start from "
@@ -282,7 +283,7 @@ class FingerprintCoordinator(DataUpdateCoordinator):
             # The configured circuits only. Asking the recorder for every
             # entity is millions of rows on a real install, and the failure is
             # swallowed, leaving standby computed from an empty window.
-            rows: dict[str, list[State]] = history.get_significant_states(
+            rows = history.get_significant_states(
                 self.hass,
                 start,
                 dt_util.utcnow(),
@@ -290,7 +291,12 @@ class FingerprintCoordinator(DataUpdateCoordinator):
                 include_start_time_state=False,
                 no_attributes=True,
             )
-            return rows
+            # The recorder may hand back minimal-response dicts beside State
+            # objects; only States carry a value this can read.
+            return {
+                entity_id: [s for s in states if isinstance(s, State)]
+                for entity_id, states in rows.items()
+            }
 
         try:
             data = await get_instance(self.hass).async_add_executor_job(_fetch)
