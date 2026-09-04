@@ -29,9 +29,10 @@ learn:
       name: Cluster threshold
       description: >-
         How different two runs must be to count as different appliances, in
-        weighted log-power space. Lower splits more. 0.9 is a good start.
+        weighted log-power space. Lower splits more. Leave empty to use the
+        confidence setting's threshold (0.7 cautious, 0.9 balanced, 1.2 eager);
+        a value here overrides it.
       required: false
-      default: 0.9
       selector:
         number:
           min: 0.1
@@ -99,9 +100,10 @@ verify_circuit:
       name: Number of probes
       description: >-
         How many times to switch it. All probes must agree; one toggle can
-        coincide with a fridge starting, two cannot.
+        coincide with a fridge starting, two cannot. Leave empty to use the
+        confidence setting (3 cautious, 2 balanced, 1 eager); a value here
+        overrides it.
       required: false
-      default: 2
       selector:
         number:
           min: 1
@@ -110,8 +112,10 @@ verify_circuit:
     settle:
       name: Settle time
       description: >-
-        Seconds to wait for the meter after each switch. An Emporia reports
-        about every 12 seconds, so this must comfortably exceed that.
+        Seconds to wait for the meter after each switch. It must be at least
+        twice the meter's reporting interval (the development meter publishes
+        about every 6 seconds); the probe measures that interval from history
+        and warns when the settle time is too short for it.
       required: false
       default: 30
       selector:
@@ -129,11 +133,11 @@ verify_circuit:
       description: >-
         Temporarily switch off automations that touch this device or a circuit,
         so they cannot move it mid-measurement, then switch them back on. Only
-        automations judged safe are paused - anything touching a lock, alarm,
-        cover, valve, water heater, siren, notification, presence, or a
-        moisture, smoke or gas sensor is left running and reported as refused.
-        If a probe dies mid-run, the integration re-enables them at next startup
-        and logs a warning.
+        automations judged safe are paused; anything touching a safety-related
+        domain or device class (the README's "Pausing interfering automations"
+        lists them) is left running and reported as refused. If a probe dies
+        mid-run, the integration re-enables them at next startup and logs a
+        warning.
       required: false
       default: false
       selector:
@@ -161,7 +165,6 @@ map_devices:
           max: 1
           step: 0.05
           mode: box
-      default: 0.5
 
 autolabel:
 
