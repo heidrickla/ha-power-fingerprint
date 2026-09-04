@@ -252,6 +252,15 @@
     },
     "no_history": {
       "message": "The recorder returned no history for any of the {count} circuits, so nothing could be compared. This is an unread result, not an absence of matches."
+    },
+    "recorder_not_running": {
+      "message": "The recorder is not running, so there is no history to read. Enable the recorder integration and try again."
+    },
+    "sources_missing": {
+      "message": "Waiting for {count} power sensor(s) to appear, starting with {entity}."
+    },
+    "automation_service_missing": {
+      "message": "automation.turn_on is not registered yet and {count} automation(s) paused for a probe still need restoring."
     }
   },
   "issues": {

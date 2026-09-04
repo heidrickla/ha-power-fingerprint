@@ -194,12 +194,14 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Log a source going away once, and its return once.
 
         Every 30 seconds is not a log, it is a denial of service on the log
-        file - and the transition is the only part anyone needs.
+        file - and the transition is the only part anyone needs. Both lines
+        are info: a source dropping out is a state change, not a fault in this
+        integration, and the coverage sensor is what reports the fault.
         """
         configured = {self.mains, *self.circuits}
         missing = configured - seen
         for entity in sorted(missing - self._missing):
-            _LOGGER.warning("%s is unavailable - it is no longer being read", entity)
+            _LOGGER.info("%s is unavailable - it is no longer being read", entity)
         for entity in sorted(self._missing - missing):
             _LOGGER.info("%s is available again", entity)
         self._missing = missing
@@ -280,10 +282,13 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_seed_from_recorder()
 
     async def _async_seed_from_recorder(self) -> None:
+        # The import succeeds even with the recorder unloaded; that case is
+        # get_instance raising KeyError, caught by the broad except below.
+        # ImportError here means the recorder component itself is absent.
         try:
             from homeassistant.components.recorder import history
             from homeassistant.helpers.recorder import get_instance
-        except ImportError:  # recorder disabled
+        except ImportError:
             _LOGGER.warning(
                 "The recorder is not available, so standby figures start from "
                 "an empty window and take up to %d hours to mean anything",

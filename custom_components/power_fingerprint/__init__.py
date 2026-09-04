@@ -63,8 +63,12 @@ async def async_setup_entry(
     ]
     if missing:
         raise ConfigEntryNotReady(
-            f"Waiting for {len(missing)} power sensor(s) to appear, "
-            f"starting with {missing[0]}"
+            translation_domain=DOMAIN,
+            translation_key="sources_missing",
+            translation_placeholders={
+                "count": str(len(missing)),
+                "entity": missing[0],
+            },
         )
 
     _prune_stray_devices(hass, entry)
@@ -82,8 +86,9 @@ async def async_setup_entry(
     orphaned = store.orphaned_pauses()
     if orphaned and not hass.services.has_service("automation", "turn_on"):
         raise ConfigEntryNotReady(
-            "automation.turn_on is not registered yet and paused automations "
-            "need restoring"
+            translation_domain=DOMAIN,
+            translation_key="automation_service_missing",
+            translation_placeholders={"count": str(len(orphaned))},
         )
     for entity in orphaned:
         _LOGGER.warning(

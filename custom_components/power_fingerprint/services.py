@@ -159,7 +159,16 @@ async def _histories(
             for entity_id, states in rows.items()
         }
 
-    data = await get_instance(hass).async_add_executor_job(_fetch)
+    # The recorder is an after-dependency, not a dependency, so a user who has
+    # disabled it can still call these actions. get_instance then raises a
+    # bare KeyError, which the frontend shows as a stack trace.
+    try:
+        recorder = get_instance(hass)
+    except KeyError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="recorder_not_running"
+        ) from err
+    data = await recorder.async_add_executor_job(_fetch)
     # `no_attributes=True` strips the unit from every row, so it comes from
     # the live state and is applied to the whole window - the same approach
     # the coordinator takes when it seeds from the recorder.
@@ -315,8 +324,6 @@ def _device_siblings(hass: HomeAssistant, entity_id: str) -> dict[str, str | Non
     rather than "battery" - refusing to probe something on missing metadata
     would be worse than probing it.
     """
-    from homeassistant.helpers import entity_registry as er
-
     registry = er.async_get(hass)
     entry = registry.async_get(entity_id)
     if entry is None or entry.device_id is None:
