@@ -1,48 +1,105 @@
 rules:
   # Bronze
-  action-setup: done
-  appropriate-polling: done
-  brands: done
+  action-setup:
+    status: done
+    comment: |
+      The six actions are registered in async_setup, not per entry, so a call
+      while the entry is unloaded gets a translated refusal instead of
+      "action not found".
+  appropriate-polling:
+    status: done
+    comment: |
+      Thirty seconds against the state machine, not a device. Standby is a
+      5th percentile over 24 hours and does not move faster than that; the
+      live match reads whatever the meter last published.
+  brands:
+    status: done
+    comment: |
+      Brand images ship in-repo at custom_components/power_fingerprint/brand/
+      (generated and size-checked by tools/make_brand.py), which HACS reads
+      from Home Assistant 2026.3, the floor hacs.json declares.
   common-modules: done
   config-flow-test-coverage:
     status: done
     comment: |
-      tests/ha/test_config_flow.py covers the user step, validation failures,
-      the reconfigure step and the options flow. Executed on the self-hosted
-      runner by the `Home Assistant layer` job of .gitea/workflows/validate.yml.
+      tests/ha/test_config_flow.py covers the user step, the single-instance
+      abort, every error branch (mains or circuit missing, not numeric, not a
+      power unit, empty circuit list, mains listed as a circuit), recovery
+      from each error to a created entry, reconfigure with its error and
+      recovery, the options flow with its error and recovery, the options
+      shadowing case, and the dashboard price prefill in both directions.
+      Run by the GitHub Tests workflow on every push.
   config-flow: done
   dependency-transparency:
-    status: exempt
+    status: done
     comment: |
-      No external dependencies. `requirements` is empty and everything is
-      stdlib plus Home Assistant itself, so there is no supply chain to be
-      transparent about.
-  docs-actions: done
+      requirements is empty; everything is the standard library plus Home
+      Assistant itself. There is no dependency whose provenance could be
+      opaque, so the rule holds with nothing to declare.
+  docs-actions:
+    status: done
+    comment: README "Actions" lists every field of every action with its default.
   docs-conditions:
     status: exempt
     comment: This integration does not provide conditions.
   docs-high-level-description: done
   docs-installation-instructions: done
-  docs-removal-instructions: done
+  docs-removal-instructions:
+    status: done
+    comment: |
+      README "Removing it". True since async_remove_entry deletes the store
+      file; before that the README claimed a deletion nothing performed.
   docs-triggers:
     status: exempt
     comment: This integration does not provide triggers.
-  entity-event-setup: done
+  entity-event-setup:
+    status: done
+    comment: |
+      Entities are coordinator-driven; CoordinatorEntity subscribes in
+      async_added_to_hass. The registry rename listener and the listeners
+      that add entities are registered through entry.async_on_unload.
   entity-unique-id: done
   has-entity-name: done
   runtime-data: done
-  test-before-configure: done
-  test-before-setup: done
-  unique-config-entry: done
+  test-before-configure:
+    status: done
+    comment: |
+      The flow reads every chosen sensor before creating the entry and refuses
+      one that is missing, not numeric or not in a power unit, naming it and
+      saying whether it was the mains or a circuit.
+  test-before-setup:
+    status: done
+    comment: |
+      Setup raises a translated ConfigEntryNotReady while any configured
+      sensor is absent from the state machine, and again if paused automations
+      need restoring before automation.turn_on exists.
+  unique-config-entry:
+    status: done
+    comment: single_config_entry; a second instance would double-count every circuit.
 
   # Silver
-  action-exceptions: done
+  action-exceptions:
+    status: done
+    comment: |
+      Input problems raise ServiceValidationError; the recorder being unloaded
+      raises a translated HomeAssistantError instead of the bare KeyError it
+      used to.
   config-entry-unloading: done
-  docs-configuration-parameters: done
+  docs-configuration-parameters:
+    status: done
+    comment: README "Configuration" tables the six fields; reconfigure and options are described as the code behaves.
   docs-installation-parameters: done
-  entity-unavailable: done
+  entity-unavailable:
+    status: done
+    comment: |
+      Aggregate entities go unavailable only when every source is gone: one
+      circuit dropping out is the condition the coverage sensor exists to
+      report. The per-circuit appliance sensor follows its own circuit's
+      availability.
   integration-owner: done
-  log-when-unavailable: done
+  log-when-unavailable:
+    status: done
+    comment: A source going away is logged once at info, and its return once at info.
   parallel-updates: done
   reauthentication-flow:
     status: exempt
@@ -50,12 +107,15 @@ rules:
       Nothing to authenticate against. The integration reads sensors that are
       already in the state machine.
   test-coverage:
-    status: done
+    status: todo
     comment: |
-      131 tests cover the analysis, fingerprinting, attribution and
-      probe-safety layers and run on any interpreter; 31 more exercise the
-      Home Assistant layer against pytest-homeassistant-custom-component.
-      Both suites run in CI on the self-hosted runner.
+      Coverage is reported by the GitHub Tests job but not yet at 95%. The
+      four large actions (verify_circuit, map_devices, autolabel,
+      apply_circuit_labels) and dashboard.py have no Home Assistant layer
+      tests; diagnostics has one smoke test. 131 pure tests cover the
+      analysis, fingerprint, attribution, verify, virtual and breaker modules
+      and 47 Home Assistant layer tests cover setup, flows, entities and the
+      recorder guard. The gate lands with the missing tests.
 
   # Gold
   devices: done
@@ -77,37 +137,59 @@ rules:
   docs-troubleshooting: done
   docs-use-cases: done
   dynamic-devices:
-    status: exempt
+    status: done
     comment: |
-      A fixed single service device. New circuits appear as ENTITIES on that
-      device as they are learned and named, which is handled by the platform's
-      coordinator listener rather than by device discovery.
+      One fixed service device. Things that appear after setup - a circuit
+      with a named fingerprint, a mapped device - are entities, added by
+      coordinator listeners without a reload, which is the behaviour the rule
+      asks for at the entity level; no device can appear later.
   entity-category: done
   entity-device-class: done
   entity-disabled-by-default:
-    status: exempt
+    status: done
     comment: |
-      Nothing is noisy enough to warrant it, and the one entity type that could
-      have been - the per-circuit appliance sensor - is not created at all
-      until a circuit has a named fingerprint. On a 27-circuit panel, creating
-      27 disabled entities up front would be worse than creating none.
+      Nothing qualifies. The two attribute-heavy sensors (standby power's
+      ranking, the unnamed candidates list) are the integration's primary
+      outputs, not diagnostics of a device, and both cap their attribute
+      payloads; the per-circuit appliance sensor is not created at all until
+      a circuit has a named fingerprint, which is stronger than creating 27
+      disabled ones. Reviewed 2026-09-04 and kept.
   entity-translations: done
-  exception-translations: done
+  exception-translations:
+    status: done
+    comment: |
+      Every raised HomeAssistantError, ServiceValidationError and
+      ConfigEntryNotReady carries a translation key; tools/validate_local.py
+      scans every module for a raise without one.
   icon-translations: done
   reconfiguration-flow: done
-  repair-issues: done
+  repair-issues:
+    status: done
+    comment: |
+      A configured sensor reporting a non-power unit raises a repair issue
+      naming it, cleared when the unit is corrected.
   stale-devices:
-    status: exempt
-    comment: A fixed single service device that is removed with the entry.
+    status: done
+    comment: |
+      A single service device, removed with the entry, and a store deleted
+      with it. Entities attached to other integrations' devices are owned by
+      this entry and go with it too.
 
   # Platinum
   async-dependency:
-    status: exempt
+    status: done
     comment: |
-      No external dependency. All work is in-process, and the two places that
-      could block - recorder history reads - go through the recorder's own
-      executor rather than blocking the event loop.
+      No external dependency. All work is in-process; the recorder history
+      reads go through the recorder's own executor and the pure CPU work
+      through the event loop's executor.
   inject-websession:
     status: exempt
     comment: No HTTP client, so there is no session to inject.
-  strict-typing: done
+  strict-typing:
+    status: done
+    comment: |
+      mypy 1.18.2 with the full strict block (nothing relaxed) passes against
+      Home Assistant 2026.8.3 on Python 3.14 - verified locally on 2026-09-04
+      and run on every push by the GitHub Tests workflow. Without Home
+      Assistant installed every HA class is Any and the check is noise, so
+      the local run is not the one that counts.
