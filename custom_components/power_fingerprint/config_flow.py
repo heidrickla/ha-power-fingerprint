@@ -147,10 +147,7 @@ def _validate(
     return {}, {}
 
 
-# `domain=` is a real keyword on Home Assistant's ConfigFlow.__init_subclass__.
-# It only looks wrong when HA is not installed and the base class degrades to
-# `object`, which is the state a workstation lint runs in.
-class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
+class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):
     """Initial setup and reconfiguration."""
 
     VERSION = 1
