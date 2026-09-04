@@ -11,32 +11,34 @@ on:
 # with capacity 1 and duplicate jobs queue behind each other.
 
 jobs:
-  pytest:
+  tests:
     if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
+      # Home Assistant 2026.x needs Python 3.14.
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      - run: python -m pip install --upgrade pip pytest
-      # The analysis, fingerprint and attribution modules import nothing from
-      # Home Assistant precisely so they can be tested without installing it.
-      - run: python -m pip install pyyaml
+          python-version: "3.14"
+      # 0.13.357 pins Home Assistant 2026.8.3, the release the development
+      # install runs; it brings pytest, its asyncio and aiohttp plugins,
+      # pytest-cov and PyYAML with it (pinning those again here makes pip's
+      # resolution impossible).
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install "mypy==1.18.2" "ruff==0.15.21" \
+            "pytest-homeassistant-custom-component==0.13.357"
+      - run: ruff check .
+      - run: ruff format --check .
+      # The pure modules import nothing from Home Assistant; the harness
+      # plugin is disabled so its autouse fixtures do not attach to them.
+      - run: python -m pytest tests -q --ignore=tests/ha -p no:homeassistant
+      # Coverage is reported, not yet gated; the 95% threshold lands once the
+      # four large actions have Home Assistant-layer tests.
+      - run: >-
+          python -m pytest tests/ha -q
+          --cov=custom_components/power_fingerprint --cov-report=term-missing
+      # The full strict block, with Home Assistant importable: the run that
+      # means something. Locally without Home Assistant every HA class is Any.
+      - run: python -m mypy custom_components/power_fingerprint
       - run: python tools/validate_local.py
-      - run: python -m pytest tests/ -q
-
-  lint:
-    if: github.server_url == 'https://github.com'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - run: python -m pip install --upgrade pip ruff
-      - run: ruff check custom_components tools tests
-      - run: ruff format --check custom_components tools tests
