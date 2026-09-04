@@ -121,6 +121,11 @@ def main() -> int:
     manifest = read_json(COMP, "manifest.json")
     for key in REQUIRED_MANIFEST:
         check(key in manifest, f"manifest.json missing required key {key!r}")
+    keys = list(manifest)
+    check(
+        keys[:2] == ["domain", "name"] and keys[2:] == sorted(keys[2:]),
+        "manifest keys must be domain, name, then alphabetical (hassfest MANIFEST)",
+    )
     check(
         manifest.get("iot_class") in VALID_IOT_CLASS,
         f"manifest iot_class {manifest.get('iot_class')!r} is not a valid value",
