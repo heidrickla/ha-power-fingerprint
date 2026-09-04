@@ -1,6 +1,7 @@
 [project]
 name = "ha-power-fingerprint"
-version = "0.4.0"
+# Kept equal to manifest.json and const.VERSION; tools/validate_local.py checks.
+version = "0.17.0"
 description = "Identify what is running on a circuit from the shape of its load."
 requires-python = ">=3.12"
 
