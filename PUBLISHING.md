@@ -15,13 +15,16 @@ for the rest.
 
 ## The Home Assistant layer tests run on Linux, not here
 
-`tests/ha/` is 31 tests covering setup and unload, the config, reconfigure and
-options flows and their validation refusals, the derived sensor values, the
-coverage fault in both directions, device grouping, the orphaned-pause safety
-backstop, component-level action registration, `ConfigEntryNotReady` while the
-power sensors are missing, and unit conversion at ingestion — including the
-kilowatt-mains-against-watt-circuits case that was found on the development
-install itself.
+`tests/ha/` is 47 tests covering setup, unload and removal (the store goes with
+the entry), the config, reconfigure and options flows with every validation
+refusal followed by a recovery to a created entry, the dashboard price prefill,
+the derived sensor values, the coverage fault in both directions, the appliance
+sensor appearing when a shape is named and following its circuit's
+availability, device grouping, the orphaned-pause safety backstop,
+component-level action registration, the recorder guard on `learn`,
+`ConfigEntryNotReady` while the power sensors are missing, and unit conversion
+at ingestion — including the kilowatt-mains-against-watt-circuits case that was
+found on the development install itself.
 
  **Installing the integration on a real Home Assistant found two defects the
 same afternoon, one of which this suite would have caught immediately**: a
@@ -30,15 +33,17 @@ recorder seed that asked for every entity in the house, failed, swallowed the
 failure into a debug line, and left standby reporting 5,017 W against a true
 figure of 3 W. Written tests that never run are not coverage.
 
-They run in CI, on the self-hosted Gitea runner, under the `Home Assistant
-layer` job. They do not run on Windows: the harness blocks sockets and the
-ProactorEventLoop needs a local socket pair for its own self-pipe. That is
-expected rather than a defect — Home Assistant supports Linux, macOS and the
-devcontainer for development.
+They run in GitHub Actions on every push and pull request, in the `Tests`
+workflow, against Home Assistant 2026.8.3 on Python 3.14 with coverage
+reported, alongside mypy with the full strict block and the offline validator.
+The forge's `Home Assistant layer` job runs the same steps on manual dispatch.
+They do not run on Windows: Home Assistant's runner imports `fcntl`, and the
+harness blocks sockets. That is expected rather than a defect — Home Assistant
+supports Linux, macOS and the devcontainer for development.
 
 They skip when the harness is absent, so a bare checkout reports **131 passed,
 1 skipped** and does not imply coverage it does not have. With Home Assistant
-installed, the extra 31 run as well.
+installed, the extra 47 run as well.
 
 ## Quality scale
 
@@ -48,9 +53,11 @@ exemption. `tools/validate_local.py` checks it against the pinned rule list, so
 a rule that is simply *missing* from the file fails rather than reading as
 complete.
 
-No rule is `todo`. The Home Assistant layer tests and mypy strict have run
-green in CI on the self-hosted runner; everything is `done` or `exempt`, each
-exemption with a written reason.
+One rule is `todo`: `test-coverage`, because the four large actions and the
+dashboard reader have no Home Assistant layer tests yet and coverage is
+reported rather than gated. Everything else is `done` or `exempt`, each with a
+written reason. mypy with the full strict block passes against Home Assistant
+2026.8.3, verified locally on 2026-09-04 and run again on every push.
 
  **`quality_scale` is deliberately absent from `manifest.json`.** The validator
 refuses a manifest that claims a tier. The scale is a core-integration concept —
