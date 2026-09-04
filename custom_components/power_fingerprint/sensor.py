@@ -149,6 +149,17 @@ class ApplianceSensor(_Base):
         ) or {}
 
     @property
+    def available(self) -> bool:
+        """Unavailable when this circuit's own sensor cannot be read.
+
+        The base class blanks everything only when every source is gone; this
+        entity is about one circuit, so it goes with that circuit. `running`
+        holds exactly the circuits that were readable on the last poll.
+        """
+        running = (self.coordinator.data or {}).get("running") or {}
+        return bool(super().available) and self._circuit in running
+
+    @property
     def native_value(self) -> str | None:
         value = self._info.get("state")
         return str(value) if value is not None else None
