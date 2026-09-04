@@ -40,7 +40,7 @@ _POWER_SENSORS = selector.EntitySelector(
 
 async def _defaults_with_price(
     hass: HomeAssistant, defaults: dict[str, Any]
-) -> tuple[dict[str, Any], dict[str, str]]:
+) -> dict[str, Any]:
     """Fill in the price from the energy dashboard when the user has none set.
 
     Only ever a default. A price the user has already chosen wins over the
@@ -48,11 +48,11 @@ async def _defaults_with_price(
     what someone deliberately configured here.
     """
     if defaults.get(CONF_PRICE) is not None:
-        return defaults, {}
+        return defaults
     price = await async_dashboard_price(hass)
     if price is None:
-        return defaults, {}
-    return {**defaults, CONF_PRICE: price}, {"price_source": f"{price:g}"}
+        return defaults
+    return {**defaults, CONF_PRICE: price}
 
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -115,7 +115,9 @@ def _validate(
     moment they can still pick a different sensor.
 
     Returns (errors, placeholders) so the caller can render the message with
-    the offending entity named rather than a generic failure.
+    the offending entity named rather than a generic failure. The error key
+    says which field failed: a circuit refused with a message about "the
+    mains reading" sent people to fix the wrong sensor.
     """
     mains = user_input[CONF_MAINS]
     circuits = list(user_input.get(CONF_CIRCUITS) or [])
@@ -126,15 +128,16 @@ def _validate(
         return {CONF_CIRCUITS: "mains_in_circuits"}, {}
 
     for field, entity in [(CONF_MAINS, mains), *((CONF_CIRCUITS, c) for c in circuits)]:
+        kind = "mains" if field == CONF_MAINS else "circuit"
         state = hass.states.get(entity)
         if state is None:
-            return {field: "mains_missing"}, {"entity": entity}
+            return {field: f"{kind}_missing"}, {"entity": entity}
         if state.state in ("unknown", "unavailable", ""):
-            return {field: "mains_not_numeric"}, {"entity": entity}
+            return {field: f"{kind}_not_numeric"}, {"entity": entity}
         try:
             value = float(state.state)
         except (TypeError, ValueError):
-            return {field: "mains_not_numeric"}, {"entity": entity}
+            return {field: f"{kind}_not_numeric"}, {"entity": entity}
         unit = state.attributes.get("unit_of_measurement")
         if to_watts(value, unit) is None:
             return {field: "not_power_unit"}, {
@@ -165,12 +168,12 @@ class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[cal
                 return self.async_create_entry(
                     title="Power Fingerprint", data=user_input
                 )
-        seed, price_note = await _defaults_with_price(self.hass, user_input or {})
+        seed = await _defaults_with_price(self.hass, user_input or {})
         return self.async_show_form(
             step_id="user",
             data_schema=_schema(seed),
             errors=errors,
-            description_placeholders={**placeholders, **price_note},
+            description_placeholders=placeholders,
         )
 
     async def async_step_reconfigure(
@@ -197,8 +200,7 @@ class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[cal
                     entry, data=user_input, options={}
                 )
         merged = {**entry.data, **entry.options, **(user_input or {})}
-        merged, price_note = await _defaults_with_price(self.hass, merged)
-        placeholders = {**placeholders, **price_note}
+        merged = await _defaults_with_price(self.hass, merged)
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_schema(merged),
@@ -227,8 +229,7 @@ class PowerFingerprintOptionsFlow(OptionsFlow):
         merged = {**self.config_entry.data, **self.config_entry.options}
         if user_input is not None:
             merged.update(user_input)
-        merged, price_note = await _defaults_with_price(self.hass, merged)
-        placeholders = {**placeholders, **price_note}
+        merged = await _defaults_with_price(self.hass, merged)
         return self.async_show_form(
             step_id="init",
             data_schema=_schema(merged),

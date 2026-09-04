@@ -49,6 +49,8 @@
     "error": {
       "mains_missing": "{entity} does not exist. Pick a sensor that is currently loaded.",
       "mains_not_numeric": "{entity} is not reporting a number right now, so it cannot be used as the mains reading.",
+      "circuit_missing": "Circuit sensor {entity} does not exist. Pick sensors that are currently loaded.",
+      "circuit_not_numeric": "Circuit sensor {entity} is not reporting a number right now, so it cannot be read as a circuit.",
       "not_power_unit": "{entity} reports in {unit}, which is not a power unit. Every figure in this integration is in watts.",
       "no_circuits": "Pick at least one circuit sensor.",
       "mains_in_circuits": "The mains sensor is also in the circuit list, so it would be counted on both sides and coverage would never balance."
@@ -189,6 +191,8 @@
     "error": {
       "mains_missing": "{entity} does not exist. Pick a sensor that is currently loaded.",
       "mains_not_numeric": "{entity} is not reporting a number right now, so it cannot be used as the mains reading.",
+      "circuit_missing": "Circuit sensor {entity} does not exist. Pick sensors that are currently loaded.",
+      "circuit_not_numeric": "Circuit sensor {entity} is not reporting a number right now, so it cannot be read as a circuit.",
       "not_power_unit": "{entity} reports in {unit}, which is not a power unit. Every figure in this integration is in watts.",
       "no_circuits": "Pick at least one circuit sensor.",
       "mains_in_circuits": "The mains sensor is also in the circuit list, so it would be counted on both sides and coverage would never balance."
