@@ -1,20 +1,20 @@
 {
   "domain": "power_fingerprint",
   "name": "Power Fingerprint",
-  "version": "0.17.0",
-  "documentation": "https://10.10.54.219:3000/lewis/ha-power-fingerprint",
-  "issue_tracker": "https://10.10.54.219:3000/lewis/ha-power-fingerprint/issues",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@heidrickla"
   ],
   "config_flow": true,
-  "iot_class": "calculated",
-  "integration_type": "service",
-  "after_dependencies": [
-    "recorder"
-  ],
-  "single_config_entry": true,
   "dependencies": [
     "automation"
-  ]
+  ],
+  "documentation": "https://github.com/heidrickla/ha-power-fingerprint",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/heidrickla/ha-power-fingerprint/issues",
+  "single_config_entry": true,
+  "version": "0.17.0"
 }
