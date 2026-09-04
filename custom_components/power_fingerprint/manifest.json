@@ -2,6 +2,7 @@
   "domain": "power_fingerprint",
   "name": "Power Fingerprint",
   "after_dependencies": [
+    "energy",
     "recorder"
   ],
   "codeowners": [
