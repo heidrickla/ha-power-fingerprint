@@ -210,6 +210,18 @@ async def async_unload_entry(
     return unloaded
 
 
+async def async_remove_entry(
+    hass: HomeAssistant, entry: PowerFingerprintConfigEntry
+) -> None:
+    """Delete the learned library with the entry.
+
+    The store is keyed on the entry id, so a re-added entry could never find
+    it again; left behind it is an orphan in .storage that the README used to
+    claim was removed. Called after unload, so no coordinator holds it open.
+    """
+    await FingerprintStore(hass, entry.entry_id).async_remove()
+
+
 async def _async_reload(
     hass: HomeAssistant, entry: PowerFingerprintConfigEntry
 ) -> None:

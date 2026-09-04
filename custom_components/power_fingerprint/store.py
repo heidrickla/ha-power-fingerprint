@@ -135,6 +135,15 @@ class FingerprintStore:
     async def async_save(self) -> None:
         await self._store.async_save(self._as_dict())
 
+    async def async_remove(self) -> None:
+        """Delete the file from .storage. Used when the entry is removed."""
+        await self._store.async_remove()
+        self._fingerprints = []
+        self._paused = []
+        self._last_seen = {}
+        self._last_poll = None
+        self._assignments = {}
+
     def assignments(self) -> dict[str, dict[str, Any]]:
         return {k: dict(v) for k, v in self._assignments.items()}
 
