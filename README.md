@@ -152,8 +152,8 @@ matching new shapes, but a shape that no longer occurs disappears with its name.
 
 ## Installation
 
-HACS (custom repository): add this repository as a custom repository of type
-Integration, install, restart Home Assistant.
+HACS (custom repository): add `https://github.com/heidrickla/ha-power-fingerprint`
+as a custom repository of type Integration, install, restart Home Assistant.
 
 Manual: copy `custom_components/power_fingerprint/` into your Home Assistant
 `config/custom_components/` directory and restart.

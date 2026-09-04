@@ -1,17 +1,17 @@
 # Publishing to HACS
 
-Everything in this repo is built to HACS default-store standards, but it is
-**not submitted and cannot be yet**. This is the checklist for when it is.
+Everything in this repo is built to HACS default-store standards. It is public
+on GitHub with green checks and **not yet submitted**. This is the checklist
+for the rest.
 
-## What blocks submission today
+## Status
 
-| Blocker | Detail |
+| Step | State |
 |---|---|
-| **Repository is private** | HACS requires a public repository. Deliberate for now. |
-| **Repository is on Gitea, not GitHub** | HACS submission targets a GitHub repo, and `hacs/default` is a GitHub PR. |
-| **GitHub Actions unavailable** | The account has hit its spend cap. The two required workflows exist in `.github/workflows/` but have never run, and a submission needs links to *successful* job runs. |
-
-None of these are code problems. The code is ready; the hosting is not.
+| Public GitHub repository | Done 2026-09-04: `heidrickla/ha-power-fingerprint`, issues on, topics set. The personal forge stays the canonical remote (`gitea`); GitHub is `origin`. |
+| HACS and hassfest actions green | Done on `main` at `462200e`; both run on every push. The first public run failed hassfest on manifest key order and on an undeclared `energy` import; both fixed the same hour. |
+| Release | **Not created.** |
+| `hacs/default` pull request | **Not opened.** |
 
 ## The Home Assistant layer tests run on Linux, not here
 
@@ -48,14 +48,12 @@ exemption. `tools/validate_local.py` checks it against the pinned rule list, so
 a rule that is simply *missing* from the file fails rather than reading as
 complete.
 
-**Two rules are `todo`, both the same one thing**: `config-flow-test-coverage`
-and `test-coverage`. The Home Assistant layer tests are written but have never
-executed, for the reason in the section above. Everything else is `done` or
-`exempt`.
+No rule is `todo`. The Home Assistant layer tests and mypy strict have run
+green in CI on the self-hosted runner; everything is `done` or `exempt`, each
+exemption with a written reason.
 
- **`quality_scale` is deliberately absent from `manifest.json` until those
-two clear.** The validator enforces that: claiming a tier while a rule is
-`todo` is a failure, not a note. The scale is also a core-integration concept —
+ **`quality_scale` is deliberately absent from `manifest.json`.** The validator
+refuses a manifest that claims a tier. The scale is a core-integration concept —
 a custom integration builds to the rules, it does not get the badge.
 
 ## Already done
@@ -72,23 +70,21 @@ a custom integration builds to the rules, it does not get the badge.
 
 ## Remaining, in order — the order is load-bearing
 
-1. **Make the GitHub repo public** with description, topics, licence, README and
- issues enabled. Update `documentation` and `issue_tracker` in
- `manifest.json`, which currently point at the LAN Gitea host and would be
- useless to a user.
-2. **Change `codeowners`** if `@heidrickla` is not the right handle.
-3. **Push and wait for green.** A push is not done until CI is green.
-4. **Bump `manifest.json` AND `const.VERSION` together** to the version about to
+Done on 2026-09-04: public repo with description, topics, licence, README and
+issues; `manifest.json` pointing at GitHub; `codeowners` `@heidrickla`;
+pushed and green.
+
+1. **Bump `manifest.json` AND `const.VERSION` together** to the version about to
  be tagged, push, wait for green *again*.
-5. **Create a full GitHub release on that green commit.** Not a tag — a release.
+2. **Create a full GitHub release on that green commit.** Not a tag — a release.
  `--target` needs a branch name or a full 40-character SHA; a short SHA fails
  with the unhelpful pair `tag_name is not a valid tag` /
  `Release.target_commitish is invalid`.
-6. **Submit to `hacs/default`**: fork, branch (never the default branch),
+3. **Submit to `hacs/default`**: fork, branch (never the default branch),
  one-line textual insert, PR titled `Adds new integration [<owner>/<repo>]`,
  body = their template with every box ticked and three links — the release,
  the successful HACS action job, the successful hassfest job.
-7. **Then leave it alone.** Commenting, opening a second PR, or asking others to
+4. **Then leave it alone.** Commenting, opening a second PR, or asking others to
  comment all *delay* review. The queue is oldest-first. Updating your own
  repository while queued is allowed.
 
