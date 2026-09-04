@@ -24,16 +24,22 @@ Available immediately, with no labelled fingerprints:
 
 | Entity | Meaning |
 |---|---|
-| `sensor.unmonitored_load` | Mains minus the sum of the circuits. |
-| `binary_sensor.ct_coverage_fault` | That figure moved outside tolerance. |
-| `sensor.standby_power` | Total permanent draw, with a per-circuit ranking in the attributes. |
-| `sensor.standby_annual_cost` | What that costs per year. |
-| `binary_sensor.state_contradiction` | A switch reports `on` while its circuit draws nothing. |
-| `sensor.unnamed_candidates` | Learned shapes waiting for a name, described in the attributes. |
-| `binary_sensor.silent_appliance` | A named appliance has stopped running when its own history says it should have. |
+| `sensor.power_fingerprint_unmonitored_load` | Mains minus the sum of the circuits. |
+| `binary_sensor.power_fingerprint_ct_coverage_fault` | That figure moved outside tolerance. |
+| `sensor.power_fingerprint_standby_power` | Total permanent draw, with a per-circuit ranking in the attributes. |
+| `sensor.power_fingerprint_standby_annual_cost` | What that costs per year. |
+| `binary_sensor.power_fingerprint_state_contradiction` | A switch reports `on` while its circuit draws nothing. |
+| `sensor.power_fingerprint_unnamed_candidates` | Learned shapes waiting for a name, described in the attributes. |
+| `binary_sensor.power_fingerprint_silent_appliance` | A named appliance has stopped running when its own history says it should have. |
+
+Every entity belongs to the `Power Fingerprint` service device, so its id
+carries the device name as a prefix.
 
 After naming a fingerprint, an appliance sensor per circuit reads `idle`,
-`starting`, the appliance name, or `unknown`.
+`starting`, the appliance name, or `unknown`. Its id is built from the circuit
+sensor's own name: a circuit called `Circuit 21 Power` gets
+`sensor.power_fingerprint_circuit_21_power_appliance`. It is `unavailable`
+while that circuit's sensor cannot be read.
 
 `unknown` means the circuit is drawing power in a shape no named fingerprint
 accounts for. That is a signal, not a failure.
@@ -99,7 +105,7 @@ automation:
   - alias: Laundry is done
     triggers:
       - trigger: state
-        entity_id: sensor.circuit_21_appliance
+        entity_id: sensor.power_fingerprint_circuit_21_power_appliance
         from: Dryer
         to: idle
     actions:
@@ -152,6 +158,9 @@ matching new shapes, but a shape that no longer occurs disappears with its name.
 
 ## Installation
 
+Home Assistant 2026.3 or later. The config flow uses APIs added in 2024.12, and
+the brand images ship inside the repository, which HACS reads from 2026.3.
+
 HACS (custom repository): add `https://github.com/heidrickla/ha-power-fingerprint`
 as a custom repository of type Integration, install, restart Home Assistant.
 
@@ -172,26 +181,29 @@ Publication status is in [PUBLISHING.md](PUBLISHING.md).
 |---|---|
 | A whole-panel power sensor | Any `device_class: power` sensor reading the mains. |
 | At least one circuit power sensor | One per breaker. Leave out phase and total sensors or they are counted twice. |
-| The recorder | Seeds the 24-hour window at startup and supplies history for learning. |
+| The recorder | Seeds the 24-hour window at startup and supplies history for `learn` and `map_devices`. Without it the entry still loads, standby figures take a day to mean anything, and those two actions refuse with an error saying the recorder is not running. |
 
 Setup validates this before the entry is created: a sensor that does not exist,
-is not reporting a number, or is not in a power unit is refused by name. If a
+is not reporting a number, or is not in a power unit is refused by name, and
+the message says whether it was the mains or a circuit that failed. If a
 sensor's unit later changes to a non-power unit, a repair issue names it.
 
 ### Removing it
 
 Settings -> Devices & Services -> Power Fingerprint -> Delete. That removes the
-entry, its device and every entity. The fingerprint library lives in
-`.storage/power_fingerprint.<entry_id>` and goes with it.
+entry, its device and every entity, and deletes the fingerprint library in
+`.storage/power_fingerprint.<entry_id>`. Nothing is left behind; re-adding the
+integration starts from an empty library.
 
 An automation paused for a probe is recorded to storage before being switched
 off, and restored at the next startup.
 
 ### Reconfiguring
 
-Reconfigure changes the mains or circuit list. Configure covers the same fields
-plus price, tolerance, confidence and contradiction pairs. Both run the same
-validation as setup.
+Reconfigure (the entry's own menu) and Configure (the options button) show the
+same six fields as setup and run the same validation. Reconfigure writes to the
+entry data and clears any saved options; Configure writes options, which take
+precedence at runtime. Either one reloads the entry.
 
 ## Confidence
 
@@ -320,9 +332,19 @@ device at a time.
 `pause_automations: true` switches off automations that reference the probed
 device or any circuit, using Home Assistant's `referenced_entities`.
 
-Automations touching locks, alarm panels, covers, valves, water heaters, climate,
-sirens, humidifiers, vacuums, notifications or person entities are never paused.
-The list is a denylist and deliberately broad.
+An automation is never paused if it touches any entity in these domains, or any
+sensor with one of these device classes. This is the one list; `verify.py`
+carries it and `services.yaml` points here.
+
+| Never paused | |
+|---|---|
+| Domains | `lock`, `alarm_control_panel`, `cover`, `valve`, `water_heater`, `climate`, `siren`, `humidifier`, `vacuum`, `notify`, `persistent_notification`, `device_tracker`, `person` |
+| Device classes | `moisture`, `smoke`, `gas`, `carbon_monoxide`, `safety`, `problem`, `tamper` |
+
+The list is a denylist and deliberately broad: the cost of leaving an
+automation running is a noisier measurement, the cost of pausing the wrong one
+is a door that stays locked or a leak alert that never fires. Refusals are
+returned in the action's response, not swallowed.
 
 The pause list is written to storage before anything is switched off, and
 restored at the next startup if a probe dies mid-run.
@@ -343,6 +365,79 @@ probes:
 Six of seven disputed placements collapsed to `unknown` when three probes had to
 agree, having been reported as `measured` at `probes: 1`.
 
+## Actions
+
+Six actions under `power_fingerprint.`. Every field is optional unless marked
+required. Where a default reads "confidence setting", leaving the field empty
+uses the value the [Confidence](#confidence) setting supplies, and a value
+overrides it for that call only.
+
+### `learn`
+
+Read history for each circuit, group the appliance runs by shape, and store
+them as candidates. Returns a description of every shape found. Names already
+given are carried onto the matching new shapes.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `circuits` | all configured circuits | Limit to these power sensors. |
+| `days` | 7 | Days of history to read, 1 to 30. |
+| `threshold` | confidence setting (0.7 / 0.9 / 1.2) | How different two runs must be to count as different appliances. Lower splits more. 0.1 to 5.0. |
+
+### `label`
+
+Turn a candidate into an identification. Only named fingerprints drive
+entities.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `circuit` | required | The power sensor the fingerprint was learned on. |
+| `current_label` | required | The existing label, for example `unnamed_0`. |
+| `new_label` | required | What this appliance actually is. |
+
+### `verify_circuit`
+
+Switch a device and watch which circuit moves. It actuates the device, several
+times, and always restores its prior state. Only `switch` and `light` entities
+may be probed. See [Limits of active probing](#limits-of-active-probing).
+
+| Field | Default | Meaning |
+|---|---|---|
+| `device` | required | The switch or light to probe. |
+| `power_sensor` | the device's own power sensor, found from its device | Lets the ranking check magnitude, not only direction. |
+| `probes` | confidence setting (3 / 2 / 1) | How many times to switch it. All probes must agree. 1 to 5. |
+| `settle` | 30 | Seconds to wait for the meter after each switch, 10 to 120. Must be at least twice the meter's reporting interval; the action warns when it is not. |
+| `pause_automations` | `false` | Switch off automations that reference the device or a circuit for the duration. See [Pausing interfering automations](#pausing-interfering-automations). |
+| `force` | `false` | Probe even though the device is carrying a load. |
+
+### `map_devices`
+
+Correlate every self-metering power sensor against every circuit and record
+where each device sits. Reports what it could not place as well as what it
+could.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `days` | 3 | Days of history to compare, 1 to 14. |
+| `step` | measured from the meter's own history | Grid seconds to resample onto, 1 to 300. |
+| `min_correlation` | confidence setting (0.65 / 0.50 / 0.35) | Below this a device is left unplaced. Lower places more devices and more of them wrongly. 0 to 1. |
+
+### `autolabel`
+
+Name every learned shape whose circuit already says what it is. No fields. See
+[Naming](#naming).
+
+### `apply_circuit_labels`
+
+Add a label naming the circuit to each mapped device, so devices can be
+filtered by breaker. See [Filtering by breaker](#filtering-by-breaker).
+
+| Field | Default | Meaning |
+|---|---|---|
+| `dry_run` | `true` | Show what would happen and change nothing. |
+| `remove` | `false` | Take the circuit labels back off every device instead. |
+| `prefix` | `Circuit` | What each label is called before the circuit's name. |
+
 ## Tools
 
 Development scripts in `tools/`, run against the REST API from a workstation.
@@ -359,12 +454,16 @@ They load the pure modules by path and need no Home Assistant install.
 
 ## Configuration
 
-- Whole-panel power sensor
-- Circuit power sensors
-- Price per kWh, pre-filled from the energy dashboard when it has one
-- Coverage tolerance, percent of mains the remainder may drift
-- Confidence
-- Contradiction pairs, one `switch.entity: sensor.circuit_power` per line
+The same six fields appear at setup, on Reconfigure and on Configure.
+
+| Field | Required | Default | Meaning |
+|---|---|---|---|
+| Whole-panel power sensor | yes | | The sensor reading the mains. Its total should be close to the sum of the circuits. |
+| Circuit power sensors | yes, at least one | | One per breaker. Leave out phase and total sensors, or they are counted twice. The mains may not also be a circuit. |
+| Electricity price per kWh | no | the energy dashboard's price, else 0.13 | Turns standby watts into an annual figure. A price set here beats the dashboard's. |
+| Coverage tolerance | no | 5 % | How far the circuits may drift from the mains before a fault is raised. |
+| How sure do you want to be? | no | Balanced | See [Confidence](#confidence). |
+| Switch/circuit pairs | no | none | One `switch.entity: sensor.circuit_power` per line, checked for a switch that says on while its circuit draws nothing. |
 
 ## How it updates
 
@@ -387,9 +486,12 @@ Learning and probing are actions you run. Nothing switches anything unless
 | Coverage fault that never clears | The mains sensor and the circuits are not measuring the same thing. A panel with two units has a total per unit. |
 | A circuit listed as silent | Its maximum over 24 hours is under 5 W. Normal for an unused circuit. |
 | `learn` returns `no history in window` | The recorder has nothing for that entity in the window. |
+| `learn` or `map_devices` fails with "The recorder is not running" | The recorder integration is disabled. Enable it; the entry itself loads without it. |
 | A probe returns `suspect` | An automation fired during it. Re-run with `pause_automations: true`. |
 | A probe warns about settle time | The meter reports more slowly than the probe waits. |
 | Entities unavailable | Every configured source is gone. A single circuit dropping out does not blank the others. |
+| One appliance sensor unavailable | Its circuit's sensor is unavailable. The aggregates stay up and the coverage sensor reports the gap. |
+| Setup keeps retrying | A configured power sensor has not appeared yet. The integration card names the first one it is waiting for. |
 
 ```yaml
 logger:
@@ -614,10 +716,15 @@ Built to Home Assistant's Integration Quality Scale, tracked rule by rule in
 [`quality_scale.yaml`](custom_components/power_fingerprint/quality_scale.yaml)
 with a reason on every exemption.
 
-No rule is `todo`. The Home Assistant layer tests run in CI on the self-hosted
-Gitea runner, alongside mypy in strict mode — which is what took
-`strict-typing` from a claim to a fact. `tools/validate_local.py` refuses to
-let `manifest.json` claim a tier while anything is `todo`.
+One rule is `todo`: `test-coverage`. Coverage is measured on every push but
+the four large actions and the dashboard reader have no Home Assistant layer
+tests yet, so it is not at the 95% the rule asks for. Everything else is `done`
+or `exempt` with a written reason, and the file says which.
+
+The GitHub `Tests` workflow runs the Home Assistant layer tests, mypy with the
+full strict block and the offline validator on every push, against Home
+Assistant 2026.8.3 on Python 3.14. `tools/validate_local.py` checks the file
+against the pinned rule list and refuses to let `manifest.json` claim a tier.
 
 The scale is a core-integration concept. A custom integration builds to the rules
 and is not scored.
@@ -626,11 +733,17 @@ and is not scored.
 
 ```bash
 python -m pytest tests/ -q
+python tools/validate_local.py
 ```
 
 The pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`,
 `breaker` - import nothing from Home Assistant and are tested by path.
-`tests/ha/` covers the Home Assistant layer and skips when the harness is absent.
+`tests/ha/` covers the Home Assistant layer: setup, unload and removal, the
+config, reconfigure and options flows with recovery from every error, the
+entities and their availability, the orphaned-pause backstop, action
+registration and the recorder guard. It skips when the harness is absent and
+does not run on Windows, where the harness needs `fcntl`; GitHub Actions runs
+it on every push with coverage reported.
 
 ## Licence
 
