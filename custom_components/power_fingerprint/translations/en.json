@@ -71,7 +71,7 @@
         },
         "threshold": {
           "name": "Cluster threshold",
-          "description": "Lower splits more."
+          "description": "Lower splits more. Leave empty to use the confidence setting's threshold."
         }
       }
     },
@@ -107,11 +107,11 @@
         },
         "probes": {
           "name": "Number of probes",
-          "description": "All probes must agree."
+          "description": "All probes must agree. Leave empty to use the confidence setting."
         },
         "settle": {
           "name": "Settle time",
-          "description": "Seconds to wait for the meter."
+          "description": "Seconds to wait for the meter after each switch, at least twice its reporting interval."
         },
         "pause_automations": {
           "name": "Pause interfering automations",
@@ -137,7 +137,7 @@
         },
         "min_correlation": {
           "name": "Minimum correlation",
-          "description": "Lower places more devices and places more of them wrongly."
+          "description": "Lower places more devices and places more of them wrongly. Leave empty to use the confidence setting."
         }
       }
     },
