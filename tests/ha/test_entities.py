@@ -1,6 +1,10 @@
 """The entities, and the derived numbers behind them."""
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+
+from custom_components.power_fingerprint.const import DOMAIN
+from custom_components.power_fingerprint.fingerprint import Fingerprint
 
 # Declared locally rather than imported from conftest: tests/ha is not a
 # package, so a relative import has no parent to resolve against.
@@ -87,6 +91,62 @@ async def test_no_appliance_sensor_until_something_is_named(
         e for e in hass.states.async_entity_ids("sensor") if e.endswith("_appliance")
     ]
     assert appliance == []
+
+
+async def test_an_appliance_sensor_appears_once_a_shape_is_named(
+    hass: HomeAssistant, config_entry, powered
+):
+    """Added by the coordinator listener, without a reload."""
+    coordinator = await _setup(hass, config_entry)
+    await config_entry.runtime_data.store.async_replace_circuit(
+        CIRCUIT_A, [Fingerprint(label="Dryer", circuit=CIRCUIT_A, count=10)]
+    )
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{config_entry.entry_id}_appliance_{CIRCUIT_A}"
+    )
+    assert entity_id is not None
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.state != "unavailable"
+    assert state.attributes["circuit"] == CIRCUIT_A
+
+
+async def test_an_appliance_sensor_goes_unavailable_with_its_circuit(
+    hass: HomeAssistant, config_entry, powered
+):
+    """One circuit dropping out does not blank the aggregates - the coverage
+    sensor reports it - but the sensor ABOUT that circuit has nothing to say
+    and must not read `unknown`, which means "an unrecognised shape"."""
+    coordinator = await _setup(hass, config_entry)
+    await config_entry.runtime_data.store.async_replace_circuit(
+        CIRCUIT_A, [Fingerprint(label="Dryer", circuit=CIRCUIT_A, count=10)]
+    )
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{config_entry.entry_id}_appliance_{CIRCUIT_A}"
+    )
+    assert hass.states.get(entity_id).state != "unavailable"
+
+    hass.states.async_set(
+        CIRCUIT_A, "unavailable", {"device_class": "power", "unit_of_measurement": "W"}
+    )
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == "unavailable"
+    # The aggregates stay up: only one of three sources is gone.
+    assert (
+        hass.states.get("sensor.power_fingerprint_unmonitored_load").state
+        != "unavailable"
+    )
+
+    powered()
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state != "unavailable"
 
 
 async def test_entities_group_under_one_service_device(

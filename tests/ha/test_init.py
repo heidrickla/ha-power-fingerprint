@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
 
@@ -24,6 +24,47 @@ async def test_setup_and_unload(hass: HomeAssistant, config_entry, powered):
     assert await hass.config_entries.async_unload(config_entry.entry_id)
     await hass.async_block_till_done()
     assert config_entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_removing_the_entry_deletes_the_learned_library(
+    hass: HomeAssistant, config_entry, powered, hass_storage
+):
+    """The README promises the .storage file goes with the entry. Prove it.
+
+    Unload writes the store, so the key is present before removal; the entry
+    is keyed on its id, and a leftover file could never be found again.
+    """
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    await config_entry.runtime_data.store.async_save()
+    key = f"{DOMAIN}.{config_entry.entry_id}"
+    assert key in hass_storage
+
+    await hass.config_entries.async_remove(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert key not in hass_storage
+
+
+# --- action-exceptions -----------------------------------------------------
+
+
+async def test_learn_without_the_recorder_is_a_translated_error(
+    hass: HomeAssistant, config_entry, powered
+):
+    """The recorder is an after-dependency; a user may have disabled it.
+
+    The test hass has no recorder loaded, which is exactly that state. A bare
+    KeyError from get_instance reached the frontend as a stack trace.
+    """
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(DOMAIN, "learn", {}, blocking=True)
+    assert err.value.translation_key == "recorder_not_running"
+    assert not isinstance(err.value, ServiceValidationError)
 
 
 async def test_services_are_registered(hass: HomeAssistant, config_entry, powered):
