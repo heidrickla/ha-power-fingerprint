@@ -9,9 +9,19 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
 
-from custom_components.power_fingerprint.const import CONF_CIRCUITS, DOMAIN
+from custom_components.power_fingerprint.const import (
+    CONF_CIRCUITS,
+    CONF_MAINS,
+    DOMAIN,
+)
 
+MAINS = "sensor.mains_power"
 CIRCUIT_A = "sensor.circuit_a_power"
+POWER = {
+    "device_class": "power",
+    "state_class": "measurement",
+    "unit_of_measurement": "W",
+}
 
 
 async def test_setup_and_unload(hass: HomeAssistant, config_entry, powered):
@@ -237,3 +247,174 @@ async def test_a_renamed_circuit_is_followed_not_orphaned(
 
     assert "sensor.garage_power" in config_entry.data[CONF_CIRCUITS]
     assert CIRCUIT_A not in config_entry.data[CONF_CIRCUITS]
+
+
+async def test_a_rename_takes_this_integrations_own_entities_with_it(
+    hass: HomeAssistant, config_entry, hass_storage
+):
+    """The unique ids embed the source entity id, so a rename that did not
+    migrate them minted duplicate entities and orphaned the history."""
+    from homeassistant.helpers import entity_registry as er
+
+    from custom_components.power_fingerprint.fingerprint import Fingerprint
+
+    registry = er.async_get(hass)
+    row = registry.async_get_or_create(
+        "sensor", "test", "circuit-a-uid", suggested_object_id="circuit_a_power"
+    )
+    assert row.entity_id == CIRCUIT_A
+    hass_storage[f"{DOMAIN}.{config_entry.entry_id}"] = {
+        "version": 1,
+        "data": {
+            "fingerprints": [
+                Fingerprint(label="Dryer", circuit=CIRCUIT_A, count=9).to_dict()
+            ]
+        },
+    }
+    for entity, value in (
+        (MAINS, 155.0),
+        (CIRCUIT_A, 100.0),
+        ("sensor.circuit_b_power", 50.0),
+    ):
+        hass.states.async_set(entity, value, POWER)
+
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{config_entry.entry_id}_appliance_{CIRCUIT_A}"
+    )
+
+    registry.async_update_entity(CIRCUIT_A, new_entity_id="sensor.garage_power")
+    hass.states.async_set("sensor.garage_power", 100.0, POWER)
+    await hass.async_block_till_done()
+
+    assert registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{config_entry.entry_id}_appliance_sensor.garage_power"
+    )
+    assert (
+        registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{config_entry.entry_id}_appliance_{CIRCUIT_A}"
+        )
+        is None
+    )
+
+
+async def test_renaming_the_mains_moves_the_mains_setting(
+    hass: HomeAssistant, config_entry, powered
+):
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    hass.states.async_remove(MAINS)
+    row = registry.async_get_or_create(
+        "sensor", "test", "mains-uid", suggested_object_id="mains_power"
+    )
+    assert row.entity_id == MAINS
+    hass.states.async_set(MAINS, 155.0, POWER)
+
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry.async_update_entity(MAINS, new_entity_id="sensor.panel_total_power")
+    hass.states.async_set("sensor.panel_total_power", 155.0, POWER)
+    await hass.async_block_till_done()
+
+    assert config_entry.data[CONF_MAINS] == "sensor.panel_total_power"
+
+
+async def test_a_registry_update_that_is_not_a_rename_is_ignored(
+    hass: HomeAssistant, config_entry
+):
+    """Every registry change on a tracked entity fires this listener; only an
+    entity id change means anything to the stored library."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    row = registry.async_get_or_create(
+        "sensor", "test", "circuit-a-uid", suggested_object_id="circuit_a_power"
+    )
+    assert row.entity_id == CIRCUIT_A
+    for entity, value in (
+        (MAINS, 155.0),
+        (CIRCUIT_A, 100.0),
+        ("sensor.circuit_b_power", 50.0),
+    ):
+        hass.states.async_set(entity, value, POWER)
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry.async_update_entity(CIRCUIT_A, name="Dishwasher circuit")
+    await hass.async_block_till_done()
+
+    assert config_entry.data[CONF_CIRCUITS] == [CIRCUIT_A, "sensor.circuit_b_power"]
+
+
+async def test_a_stray_nameless_device_from_an_earlier_version_is_removed(
+    hass: HomeAssistant, config_entry, powered
+):
+    """Returning another device's identifiers in DeviceInfo produced a second,
+    nameless device rather than merging. Nine of them, one per mapping."""
+    from homeassistant.helpers import device_registry as dr
+
+    config_entry.add_to_hass(hass)
+    devices = dr.async_get(hass)
+    stray = devices.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={("zha", "64:02:8f:ff:fe:a1:ca:4a")},
+    )
+    assert stray.name is None
+    # A nameless row that IS this integration's own service device must be
+    # left alone: it is named when the first entity attaches to it.
+    unnamed_service_device = devices.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={(DOMAIN, config_entry.entry_id)},
+    )
+
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Nothing else owned it, so removing this entry's claim removed the row.
+    assert devices.async_get(stray.id) is None
+    assert devices.async_get(unnamed_service_device.id) is not None
+    # The integration's own service device is untouched.
+    ours = devices.async_get_device({(DOMAIN, config_entry.entry_id)})
+    assert ours is not None and ours.name == "Power Fingerprint"
+
+
+async def test_setup_waits_rather_than_stranding_paused_automations(
+    hass: HomeAssistant, config_entry, powered
+):
+    """A missing automation.turn_on must not lose the record of what was
+    switched off: ConfigEntryNotReady keeps it and retries.
+
+    The automation component is a manifest dependency, so the only way it is
+    absent at this moment is a failure to set it up - simulated by answering
+    "no such service" for that one call.
+    """
+    from homeassistant.core import ServiceRegistry
+
+    real_has_service = ServiceRegistry.has_service
+
+    def _no_automation(self, domain, service):
+        if (domain, service) == ("automation", "turn_on"):
+            return False
+        return real_has_service(self, domain, service)
+
+    with (
+        patch.object(ServiceRegistry, "has_service", _no_automation),
+        patch(
+            "custom_components.power_fingerprint.store.FingerprintStore"
+            ".orphaned_pauses",
+            return_value=["automation.hall_motion"],
+        ),
+    ):
+        config_entry.add_to_hass(hass)
+        assert not await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert config_entry.state is ConfigEntryState.SETUP_RETRY
+    # The card says what is waiting and how many, not a bare key.
+    assert "1 automation(s) paused for a probe" in config_entry.reason

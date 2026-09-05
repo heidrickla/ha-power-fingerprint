@@ -188,11 +188,6 @@ async def _histories(
     return out
 
 
-async def _history(hass: HomeAssistant, entity: str, days: int) -> list[Sample]:
-    """One entity's history. See _histories for the batched form."""
-    return (await _histories(hass, [entity], days))[entity]
-
-
 async def _sample_circuits(
     hass: HomeAssistant, circuits: list[str], seconds: int
 ) -> dict[str, float]:
