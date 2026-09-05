@@ -84,9 +84,16 @@ Register with no device and point the entity's registry row at the target in
 `async_added_to_hass`. `setup_entry` prunes stray devices left by earlier
 versions.
 
-Entity ids arrive as `sensor.circuit`, `sensor.circuit_2` and so on, because the
-id is derived from device name plus entity name at registration, before the
-device is attached. `suggested_object_id` does not change this.
+The id is built from the device name plus the entity name at registration,
+before the device is attached, so a new Circuit entity supplies the device name
+itself and arrives as `sensor.porch_lamp_circuit`. A device with no name of its
+own gives `sensor.circuit`.
+
+Entities that already exist keep the id they have. The registry asks for a
+suggested id only when it creates a row, so an install from before this change
+keeps `sensor.circuit`, `sensor.circuit_2` and so on. Deleting one of those
+entities and letting the next poll recreate it is what renames it; the unique
+id is the same either way, so nothing else moves.
 
 ## What people use it for
 
@@ -169,9 +176,18 @@ Manual: copy `custom_components/power_fingerprint/` into your Home Assistant
 
 Then Settings -> Devices & Services -> Add Integration -> Power Fingerprint.
 
+There is no discovery, and there is nothing to discover: this integration reads
+sensors another integration has already created, so it is added by hand and
+asks which of those sensors to use. Only one entry is allowed, because a second
+would count every circuit twice.
+
 Entities group under a single service device. `Download diagnostics` produces a
 report with entity ids pseudonymised, since entity names describe rooms and
 appliances and diagnostics files end up in public issue trackers.
+
+Renaming a source sensor on the meter's integration is followed: the circuit
+list, the switch/circuit pairs, the learned library and this integration's own
+entities all move with it, without a reload.
 
 Publication status is in [PUBLISHING.md](PUBLISHING.md).
 
@@ -716,15 +732,16 @@ Built to Home Assistant's Integration Quality Scale, tracked rule by rule in
 [`quality_scale.yaml`](custom_components/power_fingerprint/quality_scale.yaml)
 with a reason on every exemption.
 
-One rule is `todo`: `test-coverage`. Coverage is measured on every push but
-the four large actions and the dashboard reader have no Home Assistant layer
-tests yet, so it is not at the 95% the rule asks for. Everything else is `done`
-or `exempt` with a written reason, and the file says which.
+Every rule is `done` or `exempt` with a written reason, and the file says
+which. `test-coverage` closed on 2026-09-04: coverage is 99% of
+`custom_components/power_fingerprint` and the build fails below 95%.
 
-The GitHub `Tests` workflow runs the Home Assistant layer tests, mypy with the
-full strict block and the offline validator on every push, against Home
-Assistant 2026.8.3 on Python 3.14. `tools/validate_local.py` checks the file
-against the pinned rule list and refuses to let `manifest.json` claim a tier.
+The GitHub `Tests` workflow runs both test suites under coverage with that
+gate, mypy with the full strict block and the offline validator on every push,
+against Home Assistant 2026.8.3 on Python 3.14. `tools/validate_local.py`
+checks the file against the pinned rule list, refuses to let `manifest.json`
+claim a tier, and refuses `test-coverage: done` if the workflow ever loses the
+gate.
 
 The scale is a core-integration concept. A custom integration builds to the rules
 and is not scored.
@@ -736,14 +753,23 @@ python -m pytest tests/ -q
 python tools/validate_local.py
 ```
 
-The pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`,
-`breaker` - import nothing from Home Assistant and are tested by path.
-`tests/ha/` covers the Home Assistant layer: setup, unload and removal, the
-config, reconfigure and options flows with recovery from every error, the
-entities and their availability, the orphaned-pause backstop, action
-registration and the recorder guard. It skips when the harness is absent and
-does not run on Windows, where the harness needs `fcntl`; GitHub Actions runs
-it on every push with coverage reported.
+181 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
+`verify`, `virtual`, `breaker` - which import nothing from Home Assistant and
+are loaded by path, so they run on a bare checkout.
+
+156 more in `tests/ha/` cover the Home Assistant layer: setup, unload and
+removal, the config, reconfigure and options flows with recovery from every
+error, the entities and their availability, the store and its refusal to
+overwrite a probe, the energy dashboard reader, the coordinator's recorder seed
+and blind-time accounting, and all six actions driven end to end against
+recorded history - including the probe's restore path, its safety refusals and
+the automations it pauses. They skip when the harness is absent and do not run
+on Windows, where Home Assistant's runner imports `fcntl` and the harness
+blocks sockets.
+
+GitHub Actions runs both suites on every push under one coverage measurement
+and fails the build below 95%. It is 99%; the only statement not exercised is a
+guard for a device that leaves the registry mid-run.
 
 ## Licence
 
