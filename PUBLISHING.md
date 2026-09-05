@@ -12,7 +12,7 @@ for the rest.
 | HACS and hassfest actions green | Done on `main` at `462200e`; both run on every push. The first public run failed hassfest on manifest key order and on an undeclared `energy` import; both fixed the same hour. |
 | Quality scale | Done 2026-09-04: every rule `done` or `exempt`, coverage gated at 95% in the `Tests` workflow, mypy strict on every push. |
 | Changelog | Done 2026-09-04: `CHANGELOG.md`, starting at 0.17.0. |
-| Release | **Not created.** The version to tag is whatever `manifest.json` and `const.VERSION` carry at the time; they are 0.17.0 now. |
+| Release | Done 2026-09-05: `v0.17.0`, the first GitHub release, cut on a green `main` head after the validation runs passed on that commit. `manifest.json` and `const.VERSION` both read 0.17.0. |
 | `hacs/default` pull request | **Not opened.** |
 
 ## The Home Assistant layer tests run on Linux, not here
