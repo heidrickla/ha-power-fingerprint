@@ -114,6 +114,34 @@ def test_a_clean_walk_attributes_only_what_it_measured():
     assert "doorbell" in result.suspected
 
 
+def test_a_device_with_no_reading_before_that_reports_after_is_unaffected():
+    """A meter that came online during the walk proves nothing about the
+    breaker, and must not be counted as a casualty."""
+    confirmed, suspected, unaffected = b.classify_devices(
+        before={"late_meter": None},
+        after={"late_meter": 40.0},
+    )
+    assert unaffected == ["late_meter"]
+    assert confirmed == [] and suspected == []
+
+
+def test_a_walk_result_serialises_for_the_action_response():
+    result = b.walk(
+        circuits_before={"c15": 400.0},
+        circuits_after={"c15": 0.3},
+        devices_before={"dishwasher": 380.0, "office_light": 9.0},
+        devices_after={"dishwasher": 0.0, "office_light": 9.0},
+    )
+    payload = result.to_dict()
+    assert payload["circuit"] == "c15"
+    assert payload["circuit_before_w"] == 400.0
+    assert payload["circuit_after_w"] == 0.3
+    assert payload["confirmed"] == ["dishwasher"]
+    # A count, not a list: the unaffected are most of the house.
+    assert payload["unaffected_count"] == 1
+    assert payload["reason"]
+
+
 def test_without_a_confirmed_circuit_nothing_is_attributed():
     """Casualties are reported; none of them are mapped to anything.
 
