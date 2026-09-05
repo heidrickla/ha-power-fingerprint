@@ -28,7 +28,8 @@ rules:
       from each error to a created entry, reconfigure with its error and
       recovery, the options flow with its error and recovery, the options
       shadowing case, and the dashboard price prefill in both directions.
-      Run by the GitHub Tests workflow on every push.
+      Run by the GitHub Tests workflow on every push; config_flow.py is at
+      100% of its statements under the coverage gate.
   config-flow: done
   dependency-transparency:
     status: done
@@ -107,15 +108,17 @@ rules:
       Nothing to authenticate against. The integration reads sensors that are
       already in the state machine.
   test-coverage:
-    status: todo
+    status: done
     comment: |
-      Coverage is reported by the GitHub Tests job but not yet at 95%. The
-      four large actions (verify_circuit, map_devices, autolabel,
-      apply_circuit_labels) and dashboard.py have no Home Assistant layer
-      tests; diagnostics has one smoke test. 131 pure tests cover the
-      analysis, fingerprint, attribution, verify, virtual and breaker modules
-      and 47 Home Assistant layer tests cover setup, flows, entities and the
-      recorder guard. The gate lands with the missing tests.
+      99% of custom_components/power_fingerprint, gated at 95% by the GitHub
+      Tests workflow on every push: both suites run under coverage and the
+      second appends to the first, so the threshold is on their union. Every
+      module is at 100% except one defensive branch in apply_circuit_labels
+      for a device that leaves the registry mid-run. The six actions are
+      driven end to end against recorded history rather than patched out,
+      including the probe's restore path and its automation pausing.
+      tools/validate_local.py refuses this `done` if the workflow ever loses
+      the gate.
 
   # Gold
   devices: done

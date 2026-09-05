@@ -348,6 +348,28 @@ def main() -> int:
             )
             if todo:
                 notes.append(f"quality scale still todo: {', '.join(todo)}")
+            # `test-coverage: done` is a claim about what CI enforces, not
+            # about what a suite happened to reach on someone's laptop. The
+            # rule asks for above 95%, so the workflow has to fail below it,
+            # and it has to count both suites or the number means nothing.
+            coverage_rule = declared.get("test-coverage")
+            coverage_status = (
+                coverage_rule.get("status")
+                if isinstance(coverage_rule, dict)
+                else coverage_rule
+            )
+            if coverage_status == "done":
+                workflow = read(ROOT, ".github", "workflows", "tests.yml")
+                check(
+                    "--cov-fail-under=95" in workflow,
+                    "test-coverage is done but the Tests workflow does not gate "
+                    "on --cov-fail-under=95",
+                )
+                check(
+                    "--cov-append" in workflow,
+                    "test-coverage is done but the gate does not span both "
+                    "suites - --cov-append is missing",
+                )
         except ImportError:
             notes.append("PyYAML not installed - quality_scale.yaml not parsed")
 

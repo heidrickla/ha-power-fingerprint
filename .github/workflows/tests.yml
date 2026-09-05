@@ -32,12 +32,17 @@ jobs:
       - run: ruff format --check .
       # The pure modules import nothing from Home Assistant; the harness
       # plugin is disabled so its autouse fixtures do not attach to them.
-      - run: python -m pytest tests -q --ignore=tests/ha -p no:homeassistant
-      # Coverage is reported, not yet gated; the 95% threshold lands once the
-      # four large actions have Home Assistant-layer tests.
+      # Measured with coverage but reported by the second run: the gate is on
+      # the union of the two suites, since each covers what the other cannot.
+      - run: >-
+          python -m pytest tests -q --ignore=tests/ha -p no:homeassistant
+          --cov=custom_components/power_fingerprint --cov-report=
+      # The Home Assistant layer, appended to the same coverage data, and the
+      # gate the test-coverage rule asks for.
       - run: >-
           python -m pytest tests/ha -q
-          --cov=custom_components/power_fingerprint --cov-report=term-missing
+          --cov=custom_components/power_fingerprint --cov-append
+          --cov-report=term-missing --cov-fail-under=95
       # The full strict block, with Home Assistant importable: the run that
       # means something. Locally without Home Assistant every HA class is Any.
       - run: python -m mypy custom_components/power_fingerprint

@@ -294,3 +294,102 @@ async def test_standby_refuses_to_answer_from_a_cold_window(
     assert hass.states.get("sensor.power_fingerprint_standby_annual_cost").state == (
         "unknown"
     )
+
+
+async def test_the_coverage_fault_says_unknown_when_the_mains_cannot_be_read(
+    hass: HomeAssistant, config_entry, powered
+):
+    """`off` would assert the panel adds up. Nothing was measured."""
+    coordinator = await _setup(hass, config_entry)
+    hass.states.async_set(
+        MAINS, "unavailable", {"device_class": "power", "unit_of_measurement": "W"}
+    )
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    state = hass.states.get("binary_sensor.power_fingerprint_ct_coverage_fault")
+    assert state.state == "unknown"
+    assert state.attributes["unmonitored_w"] is None
+
+
+async def test_the_annual_cost_is_reported_in_the_users_own_currency(
+    hass: HomeAssistant, config_entry, powered
+):
+    """A fixed USD would be wrong for most of the people who install this."""
+    hass.config.currency = "GBP"
+    await _setup(hass, config_entry)
+    state = hass.states.get("sensor.power_fingerprint_standby_annual_cost")
+    assert state.attributes["unit_of_measurement"] == "GBP"
+
+
+async def test_the_candidate_list_is_capped_but_the_count_is_the_true_total(
+    hass: HomeAssistant, config_entry, powered, hass_storage
+):
+    """Every attribute payload is written to the state machine on each update,
+    so an unbounded list on a large panel would bloat the recorder."""
+    hass_storage[f"{DOMAIN}.{config_entry.entry_id}"] = {
+        "version": 1,
+        "data": {
+            "fingerprints": [
+                Fingerprint(
+                    label=f"unnamed_{i}", circuit=CIRCUIT_A, count=30 - i
+                ).to_dict()
+                for i in range(30)
+            ]
+        },
+    }
+    await _setup(hass, config_entry)
+
+    state = hass.states.get("sensor.power_fingerprint_unnamed_candidates")
+    assert state.state == "30"
+    assert len(state.attributes["candidates"]) == 25
+    assert state.attributes["not_shown"] == 5
+    # Ordered by how often each ran: the commonest shape is the easiest to name.
+    assert state.attributes["candidates"][0]["runs"] == 30
+
+
+async def test_the_candidate_count_is_unknown_before_the_first_poll(
+    hass: HomeAssistant, config_entry, powered
+):
+    """`0` would claim the learn step ran and found nothing."""
+    from custom_components.power_fingerprint.sensor import CandidatesSensor
+
+    coordinator = await _setup(hass, config_entry)
+    sensor = CandidatesSensor(coordinator)
+    coordinator.data = None
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes == {"named": 0, "candidates": []}
+
+
+async def test_a_circuit_entity_without_an_answer_yet_reports_nothing(
+    hass: HomeAssistant, config_entry, powered
+):
+    """The entity is created from a stored assignment; with no store, or a row
+    carrying no circuit, `unknown` is the honest state."""
+    from custom_components.power_fingerprint.sensor import CircuitSensor
+
+    coordinator = await _setup(hass, config_entry)
+    sensor = CircuitSensor(coordinator, "sensor.porch_lamp_power", "device-id")
+    sensor.hass = hass
+
+    store = coordinator.store
+    coordinator.store = None
+    assert sensor.native_value is None
+
+    coordinator.store = store
+    await store.async_record_assignment(
+        "sensor.porch_lamp_power", CIRCUIT_A, "measured", "probe"
+    )
+    # No friendly name on the circuit, so its entity id is the best answer.
+    assert sensor.native_value == CIRCUIT_A
+
+    hass.states.async_set(
+        CIRCUIT_A,
+        100.0,
+        {
+            "device_class": "power",
+            "unit_of_measurement": "W",
+            "friendly_name": "Circuit 30",
+        },
+    )
+    assert sensor.native_value == "Circuit 30"
