@@ -8,6 +8,7 @@ device's identifiers in `DeviceInfo` creates a duplicate device instead.
 
 from __future__ import annotations
 
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -81,6 +82,32 @@ class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.entry_id}_{key}"
         self._target_device_id = target_device_id
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        """Name a NEW entity id after the device it will be attached to.
+
+        The registry builds an entity id from the device name plus the entity
+        name, and this entity has no device at the moment it registers - so
+        the ids came out `sensor.circuit`, `sensor.circuit_2`, one per mapped
+        device and none of them saying which. Naming the device here is the
+        only place that can be fixed, because the attachment happens after
+        registration.
+
+        MIGRATION-SAFE BY CONSTRUCTION. The registry consults this only when
+        it creates a row; an entity that already exists keeps the id it has,
+        the unique id is untouched either way, and no history moves. Existing
+        installs therefore keep `sensor.circuit_2` until the entity is deleted
+        and rediscovered, which is the user's own action.
+        """
+        base = super().suggested_object_id
+        device = dr.async_get(self.hass).async_get(self._target_device_id)
+        # A device that is nameless, or gone from the registry between the
+        # mapping and this entity being added, contributes nothing.
+        name = (device.name_by_user or device.name) if device else None
+        if not name:
+            return base
+        return f"{name} {base}" if base else name
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
