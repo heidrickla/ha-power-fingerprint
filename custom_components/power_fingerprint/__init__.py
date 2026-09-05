@@ -16,6 +16,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
 from . import services
+from .analysis import parse_pairs
 from .const import CONF_CIRCUITS, CONF_MAINS, CONF_PAIRS, DOMAIN
 from .coordinator import (
     FingerprintCoordinator,
@@ -130,10 +131,11 @@ def _track_source_renames(
     the subscription is rebuilt from the store.
     """
     tracked = {options[CONF_MAINS], *options[CONF_CIRCUITS]}
-    for pair in str(options.get(CONF_PAIRS, "")).split(";"):
-        for part in pair.split(","):
-            if part.strip():
-                tracked.add(part.strip())
+    # Through the same parser the coordinator uses. Splitting the field by
+    # hand here read `switch.x: sensor.y` as one entity id that matches
+    # nothing, so a renamed switch in a pair was silently not followed.
+    for switch, circuit in parse_pairs(str(options.get(CONF_PAIRS, ""))):
+        tracked.update((switch, circuit))
     tracked.update(store.assignments())
 
     async def _renamed(event: Event[er.EventEntityRegistryUpdatedData]) -> None:
