@@ -57,12 +57,14 @@ warn_return_any = true
 disallow_untyped_defs = true
 disallow_any_generics = true
 no_implicit_reexport = true
-# The analysis layer is deliberately importable without Home Assistant, and
-# the tools run on a workstation without it. Missing HA stubs must not be
-# reported as errors in the integration's own code.
-ignore_missing_imports = true
-follow_imports = "silent"
+# Nothing is silenced here, not even missing imports: with Home Assistant
+# installed there is nothing to silence, and the run without it is not the one
+# that counts. Verified 2026-09-04 against 2026.8.3 on Python 3.14.
 
+# The tests are not part of the integration and core does not type-check a
+# custom integration's tests. This scopes the relaxation to them so that
+# `mypy .` on a checkout does not report the fixtures as errors; the CI run
+# checks custom_components/power_fingerprint and never reaches here.
 [[tool.mypy.overrides]]
 module = "tests.*"
 strict = false
