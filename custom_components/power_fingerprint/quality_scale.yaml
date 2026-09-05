@@ -198,8 +198,9 @@ rules:
   strict-typing:
     status: done
     comment: |
-      mypy 1.18.2 with the full strict block (nothing relaxed) passes against
-      Home Assistant 2026.8.3 on Python 3.14 - verified locally on 2026-09-04
-      and run on every push by the GitHub Tests workflow. Without Home
-      Assistant installed every HA class is Any and the check is noise, so
-      the local run is not the one that counts.
+      mypy 1.18.2 with the full strict block passes against Home Assistant
+      2026.8.3 on Python 3.14, run on every push by the GitHub Tests workflow.
+      Nothing is relaxed and nothing is silenced: ignore_missing_imports and
+      follow_imports were dropped on 2026-09-04 after checking that the run
+      is clean without them. Without Home Assistant installed every HA class
+      is Any and the check is noise, so that run is not the one that counts.
