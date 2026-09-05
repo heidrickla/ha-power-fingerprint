@@ -9,8 +9,6 @@ and are not documented here.
 
 ## [0.17.0] - 2026-09-04
 
-Not yet published as a GitHub release; `PUBLISHING.md` tracks that.
-
 ### Added
 
 - The learned fingerprint library in `.storage` is now deleted when the entry
