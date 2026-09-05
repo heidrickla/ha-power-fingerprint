@@ -155,3 +155,52 @@ def test_residual_never_goes_negative():
     mains = trace([100.0] * 20)
     left = v.residual(mains, [[150.0] * 20])
     assert min(left) == 0.0
+
+
+# --- what an inferred run offers the rest of the machinery -----------------
+
+
+def test_an_inferred_run_describes_itself_in_the_per_circuit_feature_names():
+    """So a virtual event can be clustered and matched by the existing code."""
+    samples = trace([900] * 20 + [3900] * 50 + [900] * 20)
+    events, _unpaired = v.pair_steps(samples, floor_w=300.0)
+    features = events[0].as_features()
+    assert round(features["peak_w"]) == 3900
+    # The floor is the baseline the appliance sat on, not its own minimum.
+    assert round(features["floor_w"]) == 900
+    assert features["duration_s"] == 300.0
+    assert round(features["energy_wh"]) == 250
+    assert features["plateaus"] == 1.0
+
+
+def test_a_run_longer_than_the_limit_is_not_paired():
+    """A step down half a day later is a different appliance, not the end of
+    this one; pairing them would invent a run nobody ran."""
+    long_run = trace([900] * 20 + [3900] * 4000 + [900] * 20, step_s=6)
+    events, unpaired = v.pair_steps(long_run, floor_w=300.0, max_duration_s=3600.0)
+    assert events == []
+    assert len(unpaired) == 2
+
+
+# --- too little to measure -------------------------------------------------
+
+
+def test_a_trace_of_two_samples_has_no_measurable_noise_floor():
+    assert v.noise_floor(trace([900, 950])) == 0.0
+
+
+def test_a_meter_that_never_steps_has_no_pair_rate():
+    assert v.pair_rate(trace([900] * 40), floor_w=300.0) == 0.0
+
+
+def test_a_trace_shorter_than_the_window_yields_no_steps():
+    assert v.steps(trace([900, 3900, 900]), floor_w=100.0) == []
+
+
+def test_a_narrower_window_still_finds_the_same_shift():
+    """The window is a parameter because meters differ; an odd one must work
+    as well as the default even one."""
+    samples = trace([900] * 10 + [3900] * 10)
+    found = v.steps(samples, floor_w=300.0, window=3)
+    assert len(found) == 1
+    assert round(found[0][1]) == 3000

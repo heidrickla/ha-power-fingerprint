@@ -70,6 +70,16 @@ def test_noise_is_ignored():
     assert ranked == []
 
 
+def test_a_circuit_unreadable_in_the_second_window_is_dropped_not_scored():
+    """It would otherwise read as a step to nothing and win every ranking."""
+    ranked = v.rank_deltas(
+        baseline={"a": 100.0, "b": 500.0},
+        active={"a": 110.5},
+        expected_w=10.8,
+    )
+    assert [row["circuit"] for row in ranked] == ["a"]
+
+
 # ----------------------------------------------------------------- deciding
 
 
@@ -94,12 +104,31 @@ def test_no_movement_is_refused():
     assert circuit is None and "no circuit moved" in why
 
 
+def test_a_clear_winner_is_named_with_its_margin():
+    """The margin is reported because it is the reason the answer stands."""
+    circuit, why = v.decide(
+        [
+            {"circuit": "a", "delta_w": 10.5, "match": 0.97},
+            {"circuit": "b", "delta_w": 300.0, "match": 0.20},
+        ]
+    )
+    assert circuit == "a"
+    assert "clear winner by 0.77" in why
+
+
 # ------------------------------------------------------- repeated probes
 
 
 def test_unanimous_probes_are_accepted():
     circuit, why = v.agree(["sensor.c1", "sensor.c1", "sensor.c1"])
     assert circuit == "sensor.c1" and "3/3" in why
+
+
+def test_probes_that_all_stayed_silent_are_no_answer_at_all():
+    """Distinct from disagreement: nobody saw anything, so nothing is claimed."""
+    circuit, why = v.agree([None, None])
+    assert circuit is None
+    assert why == "no probe identified a circuit"
 
 
 def test_disagreeing_probes_return_nothing():
@@ -317,6 +346,19 @@ def test_one_probe_can_never_be_measured():
 def test_two_agreeing_probes_on_a_metered_device_are_measured():
     _c, conf = v.grade("sensor.circuit_16", [], True, answered=2, total=2)
     assert conf == v.MEASURED
+
+
+def test_no_circuit_is_no_verdict():
+    circuit, conf = v.grade(None, [], True, answered=0, total=3)
+    assert circuit is None
+    assert conf == v.UNKNOWN
+
+
+def test_an_unmetered_sweep_is_only_ever_inferred():
+    """Without the device's own meter, ranking is "which circuit moved most",
+    which cannot reject a similar unrelated load however many probes agree."""
+    _c, conf = v.grade("sensor.circuit_16", [], False, answered=3, total=3)
+    assert conf == v.INFERRED
 
 
 def test_interference_still_outranks_probe_count():

@@ -141,9 +141,9 @@ def on_threshold(
     sum_bg = 0.0
     sum_all = sum(i * hist[i] for i in range(bins))
     for i in range(bins):
+        # The lowest bin always holds the minimum sample, so the background
+        # count is non-zero from the first pass and needs no empty-set guard.
         w_bg += hist[i]
-        if w_bg == 0:
-            continue
         w_fg = total - w_bg
         if w_fg == 0:
             break

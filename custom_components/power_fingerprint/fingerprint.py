@@ -237,9 +237,9 @@ def summarize(
     cadences = cadences or {}
     out: list[Fingerprint] = []
     for cid in sorted(set(labels)):
+        # Every cluster id comes from `labels` itself, so it always has at
+        # least one member; the zip is strict and cannot run short.
         members = [f for f, lb in zip(feature_rows, labels, strict=True) if lb == cid]
-        if not members:
-            continue
         rhythm = cadences.get(cid)
         centroid, spread = {}, {}
         for key in FEATURES:

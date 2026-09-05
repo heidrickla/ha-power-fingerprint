@@ -151,3 +151,41 @@ def test_an_unswitched_device_cannot_consume_a_real_device_s_circuit():
     )
     assert result["sensor.rack"]["reason"] == "no transition in window"
     assert result["sensor.lamp"]["circuit"] == "sensor.circuit"
+
+
+# --- nothing to compare ----------------------------------------------------
+
+
+def test_an_entity_with_no_history_resamples_to_an_empty_trace():
+    """The recorder returning nothing is ordinary - a sensor added yesterday."""
+    assert at.resample([], 60, T0, T0 + timedelta(seconds=300)) == []
+
+
+def test_two_points_are_not_enough_to_correlate():
+    assert at.pearson([1.0, 2.0], [1.0, 2.0]) == 0.0
+
+
+def test_containment_of_empty_traces_is_zero_not_a_division_error():
+    assert at.containment([], []) == 0.0
+
+
+def test_a_device_that_never_steps_matches_no_circuit_by_steps():
+    """Correlation may still place it; step matching has nothing to work with."""
+    assert at.step_match([50.0] * 20, [800.0] * 20) == 0.0
+
+
+def test_a_circuit_trace_shorter_than_the_devices_is_not_read_past_its_end():
+    """Two integrations can return different amounts of history for the same
+    window; the shorter trace bounds the comparison rather than raising."""
+    device = [0.0] * 10 + [60.0] * 10
+    circuit = [800.0] * 5
+    assert at.step_match(device, circuit) == 0.0
+
+
+def test_a_device_drawing_more_than_every_circuit_is_left_unplaced():
+    """It cannot be fed by a circuit carrying less than it draws, so no
+    correlation is allowed to place it."""
+    device = [0.0 if (i // 10) % 2 else 2000.0 for i in range(200)]
+    circuit = [0.0 if (i // 10) % 2 else 60.0 for i in range(200)]
+    result = at.assign({"sensor.big": device}, {"sensor.circuit": circuit})
+    assert result["sensor.big"]["circuit"] is None

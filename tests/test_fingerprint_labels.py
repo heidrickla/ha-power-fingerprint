@@ -124,6 +124,13 @@ def test_a_dashboard_name_that_is_only_a_number_still_returns_none():
     assert fp.suggest_label("Circuit 32") is None
 
 
+def test_a_leading_bare_number_is_part_of_the_address_not_the_name():
+    """Some panels are labelled "16 Study", with no "Circuit" in front. The
+    number is still the breaker, not the appliance."""
+    assert fp.suggest_label("16 Study") == "Study"
+    assert fp.suggest_label("16") is None
+
+
 # --- label names (a label wants the breaker number; an appliance name does not)
 
 

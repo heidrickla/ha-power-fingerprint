@@ -416,3 +416,122 @@ def test_an_unknown_profile_falls_back_to_balanced_not_to_eager():
     c = _profiles()
     assert c.profile("nonsense") == c.CONFIDENCE_PROFILES["balanced"]
     assert c.profile(None) == c.CONFIDENCE_PROFILES["balanced"]
+
+
+# ------------------------------------------------------- the event features
+
+
+def test_an_event_reports_the_features_a_fingerprint_is_built_from():
+    """`as_features` is what clustering and the live matcher both consume."""
+    event = pf.Event(T0, T0 + timedelta(minutes=10), [100.0, 400.0, 380.0, 120.0])
+    assert event.duration_s == 600.0
+    assert event.peak_w == 400.0
+    assert event.floor_w == 100.0
+    assert event.mean_w == 250.0
+    assert round(event.energy_wh, 2) == 41.67
+    # Two power levels in 50 W buckets: 100 and 120 sit together, 400 and 380
+    # sit together.
+    assert event.plateaus() == 2
+    assert event.duty_above(200.0) == 0.5
+
+    features = event.as_features()
+    assert features["peak_w"] == 400.0
+    assert features["floor_w"] == 100.0
+    assert features["duty_above_half_peak"] == 0.5
+    assert features["hour_of_day"] == T0.hour
+
+
+def test_an_event_with_no_samples_reports_zeroes_rather_than_raising():
+    """Defensive: an empty span must not take max() of an empty sequence."""
+    event = pf.Event(T0, T0, [])
+    assert event.peak_w == 0.0
+    assert event.floor_w == 0.0
+    assert event.mean_w == 0.0
+    assert event.duty_above(1.0) == 0.0
+
+
+def test_nothing_to_segment_is_no_events():
+    assert pf.segment([]) == []
+
+
+def test_a_run_shorter_than_the_minimum_is_not_an_event():
+    """A one-sample blip is noise, not an appliance."""
+    samples = trace([1.0, 1.0, 900.0, 1.0, 1.0, 1.0])
+    assert pf.segment(samples, threshold_w=100.0, min_duration_s=120.0) == []
+
+
+# ------------------------------------------------------------ empty windows
+
+
+def test_a_percentile_of_nothing_is_zero_not_an_error():
+    assert pf.percentile([], 50) == 0.0
+    assert pf.circuit_floor([]) == 0.0
+
+
+def test_a_threshold_with_nothing_to_look_at_is_the_bare_margin():
+    assert pf.on_threshold([]) == 15.0
+
+
+def test_a_meter_that_restamps_the_same_instant_has_no_measurable_cadence():
+    """Every sample at one timestamp leaves no positive gap to take a median of."""
+    samples = [(T0, 10.0), (T0, 11.0), (T0, 12.0)]
+    assert pf.sample_interval(samples) is None
+
+
+def test_a_flat_histogram_bin_does_not_derail_the_threshold():
+    """Otsu walks 64 bins; the low ones are empty on a circuit with two states."""
+    samples = trace([2.0] * 40 + [1800.0] * 40)
+    threshold = pf.on_threshold(samples)
+    assert 2.0 < threshold < 1800.0
+
+
+# ----------------------------------------------------------------- cadences
+
+
+def test_a_learned_rhythm_serialises_for_storage():
+    rhythm = pf.Cadence(runs=6, median_gap_s=3601.4, p90_gap_s=5400.55)
+    assert rhythm.to_dict() == {
+        "runs": 6,
+        "median_gap_s": 3601.4,
+        "p90_gap_s": 5400.6,
+    }
+
+
+def test_repeated_starts_at_one_instant_are_not_a_rhythm():
+    """Enough runs, but no positive gaps between them - refuse rather than guess."""
+    assert pf.cadence([T0] * 6) is None
+
+
+def test_each_cluster_learns_its_own_rhythm():
+    """One circuit's shapes run at different rates; a shared cadence would be
+    wrong for both, and absence detection judges against it."""
+    hourly = [T0 + timedelta(hours=i) for i in range(6)]
+    daily = [T0 + timedelta(days=i) for i in range(6)]
+    labels = [0] * 6 + [1] * 6
+    rhythms = pf.cadences_by_cluster(labels, hourly + daily)
+    assert rhythms[0]["median_gap_s"] == 3600.0
+    assert rhythms[1]["median_gap_s"] == 86400.0
+
+
+def test_a_cluster_with_too_few_runs_gets_no_rhythm_at_all():
+    """Absent, not zero: "not characterised" is the honest answer."""
+    rhythms = pf.cadences_by_cluster([0, 0, 1], [T0, T0 + timedelta(hours=1), T0])
+    assert rhythms == {}
+
+
+def test_a_window_more_blind_than_silent_is_unknown():
+    """Restart gaps can exceed the silence itself; that is not evidence of
+    anything and must never subtract into a negative observation."""
+    rhythm = pf.Cadence(runs=6, median_gap_s=3600.0, p90_gap_s=5400.0)
+    state, why = pf.absence(rhythm, silent_s=3600.0, blind_s=7200.0)
+    assert state == "unknown"
+    assert "unobserved" in why
+
+
+def test_a_clear_lift_short_of_convincing_is_weak():
+    """Three bands, and the middle one exists so a partial result is not sold
+    as a clean one."""
+    assert pf.Evidence(measured=0.9, chance=0.65).verdict == "weak"
+    assert pf.Evidence(measured=0.9, chance=0.4).verdict == "clear"
+    assert pf.Evidence(measured=0.9, chance=0.8).verdict == "chance"
+    assert pf.Evidence(measured=0.4, chance=0.0).verdict == "no"
