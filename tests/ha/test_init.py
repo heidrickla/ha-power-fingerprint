@@ -418,3 +418,43 @@ async def test_setup_waits_rather_than_stranding_paused_automations(
     assert config_entry.state is ConfigEntryState.SETUP_RETRY
     # The card says what is waiting and how many, not a bare key.
     assert "1 automation(s) paused for a probe" in config_entry.reason
+
+
+async def test_a_renamed_switch_in_a_contradiction_pair_is_followed(
+    hass: HomeAssistant, config_entry
+):
+    """The pair field is `switch.x: sensor.y` per line. Split any other way,
+    the switch was never tracked and a rename silently broke the check."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    row = registry.async_get_or_create(
+        "switch", "test", "heater-uid", suggested_object_id="heater"
+    )
+    assert row.entity_id == "switch.heater"
+    for entity, value in (
+        (MAINS, 155.0),
+        (CIRCUIT_A, 100.0),
+        ("sensor.circuit_b_power", 50.0),
+    ):
+        hass.states.async_set(entity, value, POWER)
+    hass.states.async_set("switch.heater", "on")
+
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data={
+            **config_entry.data,
+            "contradiction_pairs": "switch.heater: sensor.circuit_b_power",
+        },
+    )
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry.async_update_entity("switch.heater", new_entity_id="switch.space_heater")
+    hass.states.async_set("switch.space_heater", "on")
+    await hass.async_block_till_done()
+
+    assert config_entry.data["contradiction_pairs"] == (
+        "switch.space_heater: sensor.circuit_b_power"
+    )
