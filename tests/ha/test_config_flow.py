@@ -431,6 +431,9 @@ async def test_reconfigure_is_not_shadowed_by_previously_saved_options(
             CONF_PAIRS: "",
         },
     )
+    # The abort reloads the entry. Let the reload finish, or its coordinator
+    # schedules a refresh timer after shutdown that nothing cancels.
+    await hass.async_block_till_done()
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     # The reconfigured values are effective, not shadowed.
