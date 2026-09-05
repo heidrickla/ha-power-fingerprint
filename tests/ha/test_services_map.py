@@ -436,3 +436,79 @@ async def test_a_device_that_left_the_registry_between_runs_is_skipped(
 
     response = await _labels(hass, dry_run=False)
     assert response["labelled"] == 0
+
+
+async def test_a_new_circuit_entity_is_named_after_the_device_it_sits_on(
+    hass: HomeAssistant, config_entry, lamp_device, powered
+):
+    """The entity has no device at the moment it registers, so without this
+    the ids come out sensor.circuit, sensor.circuit_2, one per mapped device
+    and none of them saying which."""
+    coordinator = await _setup(hass, config_entry)
+    await _record(config_entry, LAMP_METER, CIRCUIT_A)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{config_entry.entry_id}_circuit_{LAMP_METER}"
+    )
+    assert entity_id == "sensor.porch_lamp_circuit"
+
+
+async def test_an_entity_that_already_exists_keeps_the_id_it_has(
+    hass: HomeAssistant, config_entry, lamp_device, powered
+):
+    """The naming applies to new rows only. Renaming an installed entity would
+    break every automation and dashboard that already refers to it."""
+    registry = er.async_get(hass)
+    existing = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{config_entry.entry_id}_circuit_{LAMP_METER}",
+        suggested_object_id="circuit_2",
+    )
+    assert existing.entity_id == "sensor.circuit_2"
+
+    coordinator = await _setup(hass, config_entry)
+    await _record(config_entry, LAMP_METER, CIRCUIT_A)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert (
+        registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{config_entry.entry_id}_circuit_{LAMP_METER}"
+        )
+        == "sensor.circuit_2"
+    )
+    assert hass.states.get("sensor.circuit_2") is not None
+
+
+async def test_a_nameless_target_device_leaves_the_entity_name_alone(
+    hass: HomeAssistant, config_entry, panel, powered
+):
+    """A device row with no name has nothing to contribute to the id, and an
+    id built from an empty string would be worse than the plain one."""
+    devices = dr.async_get(hass)
+    nameless = devices.async_get_or_create(
+        config_entry_id=panel.entry_id, identifiers={("demo", "nameless")}
+    )
+    er.async_get(hass).async_get_or_create(
+        "sensor",
+        "demo",
+        "nameless-power",
+        device_id=nameless.id,
+        suggested_object_id="mystery_power",
+    )
+    hass.states.async_set("sensor.mystery_power", 40.0, POWER)
+    coordinator = await _setup(hass, config_entry)
+
+    await _record(config_entry, "sensor.mystery_power", CIRCUIT_A)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert (
+        er.async_get(hass).async_get_entity_id(
+            "sensor", DOMAIN, f"{config_entry.entry_id}_circuit_sensor.mystery_power"
+        )
+        == "sensor.circuit"
+    )
