@@ -10,21 +10,34 @@ for the rest.
 |---|---|
 | Public GitHub repository | Done 2026-09-04: `heidrickla/ha-power-fingerprint`, issues on, topics set. The personal forge stays the canonical remote (`gitea`); GitHub is `origin`. |
 | HACS and hassfest actions green | Done on `main` at `462200e`; both run on every push. The first public run failed hassfest on manifest key order and on an undeclared `energy` import; both fixed the same hour. |
-| Release | **Not created.** |
+| Quality scale | Done 2026-09-04: every rule `done` or `exempt`, coverage gated at 95% in the `Tests` workflow, mypy strict on every push. |
+| Changelog | Done 2026-09-04: `CHANGELOG.md`, starting at 0.17.0. |
+| Release | **Not created.** The version to tag is whatever `manifest.json` and `const.VERSION` carry at the time; they are 0.17.0 now. |
 | `hacs/default` pull request | **Not opened.** |
 
 ## The Home Assistant layer tests run on Linux, not here
 
-`tests/ha/` is 47 tests covering setup, unload and removal (the store goes with
-the entry), the config, reconfigure and options flows with every validation
-refusal followed by a recovery to a created entry, the dashboard price prefill,
-the derived sensor values, the coverage fault in both directions, the appliance
-sensor appearing when a shape is named and following its circuit's
-availability, device grouping, the orphaned-pause safety backstop,
-component-level action registration, the recorder guard on `learn`,
-`ConfigEntryNotReady` while the power sensors are missing, and unit conversion
-at ingestion — including the kilowatt-mains-against-watt-circuits case that was
-found on the development install itself.
+`tests/ha/` is 156 tests covering setup, unload and removal (the store goes
+with the entry), the config, reconfigure and options flows with every
+validation refusal followed by a recovery to a created entry, the dashboard
+price and circuit names in every shape the energy schema has had, the derived
+sensor values, the coverage fault in both directions, the appliance sensor
+appearing when a shape is named and following its circuit's availability,
+device grouping, the store's refusal to overwrite a probe with a passive
+answer, the rename migration, the recorder seed and the blind-time accounting
+behind the absence alert, the orphaned-pause safety backstop, component-level
+action registration, the recorder guard on `learn`, `ConfigEntryNotReady`
+while the power sensors are missing, and unit conversion at ingestion —
+including the kilowatt-mains-against-watt-circuits case that was found on the
+development install itself.
+
+All six actions are driven end to end against recorded history rather than
+patched out: `learn` from a trace through segmenting, clustering and cadence
+into the store, `label` and `autolabel` naming what it found, `verify_circuit`
+probing a switch against services that really move a circuit — with its
+restore path, its five refusals and the automations it pauses — `map_devices`
+placing a device by correlation, and `apply_circuit_labels` in dry run, apply
+and remove.
 
  **Installing the integration on a real Home Assistant found two defects the
 same afternoon, one of which this suite would have caught immediately**: a
@@ -34,16 +47,17 @@ failure into a debug line, and left standby reporting 5,017 W against a true
 figure of 3 W. Written tests that never run are not coverage.
 
 They run in GitHub Actions on every push and pull request, in the `Tests`
-workflow, against Home Assistant 2026.8.3 on Python 3.14 with coverage
-reported, alongside mypy with the full strict block and the offline validator.
-The forge's `Home Assistant layer` job runs the same steps on manual dispatch.
-They do not run on Windows: Home Assistant's runner imports `fcntl`, and the
-harness blocks sockets. That is expected rather than a defect — Home Assistant
-supports Linux, macOS and the devcontainer for development.
+workflow, against Home Assistant 2026.8.3 on Python 3.14, alongside mypy with
+the full strict block and the offline validator. Coverage spans both suites and
+**the build fails below 95%**; it is 99%. The forge's `Home Assistant layer`
+job runs the same steps on manual dispatch. They do not run on Windows: Home
+Assistant's runner imports `fcntl`, and the harness blocks sockets. That is
+expected rather than a defect — Home Assistant supports Linux, macOS and the
+devcontainer for development.
 
-They skip when the harness is absent, so a bare checkout reports **131 passed,
+They skip when the harness is absent, so a bare checkout reports **181 passed,
 1 skipped** and does not imply coverage it does not have. With Home Assistant
-installed, the extra 47 run as well.
+installed, the extra 156 run as well.
 
 ## Quality scale
 
@@ -53,10 +67,10 @@ exemption. `tools/validate_local.py` checks it against the pinned rule list, so
 a rule that is simply *missing* from the file fails rather than reading as
 complete.
 
-One rule is `todo`: `test-coverage`, because the four large actions and the
-dashboard reader have no Home Assistant layer tests yet and coverage is
-reported rather than gated. Everything else is `done` or `exempt`, each with a
-written reason. mypy with the full strict block passes against Home Assistant
+No rule is `todo`. Every one is `done` or `exempt`, each with a written reason;
+`test-coverage` closed on 2026-09-04 when the four large actions, the store and
+the dashboard reader got Home Assistant layer tests and the 95% gate landed in
+the workflow. mypy with the full strict block passes against Home Assistant
 2026.8.3, verified locally on 2026-09-04 and run again on every push.
 
  **`quality_scale` is deliberately absent from `manifest.json`.** The validator

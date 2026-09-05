@@ -151,12 +151,19 @@ rules:
   entity-disabled-by-default:
     status: done
     comment: |
-      Nothing qualifies. The two attribute-heavy sensors (standby power's
-      ranking, the unnamed candidates list) are the integration's primary
-      outputs, not diagnostics of a device, and both cap their attribute
-      payloads; the per-circuit appliance sensor is not created at all until
-      a circuit has a named fingerprint, which is stronger than creating 27
-      disabled ones. Reviewed 2026-09-04 and kept.
+      Decided per entity, and nothing qualifies. Unmonitored load, standby
+      power, standby annual cost and silent appliance are the answers this
+      integration exists to give; a user who disabled them would have
+      installed it for nothing. Coverage fault and contradiction are cheap
+      booleans that only move when something is wrong. Unnamed candidates is
+      the only screen that shows what learning found, so disabling it would
+      hide the one thing a new install has to look at. The two
+      attribute-heavy sensors cap their payloads (15 ranking rows, 25
+      candidates) rather than being disabled for size. The per-circuit
+      appliance sensor and the per-device circuit sensor are not created at
+      all until a fingerprint is named or a device is mapped, which is
+      stronger than creating 27 disabled ones. Reviewed again 2026-09-04
+      against the rule's "less popular or noisy" test.
   entity-translations: done
   exception-translations:
     status: done
