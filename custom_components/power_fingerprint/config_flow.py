@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 import voluptuous as vol
 from homeassistant.config_entries import (
@@ -152,6 +152,7 @@ class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -207,6 +208,7 @@ class PowerFingerprintConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(entry: ConfigEntry) -> PowerFingerprintOptionsFlow:
         return PowerFingerprintOptionsFlow()
 

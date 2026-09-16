@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -105,6 +105,7 @@ class _StandbyBase(_Base):
         return float(hours) >= MIN_STANDBY_WINDOW_HOURS
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         hours = (self.coordinator.data or {}).get("window_hours", 0.0)
         return {
@@ -149,6 +150,7 @@ class ApplianceSensor(_Base):
         ) or {}
 
     @property
+    @override
     def available(self) -> bool:
         """Unavailable when this circuit's own sensor cannot be read.
 
@@ -160,11 +162,13 @@ class ApplianceSensor(_Base):
         return bool(super().available) and self._circuit in running
 
     @property
+    @override
     def native_value(self) -> str | None:
         value = self._info.get("state")
         return str(value) if value is not None else None
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         info = dict(self._info)
         info.pop("state", None)
@@ -189,11 +193,13 @@ class UnmonitoredLoadSensor(_Base):
         super().__init__(coordinator, "unmonitored_load")
 
     @property
+    @override
     def native_value(self) -> float | None:
         cov = (self.coordinator.data or {}).get("coverage")
         return cov["unmonitored_w"] if cov else None
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
         cov = data.get("coverage") or {}
@@ -221,12 +227,14 @@ class StandbyPowerSensor(_StandbyBase):
         super().__init__(coordinator, "standby_power")
 
     @property
+    @override
     def native_value(self) -> float | None:
         if not self._window_ready:
             return None
         return (self.coordinator.data or {}).get("standby_total_w")
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         # Top 15 only: the attribute payload is written to the state machine on
         # every update and a 36-circuit ranking would bloat the recorder.
@@ -251,6 +259,7 @@ class StandbyCostSensor(_StandbyBase):
         super().__init__(coordinator, "standby_annual_cost")
 
     @property
+    @override
     def native_unit_of_measurement(self) -> str | None:
         # The user's own currency, not a hardcoded one. Home Assistant knows it
         # from the general settings, and a fixed "USD" would be wrong for most
@@ -259,6 +268,7 @@ class StandbyCostSensor(_StandbyBase):
         return str(currency) if currency else None
 
     @property
+    @override
     def native_value(self) -> float | None:
         if not self._window_ready:
             return None
@@ -289,13 +299,12 @@ class CandidatesSensor(_Base):
         super().__init__(coordinator, "candidates")
 
     @property
-    def native_value(self) -> int | None:
-        data = self.coordinator.data
-        if data is None:
-            return None
-        return len(data.get("candidates", []))
+    @override
+    def native_value(self) -> int:
+        return len(self.coordinator.data.get("candidates", []))
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
         rows = data.get("candidates", [])
@@ -347,6 +356,7 @@ class CircuitSensor(AttachedEntity, SensorEntity):
         return row
 
     @property
+    @override
     def native_value(self) -> str | None:
         circuit = self._row.get("circuit")
         if not circuit:
@@ -357,6 +367,7 @@ class CircuitSensor(AttachedEntity, SensorEntity):
         return str(circuit)
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         row = self._row
         return {

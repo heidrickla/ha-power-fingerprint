@@ -8,6 +8,8 @@ device's identifiers in `DeviceInfo` creates a duplicate device instead.
 
 from __future__ import annotations
 
+from typing import override
+
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
@@ -23,6 +25,7 @@ class FingerprintEntity(CoordinatorEntity[FingerprintCoordinator]):
     _attr_has_entity_name = True
 
     @property
+    @override
     def available(self) -> bool:
         """Unavailable only when every source is gone.
 
@@ -84,6 +87,7 @@ class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
         self._target_device_id = target_device_id
 
     @property
+    @override
     def suggested_object_id(self) -> str | None:
         """Name a NEW entity id after the device it will be attached to.
 
@@ -109,6 +113,7 @@ class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
             return base
         return f"{name} {base}" if base else name
 
+    @override
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         # After registration, so there is a registry row to point.
@@ -120,5 +125,6 @@ class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
             )
 
     @property
+    @override
     def available(self) -> bool:
         return bool(super().available) and self.coordinator.sources_available

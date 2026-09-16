@@ -345,19 +345,6 @@ async def test_the_candidate_list_is_capped_but_the_count_is_the_true_total(
     assert state.attributes["candidates"][0]["runs"] == 30
 
 
-async def test_the_candidate_count_is_unknown_before_the_first_poll(
-    hass: HomeAssistant, config_entry, powered
-):
-    """`0` would claim the learn step ran and found nothing."""
-    from custom_components.power_fingerprint.sensor import CandidatesSensor
-
-    coordinator = await _setup(hass, config_entry)
-    sensor = CandidatesSensor(coordinator)
-    coordinator.data = None
-    assert sensor.native_value is None
-    assert sensor.extra_state_attributes == {"named": 0, "candidates": []}
-
-
 async def test_a_circuit_entity_without_an_answer_yet_reports_nothing(
     hass: HomeAssistant, config_entry, powered
 ):

@@ -15,7 +15,7 @@ import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, State
@@ -271,6 +271,7 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "threshold_w": round(threshold, 1),
         }
 
+    @override
     async def _async_setup(self) -> None:
         """Fill the window from history once, so standby is not blank on boot.
 
@@ -369,6 +370,7 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 len(self.circuits),
             )
 
+    @override
     async def _async_update_data(self) -> dict[str, Any]:
         now: datetime = dt_util.utcnow()
         live: dict[str, float] = {}

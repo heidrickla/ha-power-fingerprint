@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -67,6 +67,7 @@ class CoverageFault(_Diagnostic):
         super().__init__(coordinator, "coverage_fault")
 
     @property
+    @override
     def is_on(self) -> bool | None:
         data = self.coordinator.data or {}
         cov = data.get("coverage")
@@ -80,6 +81,7 @@ class CoverageFault(_Diagnostic):
         return bool(off_by > data.get("tolerance_pct", 5.0))
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         cov = (self.coordinator.data or {}).get("coverage") or {}
         return {
@@ -102,10 +104,12 @@ class Contradiction(_Diagnostic):
         super().__init__(coordinator, "contradiction")
 
     @property
+    @override
     def is_on(self) -> bool:
         return bool((self.coordinator.data or {}).get("contradictions"))
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"detail": (self.coordinator.data or {}).get("contradictions", [])}
 
@@ -131,6 +135,7 @@ class SilentAppliance(_Base):
         super().__init__(coordinator, "silent_appliance")
 
     @property
+    @override
     def is_on(self) -> bool | None:
         detail = (self.coordinator.data or {}).get("absence_detail") or []
         if not detail:
@@ -142,6 +147,7 @@ class SilentAppliance(_Base):
         return False
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
         detail = data.get("absence_detail") or []

@@ -41,31 +41,57 @@ addopts = "-q"
 # it" rather than failing on anything real.
 asyncio_mode = "auto"
 
-# `strict-typing` is the Platinum rule that has actual teeth: Home Assistant
-# runs mypy in strict mode over integrations that claim it. This is the full
-# strict block, with nothing relaxed. It means something only with Home
-# Assistant installed, which is how the GitHub Tests workflow runs it; on a
-# workstation without Home Assistant every HA class is Any and the run reports
-# subclassing-Any noise that says nothing about this integration.
+# `strict-typing` is the Platinum rule with teeth: Home Assistant runs mypy in
+# strict mode over integrations that claim it. This is Home Assistant core's
+# own generated mypy.ini [mypy] block at 2026.8.3, plus `strict`, which covers
+# the flags core lists individually and the two core grants per module.
+# Dropped from core's block: plugins, native_parser and num_workers, which are
+# core-tree settings, and warn_incomplete_stub, which type-checks core's own
+# stubs. It means something only with Home Assistant installed, which is how
+# the GitHub Tests workflow runs it; on a workstation without Home Assistant
+# every HA class is Any and the run reports subclassing-Any noise that says
+# nothing about this integration.
 [tool.mypy]
 # Home Assistant 2026.x is written for 3.14 (parenthesis-free except
 # expressions and the like); a lower target makes mypy stop at HA's own
 # source before it reaches this integration.
 python_version = "3.14"
+# Pinned so a Windows workstation run and the Linux CI run resolve the same
+# platform branches.
+platform = "linux"
 strict = true
-warn_return_any = true
-disallow_untyped_defs = true
-disallow_any_generics = true
-no_implicit_reexport = true
-# Nothing is silenced here, not even missing imports: with Home Assistant
-# installed there is nothing to silence, and the run without it is not the one
-# that counts. Verified 2026-09-04 against 2026.8.3 on Python 3.14.
+local_partial_types = true
+no_implicit_optional = true
+strict_bytes = true
+# The only flag that reports a guard the lifecycle makes unreachable. Without
+# it the dead branch is invisible and reads as defensive.
+warn_unreachable = true
+extra_checks = false
+enable_error_code = [
+    "deprecated",
+    "explicit-override",
+    "ignore-without-code",
+    "redundant-self",
+    "truthy-iterable",
+]
+# Core's exact list. It names the two import conditions and leaves every other
+# resolution failure reportable, which `ignore_missing_imports` cannot.
+disable_error_code = ["annotation-unchecked", "import-not-found", "import-untyped"]
+follow_imports = "normal"
+show_error_codes = true
 
 # The tests are not part of the integration and core does not type-check a
 # custom integration's tests. This scopes the relaxation to them so that
 # `mypy .` on a checkout does not report the fixtures as errors; the CI run
 # checks custom_components/power_fingerprint and never reaches here.
+#
+# `strict` is not a per-module key. mypy 1.18.2 accepts it without a warning
+# and discards the whole section, so writing it here silently removes the
+# relaxation beside it.
 [[tool.mypy.overrides]]
 module = "tests.*"
-strict = false
 disallow_untyped_defs = false
+disallow_untyped_calls = false
+disallow_incomplete_defs = false
+disallow_any_generics = false
+warn_return_any = false
