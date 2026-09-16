@@ -106,14 +106,13 @@ jobs:
       - name: mypy strict
         run: python -m mypy custom_components/power_fingerprint
 
-      # A checkout carries no development host name of its own: .internal-hosts
-      # is gitignored and the remote names this forge, whose name parts the
-      # validator treats as generic. Without the secret the bare-name rule
-      # matches nothing, and under CI that is a failure rather than a note.
+      # No PF_INTERNAL_HOSTS, for the same reason as the GitHub workflow: a
+      # name given to the bare-name rule is printed the first time it fires,
+      # and this job runs on the same tree that is pushed to a public mirror.
+      # The step states that the name half did not run; the address, URL-host
+      # and private-suffix rules run either way, each on a control line first.
       - name: Offline HACS and hassfest checks
         run: python tools/validate_local.py
-        env:
-          PF_INTERNAL_HOSTS: ${{ secrets.PF_INTERNAL_HOSTS }}
 
   # No continue-on-error: a red hassfest or HACS check is a real failure, and
   # a step that cannot fail proves nothing.

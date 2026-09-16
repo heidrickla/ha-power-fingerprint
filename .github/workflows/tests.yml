@@ -45,11 +45,11 @@ jobs:
       # The full strict block, with Home Assistant importable: the run that
       # means something. Locally without Home Assistant every HA class is Any.
       - run: python -m mypy custom_components/power_fingerprint
-      # A checkout carries no development host name of its own: .internal-hosts
-      # is gitignored and the only remote is this code host, whose name parts
-      # are all generic. Without the secret the validator's bare-name rule
-      # matches nothing, and under CI it reports that as a failure instead of a
-      # note, so this step cannot go green on a rule that did not run.
+      # No PF_INTERNAL_HOSTS: this log is public, and the bare-name rule prints
+      # the name it was given the first time it fires, which publishes the name
+      # the rule exists to keep unpublished. The step states that the name half
+      # did not run. The address, URL-host and private-suffix rules need no
+      # name, run over the tree and over every queued commit, and each fires on
+      # a control line first, so a clean result is not a matcher that stopped
+      # matching. The bare-name rule is a workstation gate.
       - run: python tools/validate_local.py
-        env:
-          PF_INTERNAL_HOSTS: ${{ secrets.PF_INTERNAL_HOSTS }}
