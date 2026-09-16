@@ -188,7 +188,7 @@ _NOISE_WORDS = (
 def suggest_label(friendly_name: str) -> str | None:
     """The appliance name already sitting in a circuit's own title, if any.
 
-    NOT INFERENCE. "EmporiaVue Circuit 15 Dish Washer Power" contains the
+    NOT INFERENCE. "EmporiaVue Circuit 5 Dish Washer Power" contains the
     answer; somebody typed it when they clamped the panel. Reading it back is
     free and certain, and it is the difference between a user facing 39 shapes
     called `unnamed_0` and facing the handful that genuinely need a human.
@@ -210,7 +210,7 @@ def suggest_label(friendly_name: str) -> str | None:
             continue
         skip_next_number = False
         # A bare number before any real word is still part of the breaker's
-        # address ("Circuit 6 & 8"), not part of an appliance's name.
+        # address ("Circuit 7 & 9"), not part of an appliance's name.
         if low.isdigit() and not out:
             continue
         out.append(word)

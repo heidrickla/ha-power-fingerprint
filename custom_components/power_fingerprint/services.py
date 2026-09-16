@@ -340,7 +340,7 @@ def _label_name(title: str, prefix: str) -> str:
     """A label for a circuit: its own name, with the prefix only if it needs one.
 
     Meter firmware titles ("EmporiaVue Circuit 16 Power") get trimmed to the
-    part a person would recognise; energy-dashboard names ("Circuit 16 Study")
+    part a person would recognise; energy-dashboard names ("Circuit 23 Study")
     are already right and are used as they are.
     """
     cleaned = " ".join(

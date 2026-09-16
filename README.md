@@ -60,7 +60,7 @@ nothing never erases a previous answer.
 
 ### Filtering by breaker
 
-`power_fingerprint.apply_circuit_labels` adds a label such as `Circuit 16 Study`
+`power_fingerprint.apply_circuit_labels` adds a label such as `Circuit 23 Study`
 to each mapped device, so devices can be filtered by breaker anywhere in Home
 Assistant.
 

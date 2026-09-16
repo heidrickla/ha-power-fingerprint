@@ -273,7 +273,7 @@ def test_energy_or_current_also_prove_mains():
 
 
 def test_a_config_switch_may_not_be_probed():
-    """Found while picking probe targets on a real install.
+    """Found while picking probe targets.
 
     One Z-Wave dimmer published eleven `switch` entities - smart bulb mode,
     invert switch, local protection, double tap enabled - and one actual light.
@@ -281,31 +281,29 @@ def test_a_config_switch_may_not_be_probed():
     paddle; flipping `local_protection` stops the wall switch working. None of
     them move any current, so the probe would learn nothing either way.
     """
-    ok, why = v.may_probe("switch.front_porch_light_invert_switch", "config")
+    ok, why = v.may_probe("switch.patio_sconce_invert_switch", "config")
     assert not ok
     assert "not a load" in why
 
 
 def test_a_diagnostic_switch_may_not_be_probed():
-    ok, why = v.may_probe(
-        "switch.front_porch_light_firmware_progress_led", "diagnostic"
-    )
+    ok, why = v.may_probe("switch.patio_sconce_firmware_progress_led", "diagnostic")
     assert not ok
     assert "diagnostic" in why
 
 
 def test_a_real_light_is_still_probeable():
     """The guard must not refuse the thing it exists to allow."""
-    assert v.may_probe("light.front_porch_light", None)[0]
+    assert v.may_probe("light.patio_sconce", None)[0]
     assert v.may_probe("switch.playroom_outlet", None)[0]
 
 
 def test_a_live_load_is_not_switched_off_for_a_measurement():
-    """A real living room holds loads that must not be switched off.
+    """A room holds loads that must not be switched off.
 
-    `switch.living_room_desktop`, `switch.living_room_amplifier` and
-    `switch.living_room_rack_pdu_outlet_1` all pass a domain allowlist and all
-    mean yanking power from something mid-operation.
+    `switch.den_workstation`, `switch.den_amplifier` and
+    `switch.den_rack_outlet_2` all pass a domain allowlist and all mean
+    yanking power from something mid-operation.
     """
     ok, why = v.safe_to_switch_off("on", 118.0)
     assert not ok

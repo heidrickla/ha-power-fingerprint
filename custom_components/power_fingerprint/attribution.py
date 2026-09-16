@@ -6,8 +6,8 @@ reporting. On the development install there are 40 of them alongside 27
 circuits.
 
 Those devices are worth far more than one extra reading each, because they are
-already labelled. `sensor.front_porch_light_active_power` needs no human to
-name it. That gives three things the circuit CTs alone cannot:
+already labelled. `sensor.patio_sconce_active_power` needs no human to name
+it. That gives three things the circuit CTs alone cannot:
 
 1.  GROUND TJANE DOE FOR FREE. Every metered device is a labelled fingerprint,
    which is the bootstrap problem solved without asking anyone anything.

@@ -4,12 +4,14 @@ The cleanest possible test of virtual circuits: point it at a circuit carrying
 a single unmetered load and ask whether the whole-house trace contains its runs.
 
 ALWAYS PRINTS THE CHANCE BASELINE. A busy aggregate offers a candidate event
-every few minutes, so a short appliance cycle overlaps one constantly. On the
-development install a garage refrigerator scored 91% - against a 40% floor that
-shifting the same runs in time produced out of nothing at all. A match rate
-without its control is not a result.
+every few minutes, so a short appliance cycle overlaps one constantly. One
+refrigerator on its own circuit scored 91% - against a 40% floor that shifting
+the same runs in time produced out of nothing at all. A match rate without its
+control is not a result.
 
-   python tools/one_appliance.py --circuit sensor.circuit_25_power
+   python tools/one_appliance.py --circuit sensor.circuit_19_power
+
+`--mains` defaults to `sensor.mains_power`; pass your own whole-house meter.
 """
 
 from __future__ import annotations
@@ -29,14 +31,14 @@ _ap = argparse.ArgumentParser(
 )
 _ap.add_argument("--days", type=int, default=2)
 _ap.add_argument("--circuit", required=True, help="a circuit carrying one load")
-_ap.add_argument("--mains", default="sensor.whole_panel_total_power")
+_ap.add_argument("--mains", default="sensor.mains_power", help="the whole-house meter")
 _args = _ap.parse_args()
-DAYS, GARAGE, MAINS = _args.days, _args.circuit, _args.mains
+DAYS, CIRCUIT, MAINS = _args.days, _args.circuit, _args.mains
 _ha.power_sensors()
 
-rows = _ha.history(GARAGE, DAYS)
+rows = _ha.history(CIRCUIT, DAYS)
 events = analysis.segment(rows)
-print("=== circuit 25 (Garage), ground truth ===")
+print(f"=== {CIRCUIT}, ground truth ===")
 print(f"  {len(rows)} samples, {len(events)} runs over {DAYS}d")
 sizes = sorted((e.peak_w - e.floor_w) for e in events)
 if events:
@@ -68,7 +70,7 @@ inferred, unpaired = virtual.pair_steps(mains, floor)
 print()
 print(f"=== the mains, floor {floor:.0f} W: {len(inferred)} inferred runs ===")
 
-# Does the mains see the fridge? For each garage run, is there an inferred run
+# Does the mains see the appliance? For each run, is there an inferred run
 # that overlaps it AND matches its magnitude?
 hit = near = 0
 for ev in events:
@@ -84,7 +86,7 @@ for ev in events:
             hit += 1
             break
 print(
-    f"  of {near} garage runs above the floor, {hit} were found in the mains "
+    f"  of {near} runs above the floor, {hit} were found in the mains "
     f"({100 * hit / near if near else 0:.0f}%)"
 )
 below = len(events) - near
@@ -93,13 +95,13 @@ print(
 )
 
 # CONTROL. 528 inferred runs over 2 days is a lot of candidates, and a
-# magnitude-matched overlap can happen by chance. Shift every garage run by
+# magnitude-matched overlap can happen by chance. Shift every run by
 # offsets that preserve its size and duration but destroy its timing: whatever
 # still "matches" is what coincidence alone buys.
 from datetime import timedelta
 
 print()
-print("=== control: the same test with the garage runs shifted in time ===")
+print("=== control: the same test with the runs shifted in time ===")
 for hours in (3, 7, 13, 19):
     chance = 0
     for ev in events:

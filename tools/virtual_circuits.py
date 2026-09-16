@@ -38,7 +38,9 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--days", type=int, default=3)
-    ap.add_argument("--mains", default="sensor.whole_panel_total_power")
+    ap.add_argument(
+        "--mains", default="sensor.mains_power", help="the whole-house meter"
+    )
     ap.add_argument("--threshold", type=float, default=0.9)
     ap.add_argument(
         "--floor", type=float, default=None, help="override the resolvable floor, W"

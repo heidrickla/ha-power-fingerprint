@@ -168,7 +168,7 @@ def test_without_a_confirmed_circuit_nothing_is_attributed():
 def test_it_returns_measurements_and_no_verdict():
     d = b.describe(
         "sensor.c16",
-        "Circuit 16 Study",
+        "Circuit 23 Study",
         700.0,
         ["sensor.pdu"],
         standby_w=652.0,

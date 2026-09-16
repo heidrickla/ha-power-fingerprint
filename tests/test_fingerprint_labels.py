@@ -81,16 +81,16 @@ def test_match_refuses_rather_than_guessing():
 
 
 def test_a_named_circuit_yields_its_appliance():
-    assert fp.suggest_label("EmporiaVue Circuit 15 Dish Washer Power") == "Dish Washer"
-    assert fp.suggest_label("EmporiaVue Circuit 11 Furnace Central Power") == (
+    assert fp.suggest_label("EmporiaVue Circuit 5 Dish Washer Power") == "Dish Washer"
+    assert fp.suggest_label("EmporiaVue Circuit 13 Furnace Central Power") == (
         "Furnace Central"
     )
 
 
 def test_a_multi_breaker_designation_is_stripped():
-    """ "Circuit 6 & 8" is an address, not part of the appliance's name."""
+    """ "Circuit 7 & 9" is an address, not part of the appliance's name."""
     assert (
-        fp.suggest_label("EmporiaVue Circuit 6 & 8 Air Conditioner Bedrooms Power")
+        fp.suggest_label("EmporiaVue Circuit 7 & 9 Air Conditioner Bedrooms Power")
         == "Air Conditioner Bedrooms"
     )
 
@@ -102,7 +102,7 @@ def test_an_unnamed_circuit_returns_none_rather_than_a_number():
 
 
 def test_the_secondary_unit_prefix_is_stripped_too():
-    assert fp.suggest_label("EmporiaVueSecondary Circuit 21 Washer Power") == "Washer"
+    assert fp.suggest_label("EmporiaVueSecondary Circuit 14 Washer Power") == "Washer"
 
 
 def test_a_dashboard_style_name_yields_the_room_or_appliance():
@@ -110,8 +110,8 @@ def test_a_dashboard_style_name_yields_the_room_or_appliance():
 
     Entity titles come from the meter's firmware; these come from a person.
     """
-    assert fp.suggest_label("Circuit 25 Garage") == "Garage"
-    assert fp.suggest_label("Circuit 26 Microwave") == "Microwave"
+    assert fp.suggest_label("Circuit 19 Garage") == "Garage"
+    assert fp.suggest_label("Circuit 20 Microwave") == "Microwave"
     assert fp.suggest_label("Circuit 1 & 3 Oven") == "Oven"
     assert fp.suggest_label("Circuit 18 Breakfast, Kitchen Lights") == (
         "Breakfast, Kitchen Lights"
@@ -152,12 +152,12 @@ def _label_name(title, prefix="Circuit"):
 def test_a_dashboard_name_is_already_a_good_label():
     """A dashboard name is already a label; it must not be re-prefixed."""
     assert _label_name("Circuit 30") == "Circuit 30"
-    assert _label_name("Circuit 16 Study") == "Circuit 16 Study"
+    assert _label_name("Circuit 23 Study") == "Circuit 23 Study"
 
 
 def test_a_firmware_title_is_trimmed_but_keeps_its_number():
     """Unlike an appliance name, a label wants the breaker it refers to."""
-    assert _label_name("EmporiaVue Circuit 15 Dish Washer Power") == (
-        "Circuit 15 Dish Washer"
+    assert _label_name("EmporiaVue Circuit 5 Dish Washer Power") == (
+        "Circuit 5 Dish Washer"
     )
     assert _label_name("EmporiaVueSecondary Circuit 25 Power") == "Circuit 25"

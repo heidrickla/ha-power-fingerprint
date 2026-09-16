@@ -80,6 +80,11 @@ and are not documented here.
 
 ### Fixed
 
+- Docstrings, comments and test fixtures no longer name the maintainer's own
+  devices or breaker assignments. The example entity ids are invented and the
+  example circuit numbers match no panel. `tools/one_appliance.py` prints the
+  circuit it was given rather than a fixed one, and its `--mains` default is
+  `sensor.mains_power`, as is `tools/virtual_circuits.py`'s.
 - The diagnostics pseudonym is `<domain>.redacted_<n>`, numbered from one per
   download, and no longer a truncated digest of the entity id. The digest was
   unsalted over a low-entropy string: a 14,300-candidate dictionary built from

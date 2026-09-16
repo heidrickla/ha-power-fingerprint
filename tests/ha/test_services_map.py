@@ -257,7 +257,7 @@ async def test_applying_adds_the_label_without_touching_the_others(
     devices = dr.async_get(hass)
     devices.async_update_device(lamp_device.id, labels={theirs.label_id})
     hass.states.async_set(
-        CIRCUIT_A, 100.0, {**POWER, "friendly_name": "Circuit 16 Study"}
+        CIRCUIT_A, 100.0, {**POWER, "friendly_name": "Circuit 23 Study"}
     )
     await _setup(hass, config_entry)
     await _record(config_entry, LAMP_METER, CIRCUIT_A)
@@ -265,7 +265,7 @@ async def test_applying_adds_the_label_without_touching_the_others(
     response = await _labels(hass, dry_run=False)
 
     assert response["labelled"] == 1
-    ours = labels.async_get_label_by_name("Circuit 16 Study")
+    ours = labels.async_get_label_by_name("Circuit 23 Study")
     assert ours is not None
     device = devices.async_get(lamp_device.id)
     assert device.labels == {theirs.label_id, ours.label_id}
@@ -282,7 +282,7 @@ async def test_removing_takes_only_the_circuit_labels_back_off(
     devices = dr.async_get(hass)
     devices.async_update_device(lamp_device.id, labels={theirs.label_id})
     hass.states.async_set(
-        CIRCUIT_A, 100.0, {**POWER, "friendly_name": "Circuit 16 Study"}
+        CIRCUIT_A, 100.0, {**POWER, "friendly_name": "Circuit 23 Study"}
     )
     await _setup(hass, config_entry)
     await _record(config_entry, LAMP_METER, CIRCUIT_A)
@@ -303,13 +303,13 @@ async def test_the_prefix_is_only_added_where_the_name_lacks_one(
     hass.states.async_set(
         CIRCUIT_A,
         100.0,
-        {**POWER, "friendly_name": "EmporiaVue Circuit 15 Dish Washer Power"},
+        {**POWER, "friendly_name": "EmporiaVue Circuit 5 Dish Washer Power"},
     )
     await _setup(hass, config_entry)
     await _record(config_entry, LAMP_METER, CIRCUIT_A)
 
     response = await _labels(hass, prefix="Breaker")
-    assert response["would_label"][0]["label"] == "Breaker Circuit 15 Dish Washer"
+    assert response["would_label"][0]["label"] == "Breaker Circuit 5 Dish Washer"
 
 
 async def test_an_assignment_to_a_device_that_has_gone_is_skipped(
@@ -428,7 +428,7 @@ async def test_a_device_that_left_the_registry_between_runs_is_skipped(
     """A device deleted after it was mapped takes its entities with it, so the
     stored assignment names nothing. The run skips it and labels the rest."""
     hass.states.async_set(
-        CIRCUIT_A, 100.0, {**POWER, "friendly_name": "Circuit 16 Study"}
+        CIRCUIT_A, 100.0, {**POWER, "friendly_name": "Circuit 23 Study"}
     )
     await _setup(hass, config_entry)
     await _record(config_entry, LAMP_METER, CIRCUIT_A)

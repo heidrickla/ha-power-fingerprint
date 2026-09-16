@@ -83,7 +83,7 @@ async def async_circuit_names(hass: HomeAssistant) -> dict[str, str]:
     THE BEST NAMES IN THE HOUSE ARE USUALLY ALREADY ON THAT SCREEN. Entity
     titles come from the meter's firmware and read "EmporiaVue Circuit 25
     Power"; the energy dashboard is where somebody sat down and typed "Circuit
-    25 Garage", "Circuit 26 Microwave", "Circuit 21 Washer". Reading those back
+    25 Garage", "Circuit 20 Microwave", "Circuit 14 Washer". Reading those back
     is free and certain, and it is the difference between a user facing a list
     of numbered shapes and facing named appliances.
 

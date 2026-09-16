@@ -229,7 +229,7 @@ async def test_a_circuit_that_already_says_what_it_is_names_itself(
             "device_class": "power",
             "state_class": "measurement",
             "unit_of_measurement": "W",
-            "friendly_name": "EmporiaVue Circuit 15 Dish Washer Power",
+            "friendly_name": "EmporiaVue Circuit 5 Dish Washer Power",
         },
     )
     history[CIRCUIT_A] = cycling(1200.0)
@@ -280,7 +280,7 @@ async def test_a_circuit_with_several_shapes_gets_a_suggestion_not_a_guess(
             "device_class": "power",
             "state_class": "measurement",
             "unit_of_measurement": "W",
-            "friendly_name": "Circuit 21 Laundry",
+            "friendly_name": "Circuit 14 Laundry",
         },
     )
     history[CIRCUIT_A] = two_appliances(cycling)
@@ -306,7 +306,7 @@ async def test_autolabel_never_overwrites_a_name_a_person_gave(
             "device_class": "power",
             "state_class": "measurement",
             "unit_of_measurement": "W",
-            "friendly_name": "Circuit 15 Dish Washer",
+            "friendly_name": "Circuit 5 Dish Washer",
         },
     )
     history[CIRCUIT_A] = cycling(1200.0)
@@ -352,7 +352,7 @@ async def test_the_energy_dashboards_name_beats_the_firmware_title(
         return SimpleNamespace(
             data={
                 "device_consumption": [
-                    {"stat_rate": CIRCUIT_A, "name": "Circuit 26 Microwave"}
+                    {"stat_rate": CIRCUIT_A, "name": "Circuit 20 Microwave"}
                 ]
             }
         )

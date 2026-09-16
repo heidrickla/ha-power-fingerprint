@@ -28,10 +28,10 @@ def may_probe(entity_id: str, entity_category: str | None = None) -> tuple[bool,
 
     THE DOMAIN ALLOWLIST IS NOT ENOUGH ON ITS OWN, AND THIS ONE IS EASY TO
     MISS. A Z-Wave dimmer publishes its settings as `switch` entities in the
-    same domain as the load: `switch.front_porch_light_smart_bulb_mode`,
-    `switch.front_porch_light_invert_switch`,
-    `switch.front_porch_light_local_protection`. On one real install a single
-    dimmer contributed eleven such switches and exactly one actual light.
+    same domain as the load: `switch.patio_sconce_smart_bulb_mode`,
+    `switch.patio_sconce_invert_switch`,
+    `switch.patio_sconce_local_protection`. One dimmer contributed eleven such
+    switches and exactly one actual light.
 
     Flipping one of those does not measure anything - nothing moves on the
     circuit, so the probe learns nothing - and it silently RECONFIGURES the
@@ -64,19 +64,18 @@ def safe_to_switch_off(
     """Whether switching this device OFF would cut something that is running.
 
     THE DOMAIN ALLOWLIST CANNOT CLOSE THIS GAP, BECAUSE A COMPUTER'S POWER
-    FEED AND A TABLE LAMP ARE THE SAME KIND OF ENTITY. Enumerating one real
-    install's living room produced `switch.living_room_desktop`,
-    `switch.living_room_amplifier` and `switch.living_room_rack_pdu_outlet_1`
-    alongside the lamps - a desktop, an amplifier and an outlet on a rack
-    power strip. Probing any of them means yanking power from something
-    mid-operation. A lost document is not an acceptable price for learning
-    which breaker an outlet is on.
+    FEED AND A TABLE LAMP ARE THE SAME KIND OF ENTITY. Enumerating one room
+    produced `switch.den_workstation`, `switch.den_amplifier` and
+    `switch.den_rack_outlet_2` alongside the lamps - a desktop, an amplifier
+    and an outlet on a rack power strip. Probing any of them means yanking
+    power from something mid-operation. A lost document is not an acceptable
+    price for learning which breaker an outlet is on.
 
     THE TEST IS MEASURED, NOT NAMED. Name heuristics fail in both directions
-    - `switch.living_room_near_office_outlet` says nothing about what is
-    plugged into it today. A device that is drawing a sustained load has
-    something running on it; that is the whole question, and the device's own
-    power meter answers it directly.
+    - `switch.den_near_hall_outlet` says nothing about what is plugged into it
+    today. A device that is drawing a sustained load has something running on
+    it; that is the whole question, and the device's own power meter answers it
+    directly.
 
     Only switching OFF is gated. Turning an idle device ON is recoverable: the
     probe restores the prior state, and worst case something powers up briefly.

@@ -127,8 +127,8 @@ async def test_the_circuit_names_come_back_keyed_by_the_power_sensor(
     exactly what this integration is configured with."""
     prefs = {
         "device_consumption": [
-            {"stat_rate": "sensor.circuit_25_power", "name": "Circuit 25 Garage"},
-            {"stat_rate": "sensor.circuit_26_power", "name": "Circuit 26 Microwave"},
+            {"stat_rate": "sensor.circuit_19_power", "name": "Circuit 19 Garage"},
+            {"stat_rate": "sensor.circuit_20_power", "name": "Circuit 20 Microwave"},
             {"stat_rate": "sensor.no_name_power"},
             {"name": "no rate"},
             "not a dict",
@@ -136,8 +136,8 @@ async def test_the_circuit_names_come_back_keyed_by_the_power_sensor(
     }
     with patch(MANAGER, manager(prefs)):
         assert await async_circuit_names(hass) == {
-            "sensor.circuit_25_power": "Circuit 25 Garage",
-            "sensor.circuit_26_power": "Circuit 26 Microwave",
+            "sensor.circuit_19_power": "Circuit 19 Garage",
+            "sensor.circuit_20_power": "Circuit 20 Microwave",
         }
 
 
