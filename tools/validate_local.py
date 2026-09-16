@@ -14,11 +14,13 @@ verification.
 from __future__ import annotations
 
 import ast
+import ipaddress
 import json
 import os
 import re
 import sys
 import tomllib
+import urllib.parse
 from typing import Any
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -43,6 +45,35 @@ VALID_IOT_CLASS = {
     "local_push",
     "calculated",
 }
+# The two manifest keys that are URLs a user clicks. hassfest checks neither
+# for reachability, so a development address committed to either one reaches
+# the published repo with every check green.
+URL_MANIFEST_KEYS = ("documentation", "issue_tracker")
+# Pinned rather than delegated to ipaddress.is_private, whose membership has
+# changed between Python releases.
+PRIVATE_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "10.0.0.0/8",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
+PRIVATE_SUFFIXES = (".local", ".lan", ".internal")
+# Directories whose text ships to whoever clones the repo, and the suffixes
+# worth reading in them.
+PUBLISHED_DIRS = (".gitea", ".github", "custom_components", "tests", "tools")
+PUBLISHED_SUFFIXES = {".py", ".yml", ".yaml", ".json", ".md", ".toml", ".cfg"}
+# A dotted-quad anywhere in that text, tested against PRIVATE_NETWORKS rather
+# than listed a second time.
+IP_LITERAL_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+# The development forge and build hosts, which are names rather than addresses.
+INTERNAL_NAME_RE = re.compile(r"\bdevforge\w*|\bdevhost\w*", re.IGNORECASE)
 
 # Pinned from developers.home-assistant.io/docs/core/integration-quality-scale/checklist
 # (checked 2026-09-02: 54 rules, none new or deprecated). The list is pinned
@@ -128,6 +159,61 @@ def check(condition: bool, message: str) -> None:
         failures.append(message)
 
 
+def private_host(url: str) -> str | None:
+    """The host of `url` when nobody outside this network could follow it.
+
+    Returns None for a host a user can reach, so a caller reads a string as
+    the reason to refuse. `urlsplit().hostname` lowercases the host and strips
+    the brackets from an IPv6 literal.
+    """
+    host = urllib.parse.urlsplit(url).hostname
+    if not host:
+        return None
+    if host == "localhost" or host.endswith(PRIVATE_SUFFIXES):
+        return host
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        # A name with no dot in it resolves only against a local search
+        # domain, so it is a LAN name rather than a public one.
+        return host if "." not in host else None
+    return host if any(address in net for net in PRIVATE_NETWORKS) else None
+
+
+def internal_address(text: str) -> bool:
+    """True when `text` is an address only this network can reach."""
+    try:
+        address = ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return any(address in net for net in PRIVATE_NETWORKS)
+
+
+def published_files() -> list[str]:
+    """Every text file that ships, excluding this one.
+
+    This file carries the forbidden patterns as its own constants, so scanning
+    it would report itself.
+    """
+    this_file = os.path.abspath(__file__)
+    found: list[str] = [
+        os.path.join(ROOT, f)
+        for f in ("README.md", "CHANGELOG.md", "hacs.json", "pyproject.toml")
+        if os.path.exists(os.path.join(ROOT, f))
+    ]
+    for root_dir in PUBLISHED_DIRS:
+        for dirpath, dirs, files in os.walk(os.path.join(ROOT, root_dir)):
+            dirs[:] = [d for d in dirs if not d.startswith((".", "__"))]
+            for f in files:
+                path = os.path.join(dirpath, f)
+                if os.path.splitext(f)[1] not in PUBLISHED_SUFFIXES:
+                    continue
+                if os.path.abspath(path) == this_file:
+                    continue
+                found.append(path)
+    return found
+
+
 def constants(source: str, prefix: str) -> dict[str, str]:
     """Module-level string assignments whose name starts with prefix."""
     found: dict[str, str] = {}
@@ -190,11 +276,13 @@ def main() -> int:
         keys[:2] == ["domain", "name"] and keys[2:] == sorted(keys[2:]),
         "manifest keys must be domain, name, then alphabetical (hassfest MANIFEST)",
     )
-    if re.search(
-        r"//(?:localhost|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)",
-        manifest.get("documentation", ""),
-    ):
-        notes.append("documentation URL points at a LAN host - useless to a user")
+    for url_key in URL_MANIFEST_KEYS:
+        host = private_host(str(manifest.get(url_key, "")))
+        check(
+            host is None,
+            f"manifest {url_key} host {host!r} is not reachable from outside "
+            "this network - a user cannot follow it",
+        )
     check(
         "quality_scale" not in manifest,
         "quality_scale in manifest.json: the badge is core-only, a custom "
@@ -454,6 +542,20 @@ def main() -> int:
         "async def async_remove_entry" in init_src,
         "__init__.py has no async_remove_entry - the store would outlive the entry",
     )
+
+    # -------------------------------------------------- published tree
+    # The manifest is not the only file that ships. A workflow header and a
+    # tool docstring are published too, and neither hassfest nor the HACS
+    # action reads them.
+    for path in published_files():
+        text = read(path)
+        hits = {m for m in INTERNAL_NAME_RE.findall(text)}
+        hits |= {m for m in IP_LITERAL_RE.findall(text) if internal_address(m)}
+        for hit in sorted(hits):
+            failures.append(
+                f"{os.path.relpath(path, ROOT)} names {hit!r}, which is on the "
+                "development network and means nothing to a user"
+            )
 
     # ---------------------------------------------------------- syntax
     for dirpath, _dirs, files in os.walk(COMP):
