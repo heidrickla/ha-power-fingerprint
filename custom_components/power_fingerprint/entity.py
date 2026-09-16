@@ -57,7 +57,7 @@ class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
     DO NOT DO THIS BY RETURNING THE TARGET DEVICE'S IDENTIFIERS IN
     `DeviceInfo`. That was the documented trick for years and it no longer
     merges. Measured on Home Assistant 2026.8 against a real registry: passing
-    identifiers `[["zha", "00:11:22:33:44:55:66:77"]]` that matched an existing
+    identifiers `[["zha", "<ieee address>"]]` that matched an existing
     Inovelli device EXACTLY produced a second, nameless device entry owned by
     this integration, sitting beside the real one. Nine of them, one per
     mapping, silently polluting the device registry. The registry now carries
