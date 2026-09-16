@@ -1,11 +1,8 @@
 name: Validate
 
-# Runs on the self-hosted CI runner on devforge. GitHub Actions is unavailable
-# (spend cap) and this hardware is already paid for.
-#
-# THE the CI runner is shared. Other agent sessions queue behind
-# anything pushed here, so an ordinary push runs ONE fast job. Anything that
-# installs Home Assistant is workflow_dispatch only.
+# Runs on a self-hosted CI runner, so an ordinary push
+# runs ONE fast job. Anything that installs Home Assistant is
+# workflow_dispatch only.
 
 on:
   push:
@@ -19,8 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pinned: an unpinned linter makes CI non-reproducible, and this exact
-      # failure has already been paid for once on the sleepiq repo.
+      # Pinned: an unpinned linter makes CI non-reproducible.
       - name: Install ruff (PINNED)
         run: |
           python3 -m pip install --quiet --upgrade pip
