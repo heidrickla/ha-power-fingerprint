@@ -7,7 +7,7 @@ the ones in `manifest.json` and `const.VERSION`, which are kept equal.
 This file starts at 0.17.0. Earlier versions were developed against one install
 and are not documented here.
 
-## [Unreleased]
+## [0.17.1] - 2026-09-16
 
 ### Changed
 
@@ -20,10 +20,22 @@ and are not documented here.
   the names come from `PF_INTERNAL_HOSTS`, the gitignored `.internal-hosts`
   file or the configured git remotes, so no name is published to enforce the
   rule.
+- `tools/validate_local.py` refuses the carrier-grade NAT range, the
+  unspecified address, the reserved ranges and the `.corp`, `.home`,
+  `.home.arpa`, `.intranet` and `.localdomain` suffixes. Its file list comes
+  from `git ls-files` instead of a directory walk, so it reads extensionless
+  published files such as `.gitattributes`, which the walk skipped, and skips
+  an ignored path.
+- `tools/validate_local.py` refuses a version string that equals the newest
+  reachable tag when commits sit on top of it. The three version strings were
+  only ever checked against each other, which passes when all three are stale
+  together.
 - The installation section states which reader gets the in-repo brand icon and
   which gets the CDN placeholder.
 - `tools/identify.py` states `HA_URL` and `HA_TOKEN` in its usage line, and a
   missing one names itself instead of raising `KeyError`.
+- The workflow headers and `.gitattributes` describe what the jobs do without
+  naming the machines they run on.
 
 ## [0.17.0] - 2026-09-04
 
@@ -77,7 +89,7 @@ and are not documented here.
   `Tests` workflow fails below 95%. Both suites run under one measurement.
 - Every push runs the Home Assistant layer tests, mypy with the full strict
   block and the offline validator against Home Assistant 2026.8.3 on Python
-  3.14. They previously ran only on manual dispatch on the private forge.
+  3.14. They previously ran only on manual dispatch.
 - `tools/validate_local.py` checks versions across `manifest.json`,
   `const.VERSION` and `pyproject.toml`, scans every module for an untranslated
   exception, and refuses `test-coverage: done` if the coverage gate is

@@ -17,5 +17,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/heidrickla/ha-power-fingerprint/issues",
   "single_config_entry": true,
-  "version": "0.17.0"
+  "version": "0.17.1"
 }
