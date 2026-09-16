@@ -1,9 +1,11 @@
 """Fixtures for the Home Assistant layer tests.
 
-These run against Home Assistant, on Linux, in CI - not on a developer's
-Windows box, where the harness blocks sockets and the ProactorEventLoop needs a
-local socket pair for its own self-pipe. That is expected; HA supports Linux,
-macOS and the devcontainer for development.
+These run against Home Assistant, in CI and on a Windows workstation alike.
+`tests/winposix.py` supplies what Windows does not have: the `fcntl` and
+`resource` modules, an escape for the socket pair the ProactorEventLoop builds
+its self-pipe from, and the selector loop aiodns needs. It is loaded by
+`-p tests.winposix` from `pyproject.toml`, early enough for the first two, and
+`install_ha_layer_shims()` below installs the last two.
 
 They skip when the harness is absent, so the pure-module suite one level up
 still runs on a bare checkout and the default run does not imply coverage that
@@ -29,6 +31,10 @@ import pytest
 # Skips this whole directory when Home Assistant is not installed, so the
 # pure-module suite one level up still runs on a bare checkout.
 pytest.importorskip("pytest_homeassistant_custom_component")
+
+from tests.winposix import install_ha_layer_shims
+
+install_ha_layer_shims()
 
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
