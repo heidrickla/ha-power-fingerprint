@@ -72,8 +72,10 @@ PUBLISHED_SUFFIXES = {".py", ".yml", ".yaml", ".json", ".md", ".toml", ".cfg"}
 # A dotted-quad anywhere in that text, tested against PRIVATE_NETWORKS rather
 # than listed a second time.
 IP_LITERAL_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
-# The development forge and build hosts, which are names rather than addresses.
-INTERNAL_NAME_RE = re.compile(r"\bdevforge\w*|\bdevhost\w*", re.IGNORECASE)
+# Any URL in that text, so a development host reached by name rather than by
+# address is caught by the same rule the manifest keys use. A bare host named
+# in prose with no scheme is not caught by anything here.
+URL_RE = re.compile(r"\bhttps?://[^\s\"'`<>)\]]+")
 
 # Pinned from developers.home-assistant.io/docs/core/integration-quality-scale/checklist
 # (checked 2026-09-02: 54 rules, none new or deprecated). The list is pinned
@@ -549,8 +551,8 @@ def main() -> int:
     # action reads them.
     for path in published_files():
         text = read(path)
-        hits = {m for m in INTERNAL_NAME_RE.findall(text)}
-        hits |= {m for m in IP_LITERAL_RE.findall(text) if internal_address(m)}
+        hits = {m for m in IP_LITERAL_RE.findall(text) if internal_address(m)}
+        hits |= {h for url in URL_RE.findall(text) if (h := private_host(url))}
         for hit in sorted(hits):
             failures.append(
                 f"{os.path.relpath(path, ROOT)} names {hit!r}, which is on the "
