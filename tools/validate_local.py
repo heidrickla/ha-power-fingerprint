@@ -19,12 +19,24 @@ this file would publish it, so the names are read from outside the tree: the
 `PF_INTERNAL_HOSTS` environment variable, the gitignored `.internal-hosts`
 file, and the hosts of the configured git remotes.
 
-A CI checkout supplies none of the three: the environment variable comes from a
-repository secret, `.internal-hosts` is gitignored so a clone never has it, and
-the only remote is the code host, whose name parts are all generic. Under `CI`
-an empty name list is a failure, because the run that guards the public push is
-the one that cannot derive a name. Off CI it is a note, and the address, URL and
-internal-suffix rules apply either way.
+A CI checkout supplies none of the three: no repository secret holds the names,
+`.internal-hosts` is gitignored so a clone never has it, and the only remote is
+the code host, whose name parts are all generic. An empty name list is a note
+that names `PF_INTERNAL_HOSTS`, not a failure. The name half is a workstation
+gate: supplying the names to a public run would publish them in its log, which
+is the disclosure the rule exists to prevent. Measured 2026-09-16 in a fresh
+clone: a CI run covers the address, URL-host and private-suffix rules over the
+published tree and over every queued commit, and the bare-name rule runs on a
+workstation only.
+
+Under `CI` every report replaces the matched string with `[redacted]` and keeps
+the file, the line and the rule that matched, which locate the match without
+naming it. A GitHub Actions log on a public repository is public. A local run
+prints the match, which is what makes the line findable.
+
+Each matcher is fired on a control line built at runtime before a clean result
+is believed. A tree that holds nothing and a matcher that matches nothing
+otherwise print the same result.
 
 The same rules run over every commit the tracking branch does not have, both
 the files each one changes and its message. A push carries the history, and a
@@ -216,6 +228,17 @@ def host_tokens(url: str) -> set[str]:
 def in_ci() -> bool:
     """Whether this run is a CI job. GitHub Actions and the CI runner both set CI."""
     return os.environ.get("CI", "").strip().lower() not in {"", "0", "false"}
+
+
+def shown(matched: str) -> str:
+    """A matched string as a report may print it.
+
+    The environment decides, not a flag: a run log on a public repository is
+    public, so a CI run gets the placeholder and a workstation run gets the
+    match. A fixed placeholder rather than a digest or a truncation, because
+    both of those still narrow a host name short enough to guess.
+    """
+    return "[redacted]" if in_ci() else matched
 
 
 def internal_names() -> list[str]:
@@ -570,14 +593,18 @@ def is_network_address(literal: str, tail: str) -> bool:
     return True
 
 
-def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str]]:
-    """Every development host named in text, as (line number, host)."""
-    hits: list[tuple[int, str]] = []
+def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str, str]]:
+    """Every development host named in text, as (line number, rule, host).
+
+    The rule travels with the hit because a CI report prints no host: the
+    file, the line and the rule are what is left to act on.
+    """
+    hits: list[tuple[int, str, str]] = []
     for number, line in enumerate(text.splitlines(), 1):
         if name_re is not None:
             for name in name_re.findall(line):
                 if name.lower() not in ALLOWED_HOSTS:
-                    hits.append((number, name.lower()))
+                    hits.append((number, "development name", name.lower()))
         for pattern in (IP_LITERAL_RE, IPV6_LITERAL_RE):
             for match in pattern.finditer(line):
                 literal = match.group(0).lower()
@@ -586,7 +613,7 @@ def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str]]:
                 if is_network_address(literal, line[match.end() :]):
                     continue
                 if blocked_address(literal, TREE_NETS):
-                    hits.append((number, literal))
+                    hits.append((number, "private address", literal))
         for url in URL_RE.findall(line):
             try:
                 host = _urlsplit(url).hostname or ""
@@ -595,14 +622,18 @@ def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str]]:
             if not host or not HOST_CHARS_RE.match(host):
                 continue
             if blocked_host(host, TREE_NETS):
-                hits.append((number, host))
+                hits.append((number, "URL host", host))
         for name in BARE_HOST_RE.findall(line):
             if name.lower() not in ALLOWED_HOSTS:
-                hits.append((number, name.lower()))
+                hits.append((number, "private suffix", name.lower()))
     # A bare literal inside a URL matches two branches and would be reported
-    # twice on the same line. First occurrence wins, so the order stays the
-    # order the line reads in.
-    return list(dict.fromkeys(hits))
+    # twice on the same line. Deduplicating on the line and the host, not on
+    # the rule as well, keeps that one report; first occurrence wins, so the
+    # order stays the order the line reads in.
+    seen: dict[tuple[int, str], tuple[int, str, str]] = {}
+    for number, rule, host in hits:
+        seen.setdefault((number, host), (number, rule, host))
+    return list(seen.values())
 
 
 def name_pattern() -> Any:
@@ -627,16 +658,61 @@ def name_pattern() -> Any:
             r"(?:" + "|".join(re.escape(n) for n in names) + r")\w*",
             re.IGNORECASE,
         )
-    if in_ci():
-        failures.append(
-            "no development host names given to the scans, so the bare-name "
-            f"rule matched nothing - set {INTERNAL_HOSTS_ENV} from a "
-            "repository secret, or this job passes on a tree that names a "
-            "development host in prose"
-        )
-    else:
-        notes.append("no development host names given to the scans")
+    notes.append(
+        "no development host names reached the scans, so the bare-name half "
+        "did not run and this result covers addresses, URL hosts and private "
+        f"suffixes only; set {INTERNAL_HOSTS_ENV} to run the name half"
+    )
     return None
+
+
+def scan_controls(name_re: Any) -> None:
+    """Fire every matcher on a synthetic line before a clean result is believed.
+
+    A tree that holds nothing and a matcher that matches nothing print the
+    same result. Each control is built here from the pinned address space and
+    the pinned suffix list, so the strings exist at runtime and in no file the
+    scan reads.
+    """
+
+    def fired(text: str, rule: str, name_re: Any = None) -> bool:
+        """Whether that one rule matched, not whether any rule did.
+
+        A bare host inside a URL matches the suffix rule too, so a control
+        that asks only for a hit passes with the URL rule neutered.
+        """
+        return any(r == rule for _, r, _ in tree_hits(text, name_re))
+
+    for net in (TREE_NETS[0], next(n for n in TREE_NETS if n.version == 6)):
+        address = next(
+            str(net.network_address + offset)
+            for offset in range(1, 16)
+            if str(net.network_address + offset) not in ALLOWED_HOSTS
+        )
+        check(
+            fired(f"control line naming {address}", "private address"),
+            f"the address rule did not match {address}, an address it refuses, "
+            "so a clean result says nothing about the addresses in the tree",
+        )
+    suffix = PRIVATE_SUFFIXES[0]
+    check(
+        fired(f"control line naming http://control{suffix}:8123/", "URL host"),
+        f"the URL-host rule did not match a {suffix} host, so a clean result "
+        "says nothing about the URLs in the tree",
+    )
+    check(
+        fired(f"control line naming control{suffix} in prose", "private suffix"),
+        f"the private-suffix rule did not match a bare {suffix} host, so a "
+        "clean result says nothing about the suffixed names in the tree",
+    )
+    if name_re is None:
+        return
+    name = internal_names()[0]
+    check(
+        fired(f"control line naming {name}-ci", "development name", name_re),
+        f"the bare-name rule did not match {shown(name)}, a name it was "
+        "given, so a clean result says nothing about the names in the tree",
+    )
 
 
 def git_out(*args: str) -> str | None:
@@ -691,20 +767,22 @@ def scan_queued_commits(name_re: Any) -> None:
     if not commits:
         return
 
-    def report(where: str, number: int, host: str) -> None:
+    def report(where: str, number: int, rule: str, host: str) -> None:
         failures.append(
-            f"{where}:{number} names {host} - that commit has not been pushed "
-            "and carries a name that must not leave this network"
+            f"{where}:{number} {rule} rule matched {shown(host)} - that commit "
+            "has not been pushed and carries a name that must not leave this "
+            "network"
         )
 
     for sha in commits:
         short = sha[:9]
         message = git_out("log", "-1", "--format=%B", sha) or ""
-        for number, host in tree_hits(message, name_re):
-            report(f"{short} (message)", number, host)
+        for number, rule, host in tree_hits(message, name_re):
+            report(f"{short} (message)", number, rule, host)
         for number, line in enumerate(message.splitlines(), 1):
-            if LOCAL_PATH_RE.search(line):
-                report(f"{short} (message)", number, "a local absolute path")
+            match = LOCAL_PATH_RE.search(line)
+            if match:
+                report(f"{short} (message)", number, "local path", match.group(0))
         changed = git_out("diff-tree", "-r", "--no-commit-id", "--name-only", sha)
         for path in (changed or "").split("\n"):
             path = path.strip()
@@ -713,8 +791,8 @@ def scan_queued_commits(name_re: Any) -> None:
             blob = git_out("show", f"{sha}:{path}")
             if blob is None:
                 continue
-            for number, host in tree_hits(blob, name_re):
-                report(f"{short}:{path}", number, host)
+            for number, rule, host in tree_hits(blob, name_re):
+                report(f"{short}:{path}", number, rule, host)
 
 
 def scan_published_tree(name_re: Any) -> None:
@@ -746,10 +824,11 @@ def scan_published_tree(name_re: Any) -> None:
         except OSError, UnicodeDecodeError:
             continue
         seen += 1
-        for number, host in tree_hits(text, name_re):
+        for number, rule, host in tree_hits(text, name_re):
             failures.append(
-                f"{path}:{number} names {host} - that host is on the development "
-                "network and means nothing to a user who installs this"
+                f"{path}:{number} {rule} rule matched {shown(host)} - that host "
+                "is on the development network and means nothing to a user who "
+                "installs this"
             )
     check(seen > 0, "the published-tree scan read no files, so it proved nothing")
 
@@ -784,8 +863,8 @@ def main() -> int:
         host = unreachable_host(str(manifest.get(url_key, "")))
         check(
             host is None,
-            f"manifest {url_key} host {host!r} is not reachable from outside "
-            "this network - a user cannot follow it",
+            f"manifest {url_key} host {shown(str(host))} is not reachable from "
+            "outside this network - a user cannot follow it",
         )
     check(
         "quality_scale" not in manifest,
@@ -1078,6 +1157,7 @@ def main() -> int:
                 f"manifest {_key} is not an absolute http(s) URL a user can open",
             )
     host_names = name_pattern()
+    scan_controls(host_names)
     scan_published_tree(host_names)
     scan_queued_commits(host_names)
 
