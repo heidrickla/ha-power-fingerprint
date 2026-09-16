@@ -209,7 +209,6 @@ def agree(observations: list[str | None]) -> tuple[str | None, str]:
 
     SILENCE IS NOT DISAGREEMENT, AND CONFLATING THEM DISCARDS GOOD DATA.
 
-
     A probe that produced no reading is MISSING DATA. A probe that named a
     different circuit is a CONTRADICTION. Only the second should void the
     result; the first should reduce confidence, which is what the caller does

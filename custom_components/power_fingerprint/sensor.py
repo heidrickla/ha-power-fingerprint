@@ -331,7 +331,7 @@ class CircuitSensor(AttachedEntity, SensorEntity):
     The state is the circuit sensor's friendly name, because "Circuit 30" on
     the front porch light's own page is the answer to a question somebody asked
     while standing at a breaker panel. The attributes carry how it was
-    established, because  a passive correlation and a three-probe agreement
+    established, because a passive correlation and a three-probe agreement
     are not the same claim and must never look the same.
     """
 

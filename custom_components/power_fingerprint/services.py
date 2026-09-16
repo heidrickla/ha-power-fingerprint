@@ -958,9 +958,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         already use it - but an integration may only set it on devices IT
         OWNS, and these belong to ZHA and Z-Wave. Creating a device per circuit
         was the alternative and was rejected: 27 entries called "Circuit 30"
-        beside 519 real ones read as duplicate devices, and
-        that registry already has `emporiavue` and `EmporiaVue` confusing
-        people.
+        beside 519 real ones read as duplicate devices, and that registry
+        already has `emporiavue` and `EmporiaVue` confusing people.
 
         Labels are the USER'S namespace and no integration API for them is
         documented - there is simply no ownership check stopping this. So it

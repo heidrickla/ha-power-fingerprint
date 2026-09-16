@@ -228,7 +228,7 @@ def summarize(
 
     `cadences` maps cluster id to that cluster's learned rhythm, which absence
     detection later judges against. It is passed in rather than computed here
-    because  `analysis`, `fingerprint`, `attribution` and `verify` are loaded
+    because `analysis`, `fingerprint`, `attribution` and `verify` are loaded
     BY PATH - by the pure test suite and by `tools/_ha.py` - so a relative
     import between them raises "attempted relative import with no known parent
     package" and breaks both. They stay mutually independent on purpose.
