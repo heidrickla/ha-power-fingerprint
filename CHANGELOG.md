@@ -52,7 +52,7 @@ and are not documented here.
   run. Both workflows now pass `PF_INTERNAL_HOSTS` from a repository secret.
 - The ruff target is `py314`, the version both workflows install and the
   version the mypy block pins. At that target `ruff format` writes the PEP 758
-  form of a multi-exception `except`, so eleven clauses across six files lost
+  form of a multi-exception `except`, so ten clauses across six files lost
   their parentheses and the source now needs Python 3.14. Home Assistant
   2026.3.0, the floor the manifest declares, itself declares
   `requires-python >=3.14.2`, so no interpreter able to run a supported Home
