@@ -68,6 +68,15 @@ and are not documented here.
   translation category serves the JSON text - so the two copies drifted on 15
   of 28 strings. `tools/validate_local.py` now refuses `name` or `description`
   in `services.yaml`.
+- `tools/validate_local.py` matches an IPv6 literal in the published tree, and
+  a bracketed IPv6 host inside a URL. The two IPv6 ranges in
+  `tools/_netblocks.py` had no path to a match: the literal pattern took
+  dotted quads only, and the URL pattern stopped at the opening bracket, which
+  left `urlsplit` raising on an unbalanced bracket. A line naming either is
+  now reported once rather than once per pattern that matched it.
+- The four `tools/` scripts print their usage block as written. `argparse`
+  rewrapped it by default, which ran the example commands together with the
+  prose around them.
 
 ### Fixed
 

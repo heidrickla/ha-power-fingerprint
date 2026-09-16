@@ -386,7 +386,21 @@ PUBLISHED_NAMES = {
 SCAN_EXEMPT = ("tools/_netblocks.py",)
 
 IP_LITERAL_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
-URL_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s\"'`<>)\]},]+")
+# A candidate IPv6 literal, not a validator: `blocked_address` parses each
+# match with `ipaddress` and drops what will not parse. Three colon-separated
+# groups is the floor, which leaves a clock time and a two-group MAC prefix
+# out. The two IPv6 CIDRs in `_netblocks.py` had no path to a match before
+# this: IP_LITERAL_RE matches dotted quads only, and URL_RE stopped at the
+# opening bracket of a bracketed host.
+IPV6_LITERAL_RE = re.compile(
+    r"(?<![0-9A-Za-z:.])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![0-9A-Za-z:.])"
+)
+# The bracketed-host branch exists so `http://[2001:db8::1]:8123/` reaches
+# `urlsplit` whole. Without it the match stopped at `[`, `urlsplit` raised on
+# the unbalanced bracket and the loop swallowed it.
+URL_RE = re.compile(
+    r"\b[a-zA-Z][a-zA-Z0-9+.\-]*://(?:\[[0-9A-Fa-f:.]+\])?[^\s\"'`<>)\]},]*"
+)
 # A host written in prose with no scheme. The suffix must end the name:
 # \b would match the "home" of home-assistant.io.
 BARE_HOST_RE = re.compile(
@@ -536,6 +550,10 @@ def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str]]:
         for literal in IP_LITERAL_RE.findall(line):
             if literal not in ALLOWED_HOSTS and blocked_address(literal, TREE_NETS):
                 hits.append((number, literal))
+        for literal in IPV6_LITERAL_RE.findall(line):
+            lowered = literal.lower()
+            if lowered not in ALLOWED_HOSTS and blocked_address(lowered, TREE_NETS):
+                hits.append((number, lowered))
         for url in URL_RE.findall(line):
             try:
                 host = _urlsplit(url).hostname or ""
@@ -548,7 +566,10 @@ def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str]]:
         for name in BARE_HOST_RE.findall(line):
             if name.lower() not in ALLOWED_HOSTS:
                 hits.append((number, name.lower()))
-    return hits
+    # A bare literal inside a URL matches two branches and would be reported
+    # twice on the same line. First occurrence wins, so the order stays the
+    # order the line reads in.
+    return list(dict.fromkeys(hits))
 
 
 def scan_published_tree() -> None:
