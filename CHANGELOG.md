@@ -74,6 +74,18 @@ and are not documented here.
   dotted quads only, and the URL pattern stopped at the opening bracket, which
   left `urlsplit` raising on an unbalanced bracket. A line naming either is
   now reported once rather than once per pattern that matched it.
+- `tools/validate_local.py` runs the host rules over every commit the tracking
+  branch does not have, both each commit's changed files and its message. It
+  read the working tree only, so a name removed by the newest commit was
+  invisible to it while every earlier commit still carried it and a push
+  carried them all. `PF_PUSH_RANGE` sets the range; with no tracking branch
+  there is nothing queued and the run says so.
+- `tools/validate_local.py` matches a development host name with no left word
+  boundary. `\b` before the name did not hold where the name sat after a
+  backslash escape in a regex source, which is where one was.
+- `tools/validate_local.py` allows a CIDR whose host bits are zero, such as
+  `10.0.0.0/8`, and still refuses a literal with a host part written with a
+  prefix length after it.
 - The four `tools/` scripts print their usage block as written. `argparse`
   rewrapped it by default, which ran the example commands together with the
   prose around them.

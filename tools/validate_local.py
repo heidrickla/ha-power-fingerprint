@@ -25,6 +25,13 @@ the only remote is the code host, whose name parts are all generic. Under `CI`
 an empty name list is a failure, because the run that guards the public push is
 the one that cannot derive a name. Off CI it is a note, and the address, URL and
 internal-suffix rules apply either way.
+
+The same rules run over every commit the tracking branch does not have, both
+the files each one changes and its message. A push carries the history, and a
+name the newest commit removes is still in the one before it, where nothing
+that reads the working tree can see it. `PF_PUSH_RANGE` names the range
+directly; without a tracking branch there is nothing queued to read and the
+run says so.
 """
 
 from __future__ import annotations
@@ -93,6 +100,11 @@ GENERIC_HOST_PARTS = frozenset(
 # Where the development host names are read from, none of them in the tree.
 INTERNAL_HOSTS_ENV = "PF_INTERNAL_HOSTS"
 INTERNAL_HOSTS_FILE = os.path.join(ROOT, ".internal-hosts")
+# The commits the range scan reads. Unset, it is the tracking branch to HEAD.
+PUSH_RANGE_ENV = "PF_PUSH_RANGE"
+# A local absolute path in a commit message or a commit's files names the
+# machine it was written on and reaches no reader.
+LOCAL_PATH_RE = re.compile(r"(?<![\w:])[A-Za-z]:[\\/][\\/]?[A-Za-z0-9_.\-]")
 
 # Pinned from developers.home-assistant.io/docs/core/integration-quality-scale/checklist
 # (checked 2026-09-02: 54 rules, none new or deprecated). The list is pinned
@@ -528,15 +540,34 @@ def published_files() -> list[str]:
                 paths.append(
                     os.path.relpath(os.path.join(dirpath, f), ROOT).replace("\\", "/")
                 )
-    keep: list[str] = []
-    for path in paths:
-        if path in SCAN_EXEMPT:
-            continue
-        name = path.rsplit("/", 1)[-1]
-        suffix = os.path.splitext(name)[1].lower()
-        if suffix in PUBLISHED_SUFFIXES or name in PUBLISHED_NAMES:
-            keep.append(path)
-    return sorted(keep)
+    return sorted(p for p in paths if published_name(p))
+
+
+def published_name(path: str) -> bool:
+    """Whether a repository-relative path is one of the text files that ship."""
+    if path in SCAN_EXEMPT:
+        return False
+    name = path.rsplit("/", 1)[-1]
+    suffix = os.path.splitext(name)[1].lower()
+    return suffix in PUBLISHED_SUFFIXES or name in PUBLISHED_NAMES
+
+
+def is_network_address(literal: str, tail: str) -> bool:
+    """Whether literal is a CIDR's own network address, as in 10.0.0.0/8.
+
+    A CIDR names a network and no machine, which is why `_netblocks.py` can
+    list the refused ranges at all. The host bits have to be zero: a literal
+    with a host part, written with a prefix length after it, is still one
+    machine's address.
+    """
+    prefix = re.match(r"/(\d{1,3})(?!\d)", tail)
+    if not prefix:
+        return False
+    try:
+        ipaddress.ip_network(f"{literal}/{prefix.group(1)}", strict=True)
+    except ValueError:
+        return False
+    return True
 
 
 def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str]]:
@@ -547,13 +578,15 @@ def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str]]:
             for name in name_re.findall(line):
                 if name.lower() not in ALLOWED_HOSTS:
                     hits.append((number, name.lower()))
-        for literal in IP_LITERAL_RE.findall(line):
-            if literal not in ALLOWED_HOSTS and blocked_address(literal, TREE_NETS):
-                hits.append((number, literal))
-        for literal in IPV6_LITERAL_RE.findall(line):
-            lowered = literal.lower()
-            if lowered not in ALLOWED_HOSTS and blocked_address(lowered, TREE_NETS):
-                hits.append((number, lowered))
+        for pattern in (IP_LITERAL_RE, IPV6_LITERAL_RE):
+            for match in pattern.finditer(line):
+                literal = match.group(0).lower()
+                if literal in ALLOWED_HOSTS:
+                    continue
+                if is_network_address(literal, line[match.end() :]):
+                    continue
+                if blocked_address(literal, TREE_NETS):
+                    hits.append((number, literal))
         for url in URL_RE.findall(line):
             try:
                 host = _urlsplit(url).hostname or ""
@@ -572,7 +605,119 @@ def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str]]:
     return list(dict.fromkeys(hits))
 
 
-def scan_published_tree() -> None:
+def name_pattern() -> Any:
+    """The development-host pattern, or None when no name was supplied.
+
+    The names are read from outside the tree, because naming them in a
+    published file is the disclosure the rule exists to prevent.
+
+    NO LEFT WORD BOUNDARY. `\b` before the name failed on the one occurrence
+    that mattered: inside a regex source the name sat after the `b` of `\b`,
+    which is a word character, so the boundary did not hold and the scan read
+    clean over a line that named a host. A name this long is a disclosure
+    wherever it appears, including inside a longer word.
+    """
+    finder = globals().get("internal_names")
+    if not callable(finder):
+        return None
+    names = finder()
+    if names:
+        notes.append(f"{len(names)} development host names given to the scans")
+        return re.compile(
+            r"(?:" + "|".join(re.escape(n) for n in names) + r")\w*",
+            re.IGNORECASE,
+        )
+    if in_ci():
+        failures.append(
+            "no development host names given to the scans, so the bare-name "
+            f"rule matched nothing - set {INTERNAL_HOSTS_ENV} from a "
+            "repository secret, or this job passes on a tree that names a "
+            "development host in prose"
+        )
+    else:
+        notes.append("no development host names given to the scans")
+    return None
+
+
+def git_out(*args: str) -> str | None:
+    """stdout of a git command, or None when git or the command fails."""
+    try:
+        done = subprocess.run(
+            ["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=120
+        )
+    except OSError, subprocess.SubprocessError:
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def queued_range() -> str | None:
+    """The commits on HEAD that the tracking branch does not have."""
+    override = os.environ.get(PUSH_RANGE_ENV, "").strip()
+    if override:
+        return override
+    upstream = git_out(
+        "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
+    )
+    if not upstream or not upstream.strip():
+        return None
+    return f"{upstream.strip()}..HEAD"
+
+
+def scan_queued_commits(name_re: Any) -> None:
+    """Refuse a development host in a commit that has not been pushed.
+
+    THE WORKING TREE IS NOT THE PUSH. `scan_published_tree` reads what
+    `git ls-files` lists, so a name removed by the newest commit is gone from
+    its view while every earlier commit still carries it, and a push carries
+    all of them. Commit messages are published the same way and are checked
+    here too; nothing else in this file reads one.
+
+    A shallow CI checkout has no tracking branch and nothing queued, so the
+    range cannot be derived there. That case states what it did not read.
+    """
+    commit_range = queued_range()
+    if commit_range is None:
+        notes.append(
+            "no tracking branch, so no commit range was read - set "
+            f"{PUSH_RANGE_ENV} to scan one"
+        )
+        return
+    listing = git_out("rev-list", "--reverse", commit_range)
+    if listing is None:
+        failures.append(f"{commit_range} is not a range this repository can resolve")
+        return
+    commits = listing.split()
+    notes.append(f"{len(commits)} commits queued for push in {commit_range}")
+    if not commits:
+        return
+
+    def report(where: str, number: int, host: str) -> None:
+        failures.append(
+            f"{where}:{number} names {host} - that commit has not been pushed "
+            "and carries a name that must not leave this network"
+        )
+
+    for sha in commits:
+        short = sha[:9]
+        message = git_out("log", "-1", "--format=%B", sha) or ""
+        for number, host in tree_hits(message, name_re):
+            report(f"{short} (message)", number, host)
+        for number, line in enumerate(message.splitlines(), 1):
+            if LOCAL_PATH_RE.search(line):
+                report(f"{short} (message)", number, "a local absolute path")
+        changed = git_out("diff-tree", "-r", "--no-commit-id", "--name-only", sha)
+        for path in (changed or "").split("\n"):
+            path = path.strip()
+            if not path or not published_name(path):
+                continue
+            blob = git_out("show", f"{sha}:{path}")
+            if blob is None:
+                continue
+            for number, host in tree_hits(blob, name_re):
+                report(f"{short}:{path}", number, host)
+
+
+def scan_published_tree(name_re: Any) -> None:
     """Refuse a development host anywhere in the published tree."""
     exempt = os.path.join(ROOT, *SCAN_EXEMPT[0].split("/"))
     if os.path.isfile(exempt):
@@ -591,28 +736,6 @@ def scan_published_tree() -> None:
                     "the tree scan skips this file, so nothing else may live in it"
                 )
                 break
-    # A repository that knows its own development host names - read from
-    # outside the tree, because naming them in a published file is the
-    # disclosure this rule exists to prevent - has them matched as well.
-    name_re = None
-    finder = globals().get("internal_names")
-    if callable(finder):
-        names = finder()
-        if names:
-            name_re = re.compile(
-                r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\w*",
-                re.IGNORECASE,
-            )
-            notes.append(f"{len(names)} development host names given to the tree scan")
-        elif in_ci():
-            failures.append(
-                "no development host names given to the tree scan, so the "
-                f"bare-name rule matched nothing - set {INTERNAL_HOSTS_ENV} "
-                "from a repository secret, or this job passes on a tree that "
-                "names a development host in prose"
-            )
-        else:
-            notes.append("no development host names given to the tree scan")
     seen = 0
     for path in published_files():
         full = os.path.join(ROOT, *path.split("/"))
@@ -954,7 +1077,9 @@ def main() -> int:
                 not malformed_url(manifest.get(_key)),
                 f"manifest {_key} is not an absolute http(s) URL a user can open",
             )
-    scan_published_tree()
+    host_names = name_pattern()
+    scan_published_tree(host_names)
+    scan_queued_commits(host_names)
 
     # ---------------------------------------------------------- syntax
     for dirpath, _dirs, files in os.walk(COMP):
