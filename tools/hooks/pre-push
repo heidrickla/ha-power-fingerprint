@@ -1,0 +1,29 @@
+#!/bin/sh
+# Refuse a push the offline gate refuses.
+#
+# Install: cp tools/hooks/pre-push .git/hooks/pre-push && chmod +x it.
+# The bare-name half of the host scan reads .internal-hosts, which is
+# gitignored and so reaches no CI run; without this hook that half of the gate
+# is a step someone remembers rather than one the push runs.
+#
+# CI is left unset on purpose: a workstation run prints the match, which is
+# what makes the offending line findable.
+#
+# tools/validate_local.py is 3.14 source (PEP 758 except expressions), so an
+# older interpreter reports a SyntaxError in place of a verdict. The
+# interpreter is chosen by version, and no interpreter blocks the push: a run
+# that could not happen is not a clean result.
+
+root=$(git rev-parse --show-toplevel) || exit 1
+
+# A checkout's own virtualenv first: it is the interpreter that has PyYAML, so
+# the services.yaml and quality_scale.yaml checks run rather than note a skip.
+for candidate in "$root/.venv/Scripts/python" "$root/.venv/bin/python" \
+    python3.14 "py -3.14" python3 python; do
+    if $candidate -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 14) else 1)' >/dev/null 2>&1; then
+        exec $candidate "$root/tools/validate_local.py"
+    fi
+done
+
+echo "pre-push: no Python 3.14 found, so tools/validate_local.py did not run" >&2
+exit 1
