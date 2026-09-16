@@ -1,5 +1,9 @@
 """Shared Home Assistant REST client for the offline tools.
 
+Every tool in this directory reads `HA_URL` and `HA_TOKEN` from the
+environment. `HA_URL` is the install's base URL; `HA_TOKEN` is a long-lived
+access token from the user profile page.
+
 THE `end_time` TRAP LIVES HERE AND NOWHERE ELSE.
 
 `/api/history/period/<start>` returns only about 24 hours from <start> unless
@@ -77,10 +81,21 @@ class _Lazy:
 _analysis = _Lazy("analysis")
 
 
+def env(name: str) -> str:
+    """A required environment variable, named in the failure."""
+    value = os.environ.get(name)
+    if not value:
+        raise SystemExit(
+            f"{name} is not set. The offline tools need HA_URL (the install's "
+            "base URL) and HA_TOKEN (a long-lived access token)."
+        )
+    return value
+
+
 def api(path: str):
-    url = os.environ["HA_URL"].rstrip("/") + path
+    url = env("HA_URL").rstrip("/") + path
     req = urllib.request.Request(url)
-    req.add_header("Authorization", "Bearer " + os.environ["HA_TOKEN"])
+    req.add_header("Authorization", "Bearer " + env("HA_TOKEN"))
     with urllib.request.urlopen(req, timeout=300, context=CTX) as resp:
         return json.loads(resp.read().decode())
 
@@ -147,11 +162,11 @@ def unit(entity: str) -> str | None:
 def template(tpl: str) -> str:
     """Render a Jinja template server-side. Used to read area assignments,
     which are registry data and not exposed as plain states."""
-    url = os.environ["HA_URL"].rstrip("/") + "/api/template"
+    url = env("HA_URL").rstrip("/") + "/api/template"
     req = urllib.request.Request(
         url, data=json.dumps({"template": tpl}).encode(), method="POST"
     )
-    req.add_header("Authorization", "Bearer " + os.environ["HA_TOKEN"])
+    req.add_header("Authorization", "Bearer " + env("HA_TOKEN"))
     req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req, timeout=60, context=CTX) as resp:
         return resp.read().decode().strip()

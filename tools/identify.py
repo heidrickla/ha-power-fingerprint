@@ -5,8 +5,12 @@ runs by shape, and prints what it found in plain English so a human can name
 them. Optionally writes the named result out as a fingerprint library for the
 integration to match against.
 
-    python tools/identify.py --all
-    python tools/identify.py --circuits sensor.circuit_21_power --days 7 --out lib.json
+HA_URL and HA_TOKEN name the install to read from and are required.
+
+    HA_URL=https://homeassistant.example:8123 HA_TOKEN=... \
+        python tools/identify.py --all
+    HA_URL=... HA_TOKEN=... python tools/identify.py \
+        --circuits sensor.circuit_21_power --days 7 --out lib.json
 
 History fetching lives in `_ha.py`, including the `end_time` trap - read that
 module's docstring before changing how the window is requested.
