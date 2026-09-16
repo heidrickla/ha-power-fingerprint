@@ -189,8 +189,6 @@ Renaming a source sensor on the meter's integration is followed: the circuit
 list, the switch/circuit pairs, the learned library and this integration's own
 entities all move with it, without a reload.
 
-Publication status is in [PUBLISHING.md](PUBLISHING.md).
-
 ### Requirements
 
 | Requirement | Detail |
