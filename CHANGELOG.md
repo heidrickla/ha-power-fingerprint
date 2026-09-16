@@ -49,11 +49,12 @@ and are not documented here.
   failing when it can derive no development host name. A checkout has neither
   the environment variable nor the gitignored `.internal-hosts` file, and the
   code host's name parts are generic, so the bare-name half cannot run there.
-  The note names `PF_INTERNAL_HOSTS` and says the result covers addresses, URL
-  hosts and private suffixes, so an address-only scan cannot read as a scan
-  that found nothing. Neither workflow supplies the names: a run log on a
-  public repository is public, and the rule printed the name it was given the
-  first time it fired.
+  The note names `PF_INTERNAL_HOSTS` and lists the rules the result covers, so
+  a scan with one rule off cannot read as a scan that found nothing. Neither
+  workflow supplies the names: a report names the file and the line, which on a
+  public repository locates the string whether or not the string itself is
+  printed, and a repository secret would be a second copy of the names outside
+  the network.
 - `tools/validate_local.py` prints no matched string under `CI`. Every report
   carries the file, the line and the rule that matched, with the matched text
   replaced by `[redacted]`; a local run prints it, which is what makes the line
@@ -92,8 +93,8 @@ and are not documented here.
   branch does not have, both each commit's changed files and its message. It
   read the working tree only, so a name removed by the newest commit was
   invisible to it while every earlier commit still carried it and a push
-  carried them all. `PF_PUSH_RANGE` sets the range; with no tracking branch
-  there is nothing queued and the run says so.
+  carried them all. `PF_PUSH_RANGE` sets the range, and both workflows set it
+  from the push event.
 - `tools/validate_local.py` matches a development host name with no left word
   boundary. `\b` before the name did not hold where the name sat after a
   backslash escape in a regex source, which is where one was.
@@ -103,6 +104,30 @@ and are not documented here.
 - The four `tools/` scripts print their usage block as written. `argparse`
   rewrapped it by default, which ran the example commands together with the
   prose around them.
+- `tools/validate_local.py` refuses a MAC, EUI-48 or EUI-64 literal that
+  carries a vendor OUI. `ipaddress` parses an eight-group EUI-64 as a global
+  IPv6 address, which sits in none of the refused ranges, so the address rule
+  dropped it and a real Zigbee identifier passed the scan clean. Locally
+  administered addresses and the pinned documentation forms are exempt.
+- `tools/validate_local.py` asserts its own redaction under `CI` whatever the
+  scans were given. The assertion sat after an early return taken when no host
+  name was supplied, which is every CI configuration this repository has, so a
+  regression in the redaction would have printed an estate address in a public
+  log on a green run.
+- `tools/validate_local.py` reports a derived commit range that read nothing as
+  coverage the run did not have, not as a count of zero. A checkout points the
+  tracking branch at the commit it checked out, so `origin/main..HEAD` resolves
+  there and is empty however many commits the push carried, and the run printed
+  a count of zero while reading no commit.
+- Both workflows set `PF_PUSH_RANGE` from the push event and check out with
+  `fetch-depth: 0` and `fetch-tags: true`. The default `--no-tags --depth=1`
+  leaves `git describe --tags` with nothing to find, so the released-version
+  check noted that it could not compare rather than running.
+- `tools/hooks/pre-push` runs the validator at push time. The bare-name half of
+  the host scan reads a gitignored file and so reaches no CI run, which left it
+  a step someone remembers rather than one the push runs. The hook picks its
+  interpreter by version, because the validator is 3.14 source and an older
+  interpreter reports a SyntaxError in place of a verdict.
 
 ### Fixed
 

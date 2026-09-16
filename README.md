@@ -484,6 +484,7 @@ They load the pure modules by path and need no Home Assistant install.
 | `virtual_circuits.py` | Infer appliances from a whole-house meter, with `--validate` against real clamps. |
 | `one_appliance.py` | Test whether the mains contains one known circuit's runs, with its chance baseline. |
 | `validate_local.py` | The offline half of the HACS and hassfest checks. |
+| `hooks/pre-push` | Runs `validate_local.py` at push time. Copy it to `.git/hooks/`. |
 | `make_brand.py` | Generate and size-check the brand images. |
 
 ## Configuration
@@ -768,34 +769,48 @@ and is not scored.
 
 ```bash
 python -m pytest tests/ -q
-python tools/validate_local.py
+python3.14 tools/validate_local.py
 ```
+
+`tools/validate_local.py` is 3.14 source and reports a SyntaxError under an
+older interpreter. `tools/hooks/pre-push` runs it at push time and picks its
+interpreter by version; install it with
+`cp tools/hooks/pre-push .git/hooks/pre-push`.
 
 184 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
 `verify`, `virtual`, `breaker` - which import nothing from Home Assistant and
 are loaded by path, so they run on a bare checkout.
 
-`tools/validate_local.py` also refuses a development host in the published tree
-and in every commit queued for push, message included. Four rules:
+`tools/validate_local.py` also refuses a development host or device in the
+published tree and in the commits a push carries, message included. Five rules:
 
 | Rule | What it refuses | Where it runs |
 |---|---|---|
 | address | A literal inside the CIDRs pinned in `tools/_netblocks.py`, IPv4 and IPv6. | Every run. |
 | URL host | A URL whose host is one of those addresses or ends in a private suffix. | Every run. |
 | private suffix | A bare host ending in a suffix from the pinned list, such as `.lan` or `.internal`. | Every run. |
+| device identifier | A MAC, EUI-48 or EUI-64 literal with a vendor OUI. Locally administered addresses and the pinned documentation forms are exempt. | Every run. |
 | bare name | A development host named in prose. The names come from `PF_INTERNAL_HOSTS`, the gitignored `.internal-hosts` or the git remotes. | A workstation run. |
 
-Neither workflow supplies the names, so the bare-name rule is caught locally
-only and the CI run says so. A run log on a public repository is public, and
-the rule prints the name it was given the first time it fires. Measured
-2026-09-16 in a fresh clone with `CI=true` and no names: exit 0, with a note
-naming `PF_INTERNAL_HOSTS` and stating that the result covers addresses, URL
-hosts and private suffixes.
+Neither workflow supplies the names, so the bare-name rule is a workstation
+gate and the CI run says so. The reason is not the printed string, which is
+redacted under `CI`: a report names the file and the line, which on a public
+repository locates the string either way, and a repository secret would be a
+second copy of the names outside the network. Measured 2026-09-16 in a fresh
+clone with `CI=true` and no names: exit 0, with a note naming
+`PF_INTERNAL_HOSTS` and stating which rules the result covers.
+
+The commit half reads `PF_PUSH_RANGE`, which both workflows set from the push
+event. A range derived from the tracking branch answers on a workstation and
+cannot answer in CI, where a checkout points that branch at the commit it
+checked out; a derived range that reads nothing is reported as coverage the run
+did not have rather than as a count of zero.
 
 A match under `CI` prints the file, the line and the rule with the matched text
 replaced by `[redacted]`. A local run prints the match. Each matcher fires on a
-control line built at runtime first, so a clean result is a matcher that
-matched rather than one that stopped working.
+control line built at runtime first, and the redaction is controlled the same
+way, so a clean result is a matcher that matched rather than one that stopped
+working.
 
 157 more in `tests/ha/` cover the Home Assistant layer.
 

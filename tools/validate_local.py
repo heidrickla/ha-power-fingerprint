@@ -8,7 +8,11 @@ actions described, versions against each other, the quality scale against the
 pinned rule list. Run it before a push so the push is not the first
 verification.
 
-    python tools/validate_local.py
+    python3.14 tools/validate_local.py
+
+This file is 3.14 source: it uses PEP 758 parenthesis-free except expressions,
+so a 3.12 interpreter reports a SyntaxError in place of a verdict. The
+`tools/hooks/pre-push` hook picks its interpreter by version for that reason.
 
 It also refuses a development host anywhere in the published tree. The file
 list comes from `git ls-files --cached --others --exclude-standard`, not a
@@ -24,10 +28,10 @@ A CI checkout supplies none of the three: no repository secret holds the names,
 the code host, whose name parts are all generic. An empty name list is a note
 that names `PF_INTERNAL_HOSTS`, not a failure. The name half is a workstation
 gate: supplying the names to a public run would publish them in its log, which
-is the disclosure the rule exists to prevent. Measured 2026-09-16 in a fresh
-clone: a CI run covers the address, URL-host and private-suffix rules over the
-published tree and over every queued commit, and the bare-name rule runs on a
-workstation only.
+is the disclosure the rule exists to prevent. A CI run covers the address,
+URL-host, device-identifier and private-suffix rules over the published tree,
+and over the commits in `PF_PUSH_RANGE`, which both workflows set from the
+push. The bare-name rule runs on a workstation only.
 
 Under `CI` every report replaces the matched string with `[redacted]` and keeps
 the file, the line and the rule that matched, which locate the match without
@@ -36,14 +40,20 @@ prints the match, which is what makes the line findable.
 
 Each matcher is fired on a control line built at runtime before a clean result
 is believed. A tree that holds nothing and a matcher that matches nothing
-otherwise print the same result.
+otherwise print the same result. The redaction is a control of its own, fired
+under `CI` on a literal built from the pinned address space, because three of
+the rules run in CI with no name supplied and would otherwise reach a report
+with nothing asserting that the report redacts.
 
-The same rules run over every commit the tracking branch does not have, both
-the files each one changes and its message. A push carries the history, and a
-name the newest commit removes is still in the one before it, where nothing
-that reads the working tree can see it. `PF_PUSH_RANGE` names the range
-directly; without a tracking branch there is nothing queued to read and the
-run says so.
+The same rules run over every commit a push would carry, both the files each
+one changes and its message. A push carries the history, and a name the newest
+commit removes is still in the one before it, where nothing that reads the
+working tree can see it. `PF_PUSH_RANGE` names that range directly and is how a
+CI run reads the push: a derived range is the tracking branch to HEAD, and a
+checkout sets the tracking branch to the commit it checked out, so a derived
+range in CI reads no commits whatever the push carries. Measured 2026-09-16 in
+a clone whose tracking branch is the checked-out commit: the derived range read
+0 commits, and `PF_PUSH_RANGE` pointed at the published head read 35.
 """
 
 from __future__ import annotations
@@ -430,6 +440,26 @@ IP_LITERAL_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 IPV6_LITERAL_RE = re.compile(
     r"(?<![0-9A-Za-z:.])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![0-9A-Za-z:.])"
 )
+# A MAC, EUI-48 or EUI-64 literal: six or eight groups of two hex digits,
+# colon- or hyphen-separated. An address rule cannot cover these. An eight-
+# group EUI-64 parses as an IPv6 address whose is_private is False and which
+# sits in no refused CIDR, so `blocked_address` drops it and the development
+# Zigbee identifier this repository published reached the tree clean.
+DEVICE_ID_RE = re.compile(
+    r"(?<![0-9A-Za-z:.\-])"
+    r"(?:(?:[0-9A-Fa-f]{2}[:-]){7}|(?:[0-9A-Fa-f]{2}[:-]){5})[0-9A-Fa-f]{2}"
+    r"(?![0-9A-Za-z:.\-])"
+)
+# Documentation identifiers, universally administered so the bit test below
+# refuses them. Each is a form this repository's tests or Home Assistant's own
+# documentation use for a device that does not exist.
+ALLOWED_IDENTIFIERS = frozenset(
+    {
+        "00:00:00:00:00:00",
+        "00:11:22:33:44:55",
+        "00:11:22:33:44:55:66:77",
+    }
+)
 # The bracketed-host branch exists so `http://[2001:db8::1]:8123/` reaches
 # `urlsplit` whole. Without it the match stopped at `[`, `urlsplit` raised on
 # the unbalanced bracket and the loop swallowed it.
@@ -473,6 +503,25 @@ def blocked_address(text: str, nets: tuple[Any, ...]) -> bool:
     except ValueError:
         return False
     return any(address in net for net in nets)
+
+
+def blocked_identifier(literal: str) -> bool:
+    """Whether a MAC or EUI literal names a manufactured device.
+
+    Bit 0x02 of the first octet marks a locally administered address, which is
+    assigned by software and names no device off a production line; that covers
+    the aa:bb:cc:dd:ee:ff and randomised forms. A universally administered
+    literal carries a real vendor's OUI, so it is refused unless it is one of
+    the pinned documentation addresses.
+    """
+    normalised = literal.lower().replace("-", ":")
+    if normalised in ALLOWED_IDENTIFIERS:
+        return False
+    try:
+        first = int(normalised.split(":", 1)[0], 16)
+    except ValueError:
+        return False
+    return not first & 0x02
 
 
 def blocked_host(host: str, nets: tuple[Any, ...], names: tuple[str, ...] = ()) -> bool:
@@ -594,7 +643,7 @@ def is_network_address(literal: str, tail: str) -> bool:
 
 
 def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str, str]]:
-    """Every development host named in text, as (line number, rule, host).
+    """Every development host or device in text, as (line number, rule, match).
 
     The rule travels with the hit because a CI report prints no host: the
     file, the line and the rule are what is left to act on.
@@ -614,6 +663,10 @@ def tree_hits(text: str, name_re: Any = None) -> list[tuple[int, str, str]]:
                     continue
                 if blocked_address(literal, TREE_NETS):
                     hits.append((number, "private address", literal))
+        for match in DEVICE_ID_RE.finditer(line):
+            literal = match.group(0).lower()
+            if blocked_identifier(literal):
+                hits.append((number, "device identifier", literal))
         for url in URL_RE.findall(line):
             try:
                 host = _urlsplit(url).hostname or ""
@@ -660,8 +713,9 @@ def name_pattern() -> Any:
         )
     notes.append(
         "no development host names reached the scans, so the bare-name half "
-        "did not run and this result covers addresses, URL hosts and private "
-        f"suffixes only; set {INTERNAL_HOSTS_ENV} to run the name half"
+        "did not run and this result covers addresses, URL hosts, device "
+        f"identifiers and private suffixes only; set {INTERNAL_HOSTS_ENV} to "
+        "run the name half"
     )
     return None
 
@@ -672,7 +726,8 @@ def scan_controls(name_re: Any) -> None:
     A tree that holds nothing and a matcher that matches nothing print the
     same result. Each control is built here from the pinned address space and
     the pinned suffix list, so the strings exist at runtime and in no file the
-    scan reads.
+    scan reads. The redaction is controlled the same way: a report that prints
+    the match in CI publishes what the scan exists to keep unpublished.
     """
 
     def fired(text: str, rule: str, name_re: Any = None) -> bool:
@@ -705,6 +760,27 @@ def scan_controls(name_re: Any) -> None:
         f"the private-suffix rule did not match a bare {suffix} host, so a "
         "clean result says nothing about the suffixed names in the tree",
     )
+    octets = [index * 17 for index in range(1, 7)]
+    # Bit 0x02 of the first octet clear is the universally administered half,
+    # which is the half the rule refuses.
+    octets[0] &= 0xFD
+    identifier = ":".join(f"{octet:02x}" for octet in octets)
+    check(
+        fired(f"control line naming {identifier}", "device identifier"),
+        f"the device-identifier rule did not match {identifier}, an address it "
+        "refuses, so a clean result says nothing about the device identifiers "
+        "in the tree",
+    )
+    # The redaction control, above the name branch because the four rules
+    # before it run in CI with no name supplied and each of them reaches a
+    # report. Inside that branch it ran in no CI configuration that exists:
+    # a clone has no `.internal-hosts` and neither workflow passes a name.
+    redacted = str(TREE_NETS[0].network_address + 1)
+    check(
+        not in_ci() or shown(redacted) != redacted,
+        "a report under CI would print the matched string, which publishes the "
+        "address or the name the scan exists to keep unpublished",
+    )
     names = internal_names()
     if not names:
         return
@@ -722,11 +798,6 @@ def scan_controls(name_re: Any) -> None:
         f"the bare-name rule did not match {shown(names[0])}, a name it was "
         "given, so a clean result says nothing about the names in the tree",
     )
-    check(
-        not in_ci() or shown(names[0]) != names[0],
-        "a report under CI would print the matched string, which publishes the "
-        "name the scan exists to keep unpublished",
-    )
 
 
 def git_out(*args: str) -> str | None:
@@ -740,17 +811,23 @@ def git_out(*args: str) -> str | None:
     return done.stdout if done.returncode == 0 else None
 
 
-def queued_range() -> str | None:
-    """The commits on HEAD that the tracking branch does not have."""
+def queued_range() -> tuple[str, bool] | None:
+    """The commits a push would carry, and whether the range was given.
+
+    A given range is `PF_PUSH_RANGE`. A derived range is the tracking branch to
+    HEAD, which answers on a workstation and cannot answer in CI: a checkout
+    sets the tracking branch to the commit it checked out, so the derived range
+    is empty there however many commits the push carries.
+    """
     override = os.environ.get(PUSH_RANGE_ENV, "").strip()
     if override:
-        return override
+        return override, True
     upstream = git_out(
         "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
     )
     if not upstream or not upstream.strip():
         return None
-    return f"{upstream.strip()}..HEAD"
+    return f"{upstream.strip()}..HEAD", False
 
 
 def scan_queued_commits(name_re: Any) -> None:
@@ -762,21 +839,32 @@ def scan_queued_commits(name_re: Any) -> None:
     all of them. Commit messages are published the same way and are checked
     here too; nothing else in this file reads one.
 
-    A shallow CI checkout has no tracking branch and nothing queued, so the
-    range cannot be derived there. That case states what it did not read.
+    A derived range that reads nothing is reported as coverage this run did not
+    have, not as a count of zero. A CI checkout has a tracking branch pointing
+    at the commit it checked out, so a count of zero there is the range failing
+    to see the push rather than a push with nothing in it.
     """
-    commit_range = queued_range()
-    if commit_range is None:
+    resolved = queued_range()
+    if resolved is None:
         notes.append(
             "no tracking branch, so no commit range was read - set "
             f"{PUSH_RANGE_ENV} to scan one"
         )
         return
+    commit_range, given = resolved
     listing = git_out("rev-list", "--reverse", commit_range)
     if listing is None:
         failures.append(f"{commit_range} is not a range this repository can resolve")
         return
     commits = listing.split()
+    if not commits and not given:
+        notes.append(
+            f"{commit_range} was derived from the tracking branch and read no "
+            "commits, which is also what a checkout that set that branch to "
+            f"HEAD reads, so no commit was covered - set {PUSH_RANGE_ENV} to "
+            "the range the push carries"
+        )
+        return
     notes.append(f"{len(commits)} commits queued for push in {commit_range}")
     if not commits:
         return
@@ -784,8 +872,8 @@ def scan_queued_commits(name_re: Any) -> None:
     def report(where: str, number: int, rule: str, host: str) -> None:
         failures.append(
             f"{where}:{number} {rule} rule matched {shown(host)} - that commit "
-            "has not been pushed and carries a name that must not leave this "
-            "network"
+            "has not been pushed and names a machine or a device that must not "
+            "leave this network"
         )
 
     for sha in commits:
@@ -840,9 +928,9 @@ def scan_published_tree(name_re: Any) -> None:
         seen += 1
         for number, rule, host in tree_hits(text, name_re):
             failures.append(
-                f"{path}:{number} {rule} rule matched {shown(host)} - that host "
-                "is on the development network and means nothing to a user who "
-                "installs this"
+                f"{path}:{number} {rule} rule matched {shown(host)} - that "
+                "names a machine or a device on the development network and "
+                "means nothing to a user who installs this"
             )
     check(seen > 0, "the published-tree scan read no files, so it proved nothing")
 
