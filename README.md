@@ -182,6 +182,11 @@ Assistant proxy, so it shows a placeholder. Tracked as hacs/integration issue
 HACS (custom repository): add `https://github.com/heidrickla/ha-power-fingerprint`
 as a custom repository of type Integration, install, restart Home Assistant.
 
+`hacs.json` sets no `country`. That key filters the store listing to the
+countries it names. This integration reads power sensors Home Assistant
+already has: no vendor, no cloud, no regional service. Naming a country would
+hide the listing from everyone outside it and gain nothing.
+
 Manual: copy `custom_components/power_fingerprint/` into your Home Assistant
 `config/custom_components/` directory and restart.
 
