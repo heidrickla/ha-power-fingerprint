@@ -754,6 +754,28 @@ def main() -> int:
                 f"action {name}: services.yaml fields {sorted(yaml_fields)} != "
                 f"strings.json fields {sorted(described)}",
             )
+            # `name` and `description` are legible in both files and Home
+            # Assistant reads both: `async_get_all_descriptions` returns the
+            # services.yaml text while the `services` translation category
+            # returns the strings.json text. Two copies drift, and comparing
+            # field key sets above does not see it. strings.json is the one
+            # source; services.yaml carries selectors, defaults and `required`.
+            inline = [
+                f"{name}.{key}"
+                for key in ("name", "description")
+                if key in (spec or {})
+            ]
+            inline += [
+                f"{name}.fields.{field}.{key}"
+                for field, field_spec in (spec or {}).get("fields", {}).items()
+                for key in ("name", "description")
+                if key in (field_spec or {})
+            ]
+            check(
+                not inline,
+                f"services.yaml carries text that belongs in strings.json: "
+                f"{sorted(inline)}",
+            )
             for field_spec in (spec or {}).get("fields", {}).values():
                 selector = (field_spec or {}).get("selector", {})
                 tkey = (selector.get("select") or {}).get("translation_key")

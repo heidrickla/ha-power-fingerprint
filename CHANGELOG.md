@@ -61,6 +61,13 @@ and are not documented here.
 - `tools/validate_local.py` scans `.html` as well. The scan selects files by
   suffix, so an HTML file naming a development host shipped with the scan
   green.
+- `services.yaml` carries selectors, defaults and `required` only. Every
+  action name, field name and description comes from `strings.json`, which is
+  what the three other actions already did. Home Assistant reads both files -
+  `async_get_all_descriptions` serves the YAML text, the `services`
+  translation category serves the JSON text - so the two copies drifted on 15
+  of 28 strings. `tools/validate_local.py` now refuses `name` or `description`
+  in `services.yaml`.
 
 ### Fixed
 

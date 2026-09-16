@@ -1,13 +1,6 @@
 learn:
-  name: Learn fingerprints
-  description: >-
-    Read history for each circuit, group the appliance runs it finds by shape,
-    and store them as candidates. Returns a description of every shape found so
-    you can tell which is which. Labels you have already applied are kept.
   fields:
     circuits:
-      name: Circuits
-      description: Limit to these power sensors. Defaults to all configured circuits.
       required: false
       selector:
         entity:
@@ -15,8 +8,6 @@ learn:
           device_class: power
           multiple: true
     days:
-      name: Days of history
-      description: How far back to read. More data gives steadier clusters.
       required: false
       default: 7
       selector:
@@ -26,12 +17,6 @@ learn:
           unit_of_measurement: days
           mode: slider
     threshold:
-      name: Cluster threshold
-      description: >-
-        How different two runs must be to count as different appliances, in
-        weighted log-power space. Lower splits more. Leave empty to use the
-        confidence setting's threshold (0.7 cautious, 0.9 balanced, 1.2 eager);
-        a value here overrides it.
       required: false
       selector:
         number:
@@ -41,44 +26,25 @@ learn:
           mode: box
 
 label:
-  name: Name a fingerprint
-  description: >-
-    Turn a candidate into an identification. Clustering finds the recurring
-    shapes but cannot name them - that needs someone who knows what is plugged
-    in. Only named fingerprints are used to drive anything.
   fields:
     circuit:
-      name: Circuit
-      description: The power sensor the fingerprint was learned on.
       required: true
       selector:
         entity:
           domain: sensor
           device_class: power
     current_label:
-      name: Current label
-      description: The existing label, for example unnamed_0.
       required: true
       selector:
         text:
     new_label:
-      name: New label
-      description: What this appliance actually is, for example Dryer.
       required: true
       selector:
         text:
 
 verify_circuit:
-  name: Verify a circuit by switching a device
-  description: >-
-    Switch a device and watch which circuit moves. This settles by measurement
-    what history can only infer. It ACTUATES the device - it will visibly switch
-    and switch back, several times - and only switches and lights may be probed.
-    The prior state is always restored, including if the probe fails partway.
   fields:
     device:
-      name: Device to switch
-      description: Only switch and light entities may be probed.
       required: true
       selector:
         entity:
@@ -86,23 +52,12 @@ verify_circuit:
             - switch
             - light
     power_sensor:
-      name: The device's own power sensor
-      description: >-
-        Strongly recommended. With it, the circuit's step is compared against
-        what the device says it drew, which is what rejects an unrelated load
-        that happened to switch at the same moment.
       required: false
       selector:
         entity:
           domain: sensor
           device_class: power
     probes:
-      name: Number of probes
-      description: >-
-        How many times to switch it. All probes must agree; one toggle can
-        coincide with a fridge starting, two cannot. Leave empty to use the
-        confidence setting (3 cautious, 2 balanced, 1 eager); a value here
-        overrides it.
       required: false
       selector:
         number:
@@ -110,12 +65,6 @@ verify_circuit:
           max: 5
           mode: slider
     settle:
-      name: Settle time
-      description: >-
-        Seconds to wait for the meter after each switch. It must be at least
-        twice the meter's reporting interval (the development meter publishes
-        about every 6 seconds); the probe measures that interval from history
-        and warns when the settle time is too short for it.
       required: false
       default: 30
       selector:
@@ -129,15 +78,6 @@ verify_circuit:
         boolean:
       default: false
     pause_automations:
-      name: Pause interfering automations
-      description: >-
-        Temporarily switch off automations that touch this device or a circuit,
-        so they cannot move it mid-measurement, then switch them back on. Only
-        automations judged safe are paused; anything touching a safety-related
-        domain or device class (the README's "Pausing interfering automations"
-        lists them) is left running and reported as refused. If a probe dies
-        mid-run, the integration re-enables them at next startup and logs a
-        warning.
       required: false
       default: false
       selector:
