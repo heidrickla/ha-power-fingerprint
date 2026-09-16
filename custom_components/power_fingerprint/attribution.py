@@ -225,8 +225,7 @@ def assign(
 
     Scoring every device against the raw circuit traces independently lets one
     circuit's step be claimed by several devices at once - nothing consumes it,
-    so a busy circuit keeps looking like a plausible home for everything. That
-    is the mechanism behind the over-assignment this module keeps fighting.
+    so a busy circuit keeps looking like a plausible home for everything.
 
     So the loop takes the single most confident assignment anywhere, locks it,
     SUBTRACTS that device's trace from that circuit, and re-scores everyone

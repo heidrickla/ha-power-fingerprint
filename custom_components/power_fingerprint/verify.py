@@ -65,10 +65,10 @@ def safe_to_switch_off(
 
     THE DOMAIN ALLOWLIST CANNOT CLOSE THIS GAP, BECAUSE A COMPUTER'S POWER
     FEED AND A TABLE LAMP ARE THE SAME KIND OF ENTITY. Enumerating one real
-    install's living room produced `switch.living_room_logans_computer`,
-    `switch.living_room_subwolfer_outlet` and `switch.living_room_usp_strip_
-    outlet_1` alongside the lamps - a desktop, an amplifier and an outlet on a
-    rack power strip. Probing any of them means yanking power from something
+    install's living room produced `switch.living_room_desktop`,
+    `switch.living_room_amplifier` and `switch.living_room_rack_pdu_outlet_1`
+    alongside the lamps - a desktop, an amplifier and an outlet on a rack
+    power strip. Probing any of them means yanking power from something
     mid-operation. A lost document is not an acceptable price for learning
     which breaker an outlet is on.
 

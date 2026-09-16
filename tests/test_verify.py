@@ -301,11 +301,11 @@ def test_a_real_light_is_still_probeable():
 
 
 def test_a_live_load_is_not_switched_off_for_a_measurement():
-    """Found by enumerating a real living room before probing it.
+    """A real living room holds loads that must not be switched off.
 
-    `switch.living_room_logans_computer`, `switch.living_room_subwolfer_outlet`
-    and `switch.living_room_usp_strip_outlet_1` all pass a domain allowlist and
-    all mean yanking power from something mid-operation.
+    `switch.living_room_desktop`, `switch.living_room_amplifier` and
+    `switch.living_room_rack_pdu_outlet_1` all pass a domain allowlist and all
+    mean yanking power from something mid-operation.
     """
     ok, why = v.safe_to_switch_off("on", 118.0)
     assert not ok

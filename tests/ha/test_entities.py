@@ -253,16 +253,13 @@ async def test_silent_appliance_is_unknown_with_nothing_learned(
     assert state.attributes["watching"] == 0
 
 
-# --- found by installing, not by any test ----------------------------------
-
-
 async def test_diagnostics_download_does_not_raise(
     hass: HomeAssistant, config_entry, powered
 ):
-    """`window_sizes()` returns COUNTS; diagnostics called len() on them.
+    """`window_sizes()` returns COUNTS.
 
-    TypeError, and the whole diagnostics download returned HTTP 500. Nothing
-    caught it because this suite had never been run; installing did.
+    Calling len() on one raises TypeError and the diagnostics download
+    returns HTTP 500.
     """
     from custom_components.power_fingerprint.diagnostics import (
         async_get_config_entry_diagnostics,

@@ -113,13 +113,12 @@ def on_threshold(
     Uses Otsu's method - the split that minimises variance within the two
     resulting groups - rather than any fixed percentile.
 
-    A PERCENTILE DOES NOT WORK HERE AND THE FAILURE IS SILENT. An earlier
-    version used the 40th percentile as "quiet", which assumes a circuit is off
-    most of the time. On a furnace running a 68% duty cycle the 40th percentile
-    lands *inside* a run, so the threshold sat above the load and the circuit
-    reported ZERO runs across 98,849 samples. Otsu makes no assumption about
-    duty cycle, which is exactly the property needed: the same code has to work
-    for a dishwasher at 3% and a furnace at 68%.
+    A PERCENTILE DOES NOT WORK HERE AND THE FAILURE IS SILENT. A
+    40th-percentile threshold assumes a circuit is off most of the time. On a
+    furnace at 68% duty it lands inside a run, so the threshold sits above the
+    load and the circuit reports ZERO runs across 98,849 samples. Otsu makes
+    no assumption about duty cycle, which is exactly the property needed: the
+    same code has to work for a dishwasher at 3% and a furnace at 68%.
     """
     values = [w for _, w in samples]
     if not values:
@@ -198,7 +197,7 @@ class Event:
 
         A two-state device (a furnace blower) shows 2. A multi-stage device (a
         dishwasher moving through fill, heat, wash, drain) shows a dozen or
-        more. Cheap, and surprisingly discriminating.
+        more.
         """
         return len({round(w / bucket_w) for w in self.samples})
 
@@ -394,8 +393,7 @@ def absence(
 class Evidence:
     """A score, what the same score would be by chance, and the gap.
 
-    A MATCH RATE WITHOUT ITS CONTROL IS NOT A RESULT, AND THIS PROJECT
-    LEARNED THAT THE EXPENSIVE WAY THREE TIMES IN ONE NIGHT:
+    A MATCH RATE WITHOUT ITS CONTROL IS NOT A RESULT:
 
       * four "virtual circuits" each matched BOTH air conditioners at 85-97%,
         because those run 42% of the time and everything coincides with them;

@@ -30,7 +30,7 @@ jobs:
 
       # No ast.parse step here on purpose. The runner image ships Python
       # 3.10.12 and this integration uses PEP 695 `type X = ...`, which that
-      # interpreter cannot parse. Ruff already parses every file at py313.
+      # interpreter cannot parse. Ruff already parses every file at py312.
       - name: JSON is valid
         run: |
           for f in custom_components/power_fingerprint/*.json hacs.json; do

@@ -194,8 +194,7 @@ def suggest_label(friendly_name: str) -> str | None:
     called `unnamed_0` and facing the handful that genuinely need a human.
 
     Returns None when nothing descriptive is left - "EmporiaVue Circuit 25
-    Power" names a breaker, not an appliance, and guessing from a number would
-    be exactly the confident nonsense this project keeps deleting.
+    Power" names a breaker, not an appliance.
     """
     words = friendly_name.replace("&", " ").split()
     out: list[str] = []

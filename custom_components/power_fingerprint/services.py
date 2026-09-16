@@ -288,8 +288,8 @@ def _pausable(
 def _own_meter(hass: HomeAssistant, entity_id: str) -> str | None:
     """The device's own power sensor, if it has one.
 
-    THE SINGLE BIGGEST ACCURACY LEVER IN ACTIVE PROBING, AND ASKING THE USER
-    TO SUPPLY IT WAS A FOOTGUN. With the device's own reading, `rank_deltas`
+    THE SINGLE BIGGEST ACCURACY LEVER IN ACTIVE PROBING, AND IT IS DISCOVERED
+    RATHER THAN ASKED FOR. With the device's own reading, `rank_deltas`
     requires the circuit's step to MATCH THE MAGNITUDE the device reported.
     Without it, ranking falls back to "which circuit moved most", and on a
     house with air conditioning the answer is always the air conditioning.
@@ -604,9 +604,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
                         "circuit": circuit,
                         "reason": reason,
                         "candidates": ranked[:3],
-                        # The actual condition, not `expected is not None` -
-                        # that was true on both branches, so every unmetered
-                        # probe was graded as if the device had a meter.
+                        # `expected is not None` is true on both branches;
+                        # `metered` is the actual condition.
                         "device_metered": metered,
                     }
                 )
@@ -958,8 +957,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         Assistant means by "related" - 149 devices on the development install
         already use it - but an integration may only set it on devices IT
         OWNS, and these belong to ZHA and Z-Wave. Creating a device per circuit
-        was the alternative and was rejected on Lewis's objection: 27 entries
-        called "Circuit 30" beside 519 real ones read as duplicate devices, and
+        was the alternative and was rejected: 27 entries called "Circuit 30"
+        beside 519 real ones read as duplicate devices, and
         that registry already has `emporiavue` and `EmporiaVue` confusing
         people.
 

@@ -96,8 +96,7 @@ def test_a_multi_breaker_designation_is_stripped():
 
 
 def test_an_unnamed_circuit_returns_none_rather_than_a_number():
-    """ "Circuit 25" names a breaker. Guessing an appliance from it would be
-    exactly the confident nonsense this project keeps deleting."""
+    """ "Circuit 25" names a breaker, not an appliance."""
     assert fp.suggest_label("EmporiaVueSecondary Circuit 25 Power") is None
     assert fp.suggest_label("EmporiaVue Circuit 16 Power") is None
 

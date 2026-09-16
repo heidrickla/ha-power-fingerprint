@@ -13,7 +13,7 @@ CONF_PRICE = "price_per_kwh"
 CONF_TOLERANCE = "coverage_tolerance_pct"
 CONF_PAIRS = "contradiction_pairs"
 
-# ONLY A LAST RESORT. `price.async_dashboard_price` is asked first, because a
+# ONLY A LAST RESORT. `dashboard.async_dashboard_price` is asked first, because a
 # second place to type your tariff is a second place for it to be wrong, and the
 # wrong one is always the one nobody looks at. Measured: a dashboard holding
 # $0.145/kWh against this constant made every standby cost read 11% low.

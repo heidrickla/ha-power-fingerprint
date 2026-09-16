@@ -89,11 +89,11 @@ def classify_devices(
 ) -> tuple[list[str], list[str], list[str]]:
     """Sort devices into confirmed dead, suspected, and unaffected.
 
-    "WENT UNAVAILABLE" IS WEAKER EVIDENCE THAN "READS ZERO", AND CONFLATING
-    THEM WOULD BE THIS PROJECT'S FAVOURITE MISTAKE. A device reporting 0 W was
-    measured. A device that merely vanished might be on the circuit, or might
-    be a Zigbee or Z-Wave node whose PARENT was on the circuit - kill one mains
-    powered router and a dozen unrelated battery sensors go quiet with it.
+    "WENT UNAVAILABLE" IS WEAKER EVIDENCE THAN "READS ZERO". A device
+    reporting 0 W was measured. A device that merely vanished might be on the
+    circuit, or might be a Zigbee or Z-Wave node whose PARENT was on the
+    circuit - kill one mains powered router and a dozen unrelated battery
+    sensors go quiet with it.
 
     So: a measured collapse is `confirmed`, a disappearance is `suspected`, and
     anything known to route for others stays `suspected` however it looks.

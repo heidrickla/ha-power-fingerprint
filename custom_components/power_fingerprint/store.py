@@ -81,10 +81,8 @@ class FingerprintStore:
     def unnamed(self) -> list[Fingerprint]:
         """Candidates a human has not yet identified.
 
-        These are the whole point of the learn step and were invisible until
-        now: they lived only in .storage and in the learn service's response,
-        so the one screen that could tell you what your house does showed
-        nothing at all until you had already named something.
+        Surfaced by CandidatesSensor. Without it they exist only in .storage
+        and in the learn action's response.
         """
         return [fp for fp in self._fingerprints if not is_named(fp)]
 
@@ -162,8 +160,7 @@ class FingerprintStore:
         stronger evidence than a passive correlation, and a later passive sweep
         finding nothing must not erase it. A `None` circuit is never recorded
         over an existing assignment at all - "I could not tell this time" is
-        not the same as "it is not there", and this project keeps relearning
-        that distinction.
+        not the same as "it is not there".
 
         Returns True when something actually changed, so the caller can avoid
         writing to disk on every no-op refresh.
@@ -209,10 +206,11 @@ class FingerprintStore:
     def record_poll(self, last_poll: str) -> None:
         """Refresh the poll heartbeat alone, debounced, without touching seen.
 
-        The heartbeat used to persist only on a sighting, so after a restart
-        the whole gap since the last SIGHTING was credited as blind time -
-        muting the overdue alert exactly when an appliance had died. The
-        coordinator calls this on a throttle; the delay coalesces bursts.
+        The heartbeat persists on every poll, not only on a sighting.
+        Persisting only on a sighting credits the whole gap since the last
+        SIGHTING as blind time after a restart, which mutes the overdue alert
+        exactly when an appliance has died. The coordinator calls this on a
+        throttle; the delay coalesces bursts.
         """
         self._last_poll = last_poll
         self._store.async_delay_save(self._as_dict, 60)

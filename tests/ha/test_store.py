@@ -210,9 +210,9 @@ async def test_clearing_the_pause_record_leaves_the_rest_alone(hass: HomeAssista
 async def test_the_poll_heartbeat_is_kept_without_touching_last_seen(
     hass: HomeAssistant,
 ):
-    """The heartbeat used to persist only on a sighting, so after a restart the
-    whole gap since the last SIGHTING was credited as blind time - muting the
-    overdue alert exactly when an appliance had died."""
+    """Persisting the heartbeat only on a sighting credits the whole gap since
+    the last SIGHTING as blind time after a restart, which mutes the overdue
+    alert exactly when an appliance has died."""
     store = await _loaded(hass)
     store.record_poll("2026-09-04T12:00:00+00:00")
     assert store.last_poll() == "2026-09-04T12:00:00+00:00"
