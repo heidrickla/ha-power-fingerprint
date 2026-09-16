@@ -45,11 +45,25 @@ and are not documented here.
   `fcntl` and `resource`, releases `socketpair` from the harness's socket
   block, and selects the selector event loop; it is inert on every other
   platform.
-- `tools/validate_local.py` fails under `CI` when it can derive no development
-  host name. A checkout has neither the environment variable nor the gitignored
-  `.internal-hosts` file, and the code host's name parts are generic, so the
-  bare-name rule matched nothing and the step went green on a rule that did not
-  run. Both workflows now pass `PF_INTERNAL_HOSTS` from a repository secret.
+- `tools/validate_local.py` states which of its host rules ran instead of
+  failing when it can derive no development host name. A checkout has neither
+  the environment variable nor the gitignored `.internal-hosts` file, and the
+  code host's name parts are generic, so the bare-name half cannot run there.
+  The note names `PF_INTERNAL_HOSTS` and says the result covers addresses, URL
+  hosts and private suffixes, so an address-only scan cannot read as a scan
+  that found nothing. Neither workflow supplies the names: a run log on a
+  public repository is public, and the rule printed the name it was given the
+  first time it fired.
+- `tools/validate_local.py` prints no matched string under `CI`. Every report
+  carries the file, the line and the rule that matched, with the matched text
+  replaced by `[redacted]`; a local run prints it, which is what makes the line
+  findable. A fixed placeholder rather than a digest or a truncation, because
+  both of those still narrow a host name short enough to guess.
+- `tools/validate_local.py` fires each matcher on a control line before it
+  reports a clean result. The controls are built at runtime from the pinned
+  CIDRs and the pinned suffix list, one per rule, and each asserts its own rule
+  fired rather than that any rule did. A tree that holds nothing and a matcher
+  that matches nothing otherwise print the same result.
 - The ruff target is `py314`, the version both workflows install and the
   version the mypy block pins. At that target `ruff format` writes the PEP 758
   form of a multi-exception `except`, so ten clauses across six files lost

@@ -775,6 +775,28 @@ python tools/validate_local.py
 `verify`, `virtual`, `breaker` - which import nothing from Home Assistant and
 are loaded by path, so they run on a bare checkout.
 
+`tools/validate_local.py` also refuses a development host in the published tree
+and in every commit queued for push, message included. Four rules:
+
+| Rule | What it refuses | Where it runs |
+|---|---|---|
+| address | A literal inside the CIDRs pinned in `tools/_netblocks.py`, IPv4 and IPv6. | Every run. |
+| URL host | A URL whose host is one of those addresses or ends in a private suffix. | Every run. |
+| private suffix | A bare host ending in a suffix from the pinned list, such as `.lan` or `.internal`. | Every run. |
+| bare name | A development host named in prose. The names come from `PF_INTERNAL_HOSTS`, the gitignored `.internal-hosts` or the git remotes. | A workstation run. |
+
+Neither workflow supplies the names, so the bare-name rule is caught locally
+only and the CI run says so. A run log on a public repository is public, and
+the rule prints the name it was given the first time it fires. Measured
+2026-09-16 in a fresh clone with `CI=true` and no names: exit 0, with a note
+naming `PF_INTERNAL_HOSTS` and stating that the result covers addresses, URL
+hosts and private suffixes.
+
+A match under `CI` prints the file, the line and the rule with the matched text
+replaced by `[redacted]`. A local run prints the match. Each matcher fires on a
+control line built at runtime first, so a clean result is a matcher that
+matched rather than one that stopped working.
+
 157 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
