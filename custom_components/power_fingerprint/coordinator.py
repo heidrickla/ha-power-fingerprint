@@ -584,7 +584,7 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def window_hours(self) -> float:
         """How much wall-clock time the rolling window actually spans.
 
-         THE SAMPLE COUNT IS NOT THE ANSWER. A window can hold hundreds of
+        THE SAMPLE COUNT IS NOT THE ANSWER. A window can hold hundreds of
         samples and still cover four minutes, and a standby figure from four
         minutes is a confident wrong number rather than a rough one. What
         matters is the span.

@@ -199,7 +199,7 @@ async def _sample_circuits(
     active read. Averaging over the settle window removes that and most of the
     noise from other loads.
 
-     THE SETTLE WINDOW HAS TO OUTLAST YOUR METER'S REPORTING INTERVAL. If it
+    THE SETTLE WINDOW HAS TO OUTLAST YOUR METER'S REPORTING INTERVAL. If it
     does not, the circuit has not reported since the switch was thrown and the
     probe reads a confident "no change" from stale values - a wrong answer that
     looks like a clean one. The caller warns when the measured cadence says
@@ -288,7 +288,7 @@ def _pausable(
 def _own_meter(hass: HomeAssistant, entity_id: str) -> str | None:
     """The device's own power sensor, if it has one.
 
-     THE SINGLE BIGGEST ACCURACY LEVER IN ACTIVE PROBING, AND ASKING THE USER
+    THE SINGLE BIGGEST ACCURACY LEVER IN ACTIVE PROBING, AND ASKING THE USER
     TO SUPPLY IT WAS A FOOTGUN. With the device's own reading, `rank_deltas`
     requires the circuit's step to MATCH THE MAGNITUDE the device reported.
     Without it, ranking falls back to "which circuit moved most", and on a
@@ -699,11 +699,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _map(call: ServiceCall) -> ServiceResponse:
         """Work out which circuit each self-metering device sits on.
 
-         THIS WAS TOOL-ONLY UNTIL NOW. The analysis lived in
-        `tools/attribute.py` and needed a workstation, a token and a shell,
-        which meant the one thing that turns a wall of numbered circuits into
-        named ones could not be run by the person who installed the
-        integration. It is the same code path; only the entry point is new.
+        The same code path as `tools/attribute.py`, reachable without a
+        workstation, a token or a shell. This is what turns a wall of numbered
+        circuits into named ones, so the person who installed the integration
+        has to be able to run it.
         """
         runtime = _runtime(hass)
         coordinator = runtime.coordinator
@@ -807,7 +806,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         def _area(entity_id: str) -> str | None:
             """An entity's area, falling back to its device's.
 
-             `entity.area_id` is only set when someone has OVERRIDDEN the
+            `entity.area_id` is only set when someone has OVERRIDDEN the
             area on that specific entity. Almost every entity inherits its
             area from its device, so reading the entity alone returned None for
             every single device on the first real run - silently disabling the
@@ -895,7 +894,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _autolabel(call: ServiceCall) -> ServiceResponse:
         """Name every shape whose circuit already says what it is.
 
-         ONLY WHERE THERE IS NOTHING TO GUESS. Two conditions, both strict:
+        ONLY WHERE THERE IS NOTHING TO GUESS. Two conditions, both strict:
         the circuit's own title must contain an appliance name somebody typed,
         and the circuit must have exactly ONE learned shape. A circuit called
         "Dish Washer" with a single recurring shape has one answer. A circuit
@@ -955,7 +954,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def _apply_labels(call: ServiceCall) -> ServiceResponse:
         """Label each mapped device with the circuit it sits on.
 
-         WHY LABELS AND NOT THE OBVIOUS THING. `via_device` is what Home
+        WHY LABELS AND NOT THE OBVIOUS THING. `via_device` is what Home
         Assistant means by "related" - 149 devices on the development install
         already use it - but an integration may only set it on devices IT
         OWNS, and these belong to ZHA and Z-Wave. Creating a device per circuit
@@ -964,7 +963,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         that registry already has `emporiavue` and `EmporiaVue` confusing
         people.
 
-         Labels are the USER'S namespace and no integration API for them is
+        Labels are the USER'S namespace and no integration API for them is
         documented - there is simply no ownership check stopping this. So it
         defaults to a dry run, only ever ADDS to a device's existing labels,
         and `remove: true` takes every label back off.

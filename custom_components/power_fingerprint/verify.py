@@ -26,7 +26,7 @@ MIN_PROBE_WATTS = 5.0
 def may_probe(entity_id: str, entity_category: str | None = None) -> tuple[bool, str]:
     """Whether this entity is safe to switch for a measurement.
 
-     THE DOMAIN ALLOWLIST IS NOT ENOUGH ON ITS OWN, AND THIS ONE IS EASY TO
+    THE DOMAIN ALLOWLIST IS NOT ENOUGH ON ITS OWN, AND THIS ONE IS EASY TO
     MISS. A Z-Wave dimmer publishes its settings as `switch` entities in the
     same domain as the load: `switch.front_porch_light_smart_bulb_mode`,
     `switch.front_porch_light_invert_switch`,
@@ -63,7 +63,7 @@ def safe_to_switch_off(
 ) -> tuple[bool, str]:
     """Whether switching this device OFF would cut something that is running.
 
-     THE DOMAIN ALLOWLIST CANNOT CLOSE THIS GAP, BECAUSE A COMPUTER'S POWER
+    THE DOMAIN ALLOWLIST CANNOT CLOSE THIS GAP, BECAUSE A COMPUTER'S POWER
     FEED AND A TABLE LAMP ARE THE SAME KIND OF ENTITY. Enumerating one real
     install's living room produced `switch.living_room_logans_computer`,
     `switch.living_room_subwolfer_outlet` and `switch.living_room_usp_strip_
@@ -72,7 +72,7 @@ def safe_to_switch_off(
     mid-operation. A lost document is not an acceptable price for learning
     which breaker an outlet is on.
 
-     THE TEST IS MEASURED, NOT NAMED. Name heuristics fail in both directions
+    THE TEST IS MEASURED, NOT NAMED. Name heuristics fail in both directions
     - `switch.living_room_near_office_outlet` says nothing about what is
     plugged into it today. A device that is drawing a sustained load has
     something running on it; that is the whole question, and the device's own
@@ -105,12 +105,12 @@ def safe_to_switch_off(
 def is_battery_powered(sibling_device_classes: dict[str, str | None]) -> bool:
     """Whether a device runs on batteries, given the entities on that device.
 
-     BATTERY DEVICES CANNOT BE ATTRIBUTED TO A CIRCUIT AT ALL. They draw no
+    BATTERY DEVICES CANNOT BE ATTRIBUTED TO A CIRCUIT AT ALL. They draw no
     mains current, so no CT will ever see them switch. Probing one burns the
     full settle time to produce "no answer", and worse, an unrelated load that
     happened to move during those two minutes can be credited to it.
 
-     "HAS A BATTERY SENSOR" IS NOT THE TEST, AND GETTING THAT WRONG EXCLUDES
+    "HAS A BATTERY SENSOR" IS NOT THE TEST, AND GETTING THAT WRONG EXCLUDES
     REAL LOADS. A UPS reports a battery level and draws mains; so do some
     thermostats and a mains smoke alarm with a backup cell. The discriminator is
     a battery reading AND the absence of any power, energy or current reading -
@@ -136,7 +136,7 @@ def rank_deltas(
     is what stops an unrelated load that happened to switch during the probe
     from claiming the device.
 
-     `expected_w` MAY BE None, AND THAT IS NOT AN ERROR. Measured on a live
+    `expected_w` MAY BE None, AND THAT IS NOT AN ERROR. Measured on a live
     panel: a Z-Wave dimmer's own power meter reported no change at all across a
     25-second probe, because Z-Wave devices commonly report power on a slow
     interval or only on significant change, while the circuit CT reports every
@@ -207,7 +207,7 @@ def agree(observations: list[str | None]) -> tuple[str | None, str]:
     """Combine repeated probes. Every probe that ANSWERED must give the same
     circuit, and at least one must have answered.
 
-     SILENCE IS NOT DISAGREEMENT, AND CONFLATING THEM DISCARDS GOOD DATA.
+    SILENCE IS NOT DISAGREEMENT, AND CONFLATING THEM DISCARDS GOOD DATA.
 
 
     A probe that produced no reading is MISSING DATA. A probe that named a
@@ -238,7 +238,7 @@ UNKNOWN = "unknown"  # neither could tell
 def combine(passive: str | None, active: str | None) -> tuple[str | None, str]:
     """Merge a passive inference and an active measurement into one verdict.
 
-     DISAGREEMENT RETURNS NOTHING RATHER THAN PREFERRING THE MEASUREMENT.
+    DISAGREEMENT RETURNS NOTHING RATHER THAN PREFERRING THE MEASUREMENT.
     It is tempting to let active win, since it is a measurement and passive is
     only inference. But a disagreement means one of them is wrong about a
     physical fact that cannot be both ways, and which one is wrong is not
@@ -266,7 +266,7 @@ def interference(
 ) -> list[str]:
     """Automations whose `last_triggered` moved while the probe was running.
 
-     THE PROBE CANNOT SEE THIS FROM THE POWER TRACE ALONE, AND IT MATTERS.
+    THE PROBE CANNOT SEE THIS FROM THE POWER TRACE ALONE, AND IT MATTERS.
     The devices most worth identifying are usually motion lights, which are
     exactly the devices an automation is most likely to switch mid-probe. If
     that happens the circuit step vanishes or doubles and the reading is wrong
@@ -303,7 +303,7 @@ def grade(
     `suspect` and naming the automation lets a person judge, which is more
     useful than either silently trusting it or silently discarding it.
 
-     A SINGLE PROBE CANNOT BE `measured`, AND CALLING IT THAT PRODUCES
+    A SINGLE PROBE CANNOT BE `measured`, AND CALLING IT THAT PRODUCES
     CONFIDENT GARBAGE. The whole defence against coincidence here is that
     independent probes must agree; with one probe, "all probes agreed" is
     vacuously true and the verdict rests on a single coincident step.
@@ -367,7 +367,7 @@ def safe_to_pause(
 ) -> tuple[bool, str]:
     """Whether an automation may be paused for the duration of a probe.
 
-     THIS FAILS CLOSED AND SHOULD STAY THAT WAY.
+    THIS FAILS CLOSED AND SHOULD STAY THAT WAY.
     The worst outcome of refusing to pause something is a noisier measurement.
     The worst outcome of pausing the wrong thing is a leak alert that never
     fires, an alarm that trips because the arrival automation did not disarm it,

@@ -136,7 +136,7 @@ def step_match(
 ) -> float:
     """Fraction of the device's switching events the circuit also shows.
 
-     THIS EXISTS BECAUSE CORRELATION FAILS ON SMALL LOADS AND FAILS QUIETLY.
+    THIS EXISTS BECAUSE CORRELATION FAILS ON SMALL LOADS AND FAILS QUIETLY.
     Pearson r compares whole series, so a 10 W lamp on a circuit that swings
     several hundred watts scores near zero even when it is genuinely on that
     circuit - its contribution is swamped by everything else sharing the
@@ -221,7 +221,7 @@ def assign(
 ) -> dict[str, dict[str, float | str | None]]:
     """Work out which circuit each metered device sits on.
 
-     ASSIGNMENT IS ITERATIVE, AND EACH CONFIRMED DEVICE IS SPENT.
+    ASSIGNMENT IS ITERATIVE, AND EACH CONFIRMED DEVICE IS SPENT.
 
     Scoring every device against the raw circuit traces independently lets one
     circuit's step be claimed by several devices at once - nothing consumes it,

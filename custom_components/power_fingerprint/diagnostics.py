@@ -95,9 +95,8 @@ async def async_get_config_entry_diagnostics(
         "standby_ranking": standby[:15],
         "contradictions": clashes,
         "silent_circuit_count": len(data.get("silent_circuits", [])),
-        # `window_sizes()` already returns COUNTS. Calling len() on them raised
-        # TypeError and made the whole diagnostics download 500 - found by
-        # installing, not by any test, because the HA-layer suite has never run.
+        # `window_sizes()` already returns COUNTS. Calling len() on one raises
+        # TypeError, which makes the whole diagnostics download return 500.
         "window_filled": dict(
             sorted(
                 (_anon(entity), count)

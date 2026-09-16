@@ -94,7 +94,7 @@ class _Base(FingerprintEntity, SensorEntity):
 class _StandbyBase(_Base):
     """For the two sensors that are only meaningful once the window has filled.
 
-     Refuses to answer rather than answering wrongly. A 5th percentile over
+    Refuses to answer rather than answering wrongly. A 5th percentile over
     four minutes is not a rough standby figure, it is a different quantity
     wearing the same label, and it reads as authoritative on a dashboard.
     """
@@ -122,7 +122,7 @@ class ApplianceSensor(_Base):
     named fingerprint accounts for, which is worth surfacing rather than
     forcing into the nearest bucket.
 
-     NOT a `SensorDeviceClass.ENUM`. An enum sensor has to declare its full
+    NOT a `SensorDeviceClass.ENUM`. An enum sensor has to declare its full
     option list up front, and the whole point of this one is that the set of
     appliances grows as they are learned and named.
     """
@@ -237,7 +237,7 @@ class StandbyPowerSensor(_StandbyBase):
 class StandbyCostSensor(_StandbyBase):
     """Annualised cost of that permanent draw, at the configured price.
 
-     DELIBERATELY NOT `SensorDeviceClass.MONETARY`. That device class means
+    DELIBERATELY NOT `SensorDeviceClass.MONETARY`. That device class means
     money actually accumulated and Home Assistant requires it to carry a
     `total` state class. This is a projection of a rate - it moves down as well
     as up, and nothing has been spent - so claiming it is monetary would put a
@@ -268,7 +268,7 @@ class StandbyCostSensor(_StandbyBase):
 class CandidatesSensor(_Base):
     """Learned shapes waiting for a human to say what they are.
 
-     Without this the learn step has no visible output: clustering finds the
+    Without this the learn step has no visible output: clustering finds the
     recurring shapes and cannot name them, so the candidates would exist only in
     `.storage` and in the action's response.
 

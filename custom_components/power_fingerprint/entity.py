@@ -48,13 +48,13 @@ class FingerprintEntity(CoordinatorEntity[FingerprintCoordinator]):
 class AttachedEntity(CoordinatorEntity[FingerprintCoordinator]):
     """An entity that lives on SOMEONE ELSE'S device.
 
-     THE FINGERPRINT BELONGS WHERE THE DEVICE IS. A circuit assignment listed
+    THE FINGERPRINT BELONGS WHERE THE DEVICE IS. A circuit assignment listed
     on this integration's own service device is a fact filed under the wrong
     heading - you look it up when you already know to ask. On the device's own
     page it is there when you open the front porch light to see why it is
     behaving oddly.
 
-     DO NOT DO THIS BY RETURNING THE TARGET DEVICE'S IDENTIFIERS IN
+    DO NOT DO THIS BY RETURNING THE TARGET DEVICE'S IDENTIFIERS IN
     `DeviceInfo`. That was the documented trick for years and it no longer
     merges. Measured on Home Assistant 2026.8 against a real registry: passing
     identifiers `[["zha", "00:11:22:33:44:55:66:77"]]` that matched an existing

@@ -38,7 +38,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the service actions.
 
-     REGISTERED HERE, NOT IN `async_setup_entry`. Actions registered per
+    REGISTERED HERE, NOT IN `async_setup_entry`. Actions registered per
     entry vanish while the entry is unloaded, and every automation that calls
     one then fails validation with "action not found" - which reads as a typo
     in the automation rather than as an integration that is temporarily down.

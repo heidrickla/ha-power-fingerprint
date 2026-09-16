@@ -58,7 +58,7 @@ def dead_circuit(
     staying idle, and treating it as the answer would let a user "identify" a
     breaker they never touched.
 
-     MORE THAN ONE MATCH IS A REFUSAL, NOT A CHOICE. Two circuits going dead
+    MORE THAN ONE MATCH IS A REFUSAL, NOT A CHOICE. Two circuits going dead
     together means a double-pole breaker, a main, or something else switched at
     the same moment, and picking the larger would be inventing a fact.
     """
@@ -89,7 +89,7 @@ def classify_devices(
 ) -> tuple[list[str], list[str], list[str]]:
     """Sort devices into confirmed dead, suspected, and unaffected.
 
-     "WENT UNAVAILABLE" IS WEAKER EVIDENCE THAN "READS ZERO", AND CONFLATING
+    "WENT UNAVAILABLE" IS WEAKER EVIDENCE THAN "READS ZERO", AND CONFLATING
     THEM WOULD BE THIS PROJECT'S FAVOURITE MISTAKE. A device reporting 0 W was
     measured. A device that merely vanished might be on the circuit, or might
     be a Zigbee or Z-Wave node whose PARENT was on the circuit - kill one mains

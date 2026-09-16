@@ -57,7 +57,7 @@ def to_watts(value: float | None, unit: str | None) -> float | None:
 def sample_interval(samples: list[Sample]) -> float | None:
     """The meter's actual reporting cadence, in seconds - measured, not assumed.
 
-     MEASURE THIS RATHER THAN HARDCODING IT. The step-matching window in
+    MEASURE THIS RATHER THAN HARDCODING IT. The step-matching window in
     `attribution` has to be about one reporting interval wide: too narrow and
     a real coincidence falls between cells, too wide and chance coincidences
     on a busy circuit start matching. Both failures were observed. An Emporia
@@ -113,7 +113,7 @@ def on_threshold(
     Uses Otsu's method - the split that minimises variance within the two
     resulting groups - rather than any fixed percentile.
 
-     A PERCENTILE DOES NOT WORK HERE AND THE FAILURE IS SILENT. An earlier
+    A PERCENTILE DOES NOT WORK HERE AND THE FAILURE IS SILENT. An earlier
     version used the 40th percentile as "quiet", which assumes a circuit is off
     most of the time. On a furnace running a 68% duty cycle the 40th percentile
     lands *inside* a run, so the threshold sat above the load and the circuit
@@ -235,7 +235,7 @@ def segment(
     phase does not shatter one wash into fifteen "events". `min_duration_s`
     defaults low enough to keep short loads - see design note 2.
 
-     AN EVENT KEEPS EVERY SAMPLE INSIDE ITS TIME SPAN, INCLUDING THE ONES
+    AN EVENT KEEPS EVERY SAMPLE INSIDE ITS TIME SPAN, INCLUDING THE ONES
     BELOW THRESHOLD. This matters more than it looks. If an event held only its
     above-threshold samples, `floor_w` would be pinned at the threshold by
     construction and could never be low - which would destroy the one feature
@@ -356,12 +356,12 @@ def absence(
 ) -> tuple[str, str]:
     """Has an expected appliance gone quiet? Returns (state, reason).
 
-     EVERY OTHER CHECK IN THIS INTEGRATION ALERTS ON TOO MUCH. The expensive
+    EVERY OTHER CHECK IN THIS INTEGRATION ALERTS ON TOO MUCH. The expensive
     failures are silence: the fridge that stopped cycling, the sump pump that
     never ran through a storm, the freezer nobody opened for a fortnight. None
     of those trip a threshold, because nothing exceeded anything.
 
-     BLIND TIME IS NOT SILENCE, AND CONFLATING THEM IS THE ONE FAILURE THAT
+    BLIND TIME IS NOT SILENCE, AND CONFLATING THEM IS THE ONE FAILURE THAT
     MATTERS HERE. If the circuit sensor was unavailable for six hours, the
     appliance may well have run during them. Reporting that as "it has not run"
     is a fabricated observation - the integration would be asserting something
@@ -394,7 +394,7 @@ def absence(
 class Evidence:
     """A score, what the same score would be by chance, and the gap.
 
-     A MATCH RATE WITHOUT ITS CONTROL IS NOT A RESULT, AND THIS PROJECT
+    A MATCH RATE WITHOUT ITS CONTROL IS NOT A RESULT, AND THIS PROJECT
     LEARNED THAT THE EXPENSIVE WAY THREE TIMES IN ONE NIGHT:
 
       * four "virtual circuits" each matched BOTH air conditioners at 85-97%,
@@ -445,7 +445,7 @@ def control(
     `offsets_h` for a world where the same events happened at a different time.
     Whatever still scores is what coincidence alone buys.
 
-     SEVERAL OFFSETS, AND THE LOWEST WINS. A three-hour shift still overlaps
+    SEVERAL OFFSETS, AND THE LOWEST WINS. A three-hour shift still overlaps
     the house's own daily rhythm - on the development install it scored 78%
     against a real 91% - while nineteen hours scored 40%. Taking the minimum
     across a spread is what stops autocorrelation being mistaken for signal.

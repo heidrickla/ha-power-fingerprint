@@ -22,7 +22,7 @@ and are not documented here.
 
 ### Changed
 
-- **Minimum Home Assistant is now 2026.3.** The config flow uses APIs added in
+- Minimum Home Assistant is now 2026.3. The config flow uses APIs added in
   2024.12 and the brand images ship inside the repository, which HACS reads
   from 2026.3.
 - A new Circuit entity on a mapped device is named after that device, so it

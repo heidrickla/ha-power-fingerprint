@@ -184,7 +184,7 @@ def main() -> int:
 def _best_match_rate(events: list, args, floor: float) -> float:
     """How often an inferred run matches a real circuit's step in magnitude.
 
-     Only meaningful on a house that ALSO has clamps. It is the honest tuning
+    Only meaningful on a house that ALSO has clamps. It is the honest tuning
     signal, and the reason a clamp-less house cannot simply be told its own
     best floor - it has nothing to check against.
     """

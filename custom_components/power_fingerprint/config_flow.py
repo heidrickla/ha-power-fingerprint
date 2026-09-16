@@ -106,7 +106,7 @@ def _validate(
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Prove the chosen sensors can actually be read, before accepting them.
 
-     THE SELECTOR IS NOT A CHECK. It filters on `device_class: power`, which
+    THE SELECTOR IS NOT A CHECK. It filters on `device_class: power`, which
     constrains neither the unit nor whether the sensor currently reports a
     number - and both of those failures are silent afterwards. A kilowatt
     sensor produces thresholds a thousand times too high and every circuit

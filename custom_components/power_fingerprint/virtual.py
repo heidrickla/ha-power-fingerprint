@@ -37,7 +37,7 @@ class VirtualEvent:
         """The same feature names the per-circuit path uses, so a virtual event
         can be clustered and matched by the existing machinery.
 
-         `floor_w` is the baseline the appliance sat on, NOT its own minimum -
+        `floor_w` is the baseline the appliance sat on, NOT its own minimum -
         on an aggregate the two are not the same thing and cannot be made so.
         """
         return {
@@ -58,7 +58,7 @@ def noise_floor(samples: list[Sample], percentile: float = 95.0) -> float:
     below this is the house breathing - fridges cycling, lights, chargers -
     and a "virtual circuit" built from it would be noise with a name.
 
-     DERIVED FROM THE USER'S OWN TRACE, NOT A CONSTANT. A one-bedroom flat
+    DERIVED FROM THE USER'S OWN TRACE, NOT A CONSTANT. A one-bedroom flat
     and a house with two air conditioners have wildly different floors, and a
     number tuned on one is wrong for the other in a way nothing reports.
     """
@@ -72,7 +72,7 @@ def noise_floor(samples: list[Sample], percentile: float = 95.0) -> float:
 def pair_rate(samples: list[Sample], floor_w: float) -> float:
     """What fraction of detected level shifts found a partner.
 
-     THE SELF-CHECK THAT NEEDS NO GROUND TJANE DOE. A floor set too low picks up
+    THE SELF-CHECK THAT NEEDS NO GROUND TJANE DOE. A floor set too low picks up
     the house breathing: shifts appear that never come back down, overlapping
     loads interleave, and the proportion that pair into a clean run collapses.
     Too high and there is nothing to pair. The floor where pairing stays clean
@@ -104,7 +104,7 @@ def residual(
 ) -> list[float]:
     """The aggregate with every self-metered device's own draw taken out.
 
-     A DEVICE THAT METERS ITSELF NEEDS NO INFERENCE AT ALL - it is already a
+    A DEVICE THAT METERS ITSELF NEEDS NO INFERENCE AT ALL - it is already a
     virtual circuit, exactly known. Its value here is second: removing its
     trace from the aggregate makes everything left over easier to separate.
     Every watt subtracted is a watt that can no longer be mistaken for part of
@@ -175,7 +175,7 @@ def pair_steps(
 ) -> tuple[list[VirtualEvent], list[tuple[int, float]]]:
     """Match each step up with the step down that ends the same appliance.
 
-     MOST RECENT MATCHING UP-STEP FIRST, NOT THE OLDEST. Appliances nest: the
+    MOST RECENT MATCHING UP-STEP FIRST, NOT THE OLDEST. Appliances nest: the
     oven goes on, the kettle goes on and off inside it, then the oven goes off.
     Matching oldest-first pairs the oven's start with the kettle's stop and
     invents a run that never happened. Taking the most recent unmatched up-step

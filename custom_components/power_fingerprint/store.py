@@ -157,7 +157,7 @@ class FingerprintStore:
     ) -> bool:
         """Remember which circuit a device was found on.
 
-         AN ACTIVE PROBE MUST NOT OVERWRITE ITSELF WITH A WEAKER ANSWER.
+        AN ACTIVE PROBE MUST NOT OVERWRITE ITSELF WITH A WEAKER ANSWER.
         A probe that switched a real light and watched a real circuit move is
         stronger evidence than a passive correlation, and a later passive sweep
         finding nothing must not erase it. A `None` circuit is never recorded

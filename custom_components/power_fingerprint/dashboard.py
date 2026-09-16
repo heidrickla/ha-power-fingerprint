@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 def _price_from_source(hass: HomeAssistant, source: Mapping[str, Any]) -> float | None:
     """Pull a price out of one energy source, whatever shape it is in.
 
-     Home Assistant has carried two shapes for a grid source: the price keys
+    Home Assistant has carried two shapes for a grid source: the price keys
     sit directly on the source in some versions and inside a `flow_from` list
     in others. Handling only the shape in front of you works until the next
     upgrade, so both are read here.
@@ -80,7 +80,7 @@ async def async_dashboard_price(hass: HomeAssistant) -> float | None:
 async def async_circuit_names(hass: HomeAssistant) -> dict[str, str]:
     """Circuit power sensor -> the name the user gave it on the energy dashboard.
 
-     THE BEST NAMES IN THE HOUSE ARE USUALLY ALREADY ON THAT SCREEN. Entity
+    THE BEST NAMES IN THE HOUSE ARE USUALLY ALREADY ON THAT SCREEN. Entity
     titles come from the meter's firmware and read "EmporiaVue Circuit 25
     Power"; the energy dashboard is where somebody sat down and typed "Circuit
     25 Garage", "Circuit 26 Microwave", "Circuit 21 Washer". Reading those back

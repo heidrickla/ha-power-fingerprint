@@ -188,7 +188,7 @@ _NOISE_WORDS = (
 def suggest_label(friendly_name: str) -> str | None:
     """The appliance name already sitting in a circuit's own title, if any.
 
-     NOT INFERENCE. "EmporiaVue Circuit 15 Dish Washer Power" contains the
+    NOT INFERENCE. "EmporiaVue Circuit 15 Dish Washer Power" contains the
     answer; somebody typed it when they clamped the panel. Reading it back is
     free and certain, and it is the difference between a user facing 39 shapes
     called `unnamed_0` and facing the handful that genuinely need a human.
