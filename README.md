@@ -769,24 +769,26 @@ python -m pytest tests/ -q
 python tools/validate_local.py
 ```
 
-181 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
+184 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
 `verify`, `virtual`, `breaker` - which import nothing from Home Assistant and
 are loaded by path, so they run on a bare checkout.
 
-156 more in `tests/ha/` cover the Home Assistant layer.
+157 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|
 | Entry lifecycle | Setup, unload and removal; the store goes with the entry. |
 | Flows | Config, reconfigure and options, each validation refusal followed by a recovery to a created entry. |
-| Entities | Derived values, availability, device grouping, the appliance sensor following its circuit. |
+| Entities | Derived values, availability, device grouping, the appliance sensor following its circuit, the diagnostics download carrying no entity id. |
 | Store | The refusal to overwrite an active probe with a passive answer, and the rename migration. |
 | Dashboard | The energy dashboard reader against every shape the energy schema has had. |
 | Coordinator | The recorder seed, blind-time accounting behind the absence alert, and unit conversion at ingestion. |
 | Actions | All six driven end to end against recorded history, including the probe's restore path, its five refusals and the automations it pauses. |
 
-They skip when the harness is absent and do not run on Windows, where Home
-Assistant's runner imports `fcntl` and the harness blocks sockets.
+They skip when the harness is absent. On Windows `tests/winposix.py` supplies
+`fcntl` and `resource`, releases `socketpair` from the harness's socket block,
+and selects the selector event loop. `pyproject.toml` loads it with
+`-p tests.winposix`, before the harness plugin reaches the `fcntl` import.
 
 GitHub Actions runs both suites on every push under one coverage measurement
 and fails the build below 95%. It is 99%; the only statement not exercised is a

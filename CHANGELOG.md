@@ -36,6 +36,24 @@ and are not documented here.
   missing one names itself instead of raising `KeyError`.
 - The workflow headers and `.gitattributes` describe what the jobs do without
   naming the machines they run on.
+- The Home Assistant layer tests run on Windows. `tests/winposix.py` supplies
+  `fcntl` and `resource`, releases `socketpair` from the harness's socket
+  block, and selects the selector event loop; it is inert on every other
+  platform.
+- `tools/validate_local.py` fails under `CI` when it can derive no development
+  host name. A checkout has neither the environment variable nor the gitignored
+  `.internal-hosts` file, and the code host's name parts are generic, so the
+  bare-name rule matched nothing and the step went green on a rule that did not
+  run. Both workflows now pass `PF_INTERNAL_HOSTS` from a repository secret.
+
+### Fixed
+
+- Renaming a circuit no longer rewrites the unique id of a circuit whose id has
+  the renamed one as a prefix. Renaming `sensor.kitchen_power` also rewrote
+  `sensor.kitchen_power_2`, which detached that circuit's recorder history and
+  minted a duplicate entity on the next reload. The same exact-id match now
+  applies to the contradiction pairs, where a comment or a malformed line is
+  left as written.
 
 ## [0.17.0] - 2026-09-04
 
