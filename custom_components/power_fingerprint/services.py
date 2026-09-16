@@ -180,7 +180,7 @@ async def _histories(
         for state in data.get(entity, []):
             try:
                 watts = to_watts(float(state.state), unit)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue  # unavailable/unknown - a fabricated zero would lie
             if watts is not None:
                 samples.append((state.last_changed, watts))
@@ -226,7 +226,7 @@ def _read(hass: HomeAssistant, entity: str) -> float | None:
         return None
     try:
         value = float(state.state)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return to_watts(value, state.attributes.get("unit_of_measurement"))
 

@@ -28,8 +28,9 @@ jobs:
           python3 -m ruff format --check .
 
       # No ast.parse step here on purpose. The runner image ships Python
-      # 3.10.12 and this integration uses PEP 695 `type X = ...`, which that
-      # interpreter cannot parse. Ruff already parses every file at py312.
+      # 3.10.12, and this integration uses PEP 695 `type X = ...` and PEP 758
+      # except groups, which that interpreter cannot parse. Ruff parses every
+      # file at py314 in the step above.
       - name: JSON is valid
         run: |
           for f in custom_components/power_fingerprint/*.json hacs.json; do

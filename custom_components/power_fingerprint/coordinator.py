@@ -81,7 +81,7 @@ def _raw(state: State | None) -> float | None:
         return None
     try:
         return float(state.state)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

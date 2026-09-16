@@ -40,7 +40,7 @@ def _price_from_source(hass: HomeAssistant, source: Mapping[str, Any]) -> float 
             if state is not None:
                 try:
                     return float(state.state)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
     return None
 

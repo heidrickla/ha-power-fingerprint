@@ -290,7 +290,7 @@ def load_library(path: str) -> list[Fingerprint]:
     try:
         with open(path, encoding="utf-8") as fh:
             return [Fingerprint.from_dict(d) for d in json.load(fh)]
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return []
 
 

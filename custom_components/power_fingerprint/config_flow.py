@@ -136,7 +136,7 @@ def _validate(
             return {field: f"{kind}_not_numeric"}, {"entity": entity}
         try:
             value = float(state.state)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return {field: f"{kind}_not_numeric"}, {"entity": entity}
         unit = state.attributes.get("unit_of_measurement")
         if to_watts(value, unit) is None:
