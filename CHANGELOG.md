@@ -53,6 +53,9 @@ and are not documented here.
   `requires-python >=3.14.2`, so no interpreter able to run a supported Home
   Assistant can fail to parse it. `requires-python` in `pyproject.toml` states
   3.14 for the same reason.
+- `tools/validate_local.py` scans `.html` as well. The scan selects files by
+  suffix, so an HTML file naming a development host shipped with the scan
+  green.
 
 ### Fixed
 
