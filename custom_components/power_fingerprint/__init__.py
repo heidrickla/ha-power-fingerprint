@@ -16,7 +16,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
 from . import services
-from .analysis import parse_pairs
+from .analysis import parse_pairs, rename_in_pairs
 from .const import CONF_CIRCUITS, CONF_MAINS, CONF_PAIRS, DOMAIN
 from .coordinator import (
     FingerprintCoordinator,
@@ -147,12 +147,16 @@ def _track_source_renames(
         await store.async_migrate_entity_id(old, new)
 
         # This integration's own registry rows key their unique_ids on the
-        # source id - migrate them so history stays attached.
+        # source id - migrate them so history stays attached. The source id is
+        # the suffix, and matching it as a substring also rewrites a circuit
+        # that merely has this one as a prefix.
         registry = er.async_get(hass)
+        suffix = f"_{old}"
         for row in list(er.async_entries_for_config_entry(registry, entry.entry_id)):
-            if old in row.unique_id:
+            if row.unique_id.endswith(suffix):
                 registry.async_update_entity(
-                    row.entity_id, new_unique_id=row.unique_id.replace(old, new)
+                    row.entity_id,
+                    new_unique_id=f"{row.unique_id[: -len(old)]}{new}",
                 )
 
         # Last: updating the entry fires the reload listener, which rebuilds
@@ -164,7 +168,7 @@ def _track_source_renames(
             new if c == old else c for c in new_data.get(CONF_CIRCUITS, [])
         ]
         if CONF_PAIRS in new_data:
-            new_data[CONF_PAIRS] = str(new_data[CONF_PAIRS]).replace(old, new)
+            new_data[CONF_PAIRS] = rename_in_pairs(str(new_data[CONF_PAIRS]), old, new)
         if new_data != dict(entry.data):
             hass.config_entries.async_update_entry(entry, data=new_data)
 
@@ -218,8 +222,8 @@ async def async_remove_entry(
     """Delete the learned library with the entry.
 
     The store is keyed on the entry id, so a re-added entry could never find
-    it again; left behind it is an orphan in .storage that the README used to
-    claim was removed. Called after unload, so no coordinator holds it open.
+    it again and it is left as an orphan in .storage. Called after unload, so
+    no coordinator holds it open.
     """
     await FingerprintStore(hass, entry.entry_id).async_remove()
 

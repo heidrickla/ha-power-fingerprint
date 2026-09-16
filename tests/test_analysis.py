@@ -131,6 +131,25 @@ def test_parse_pairs_tolerates_empty():
     assert pf.parse_pairs(None) == []
 
 
+def test_rename_in_pairs_matches_whole_ids_only():
+    raw = "switch.a: sensor.kitchen_power\nswitch.b: sensor.kitchen_power_2"
+    assert pf.rename_in_pairs(raw, "sensor.kitchen_power", "sensor.garage_power") == (
+        "switch.a: sensor.garage_power\nswitch.b: sensor.kitchen_power_2"
+    )
+
+
+def test_rename_in_pairs_keeps_the_lines_parse_pairs_skips():
+    raw = "# sensor.old lives here\nnonsense sensor.old\nswitch.a: sensor.old"
+    assert pf.rename_in_pairs(raw, "sensor.old", "sensor.new") == (
+        "# sensor.old lives here\nnonsense sensor.old\nswitch.a: sensor.new"
+    )
+
+
+def test_rename_in_pairs_tolerates_empty():
+    assert pf.rename_in_pairs("", "sensor.a", "sensor.b") == ""
+    assert pf.rename_in_pairs(None, "sensor.a", "sensor.b") == ""
+
+
 # -------------------------------------------------------------------- ranking
 
 

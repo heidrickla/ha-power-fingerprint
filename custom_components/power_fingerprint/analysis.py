@@ -537,3 +537,26 @@ def parse_pairs(raw: str) -> list[tuple[str, str]]:
         if "." in left and "." in right:
             pairs.append((left, right))
     return pairs
+
+
+def rename_in_pairs(raw: str, old: str, new: str) -> str:
+    """Rewrite `old` to `new` in the pair text, matching whole entity ids only.
+
+    A substring replace also rewrites every id that has `old` as a prefix:
+    renaming `sensor.kitchen_power` would rewrite `sensor.kitchen_power_2`.
+    Lines that `parse_pairs` skips are returned unchanged, so a comment or a
+    malformed line survives a rename.
+    """
+    lines: list[str] = []
+    for line in (raw or "").splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and ":" in stripped:
+            left, _, right = stripped.partition(":")
+            left, right = left.strip(), right.strip()
+            if "." in left and "." in right and old in (left, right):
+                left = new if left == old else left
+                right = new if right == old else right
+                lines.append(f"{left}: {right}")
+                continue
+        lines.append(line)
+    return "\n".join(lines)

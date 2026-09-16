@@ -458,3 +458,82 @@ async def test_a_renamed_switch_in_a_contradiction_pair_is_followed(
     assert config_entry.data["contradiction_pairs"] == (
         "switch.space_heater: sensor.circuit_b_power"
     )
+
+
+async def test_a_rename_leaves_a_circuit_that_shares_its_prefix_alone(
+    hass: HomeAssistant, hass_storage
+):
+    """One circuit id being a prefix of another must not drag the second along.
+
+    `sensor.kitchen_power` is a prefix of `sensor.kitchen_power_2`. A substring
+    rewrite of the unique id renames the second circuit's entity as well,
+    which orphans its recorder history and mints a duplicate on reload.
+    """
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.power_fingerprint.fingerprint import Fingerprint
+
+    one, two = "sensor.kitchen_power", "sensor.kitchen_power_2"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Power Fingerprint",
+        unique_id=DOMAIN,
+        data={
+            CONF_MAINS: MAINS,
+            CONF_CIRCUITS: [one, two],
+            "price_per_kwh": 0.13,
+            "tolerance_pct": 5.0,
+            "contradiction_pairs": f"switch.a: {one}\nswitch.b: {two}",
+        },
+    )
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "sensor", "test", "kitchen-uid", suggested_object_id="kitchen_power"
+    )
+    registry.async_get_or_create(
+        "sensor", "test", "kitchen-2-uid", suggested_object_id="kitchen_power_2"
+    )
+    hass_storage[f"{DOMAIN}.{entry.entry_id}"] = {
+        "version": 1,
+        "data": {
+            "fingerprints": [
+                Fingerprint(label="Dryer", circuit=one, count=9).to_dict(),
+                Fingerprint(label="Kettle", circuit=two, count=9).to_dict(),
+            ]
+        },
+    }
+    for entity, value in ((MAINS, 155.0), (one, 100.0), (two, 50.0)):
+        hass.states.async_set(entity, value, POWER)
+
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    kept = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_appliance_{two}"
+    )
+    assert kept
+
+    registry.async_update_entity(one, new_entity_id="sensor.garage_power")
+    hass.states.async_set("sensor.garage_power", 100.0, POWER)
+    await hass.async_block_till_done()
+
+    assert registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_appliance_sensor.garage_power"
+    )
+    assert (
+        registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_appliance_{two}"
+        )
+        == kept
+    )
+    assert (
+        registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_appliance_sensor.garage_power_2"
+        )
+        is None
+    )
+    assert entry.data[CONF_CIRCUITS] == ["sensor.garage_power", two]
+    assert entry.data["contradiction_pairs"] == (
+        f"switch.a: sensor.garage_power\nswitch.b: {two}"
+    )
