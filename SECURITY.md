@@ -19,7 +19,7 @@ version, and what you did.
 
 | Case | Why |
 |---|---|
-| An entity id, area name, device name or free-text option value reaching a diagnostics download unredacted | `diagnostics.py` replaces every entity id with `<domain>.redacted_<8 hex>` and reports `CONF_PAIRS` as a key name only, because an id such as `sensor.master_bathroom_motion_light_power` says where someone lives. A download is routinely pasted into a public issue. |
+| An entity id, area name, device name or free-text option value reaching a diagnostics download unredacted | `diagnostics.py` replaces every entity id with `<domain>.redacted_<n>`, numbered from one per download, and reports `CONF_PAIRS` as a key name only, because an id such as `sensor.master_bathroom_motion_light_power` says where someone lives. A download is routinely pasted into a public issue. |
 | An action writing outside the integration's own store | The six actions are `learn`, `label`, `verify_circuit`, `map_devices`, `autolabel` and `apply_circuit_labels`. At runtime the integration writes one file, its own `Store` entry under `.storage`, and reads the recorder. `save_library` writes a path the caller names and is reached only from `tools/identify.py`, which runs on a workstation. |
 | A crafted sensor state or unit driving the coordinator into an unhandled exception that stops the entry | The entry has to fail with a message, not take the event loop with it. |
 

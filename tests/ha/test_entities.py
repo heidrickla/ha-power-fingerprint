@@ -313,6 +313,21 @@ async def test_diagnostics_carry_no_entity_id(
         assert key.startswith("sensor.redacted_")
     assert set(report["source"]["units"]) <= {"W", "kW", "(none declared)"}
 
+    # "The id is absent" is satisfied by an invertible digest. These ids come
+    # from a small vocabulary of room and appliance words, so an unsalted
+    # SHA-256 prefix over one is recoverable by dictionary in well under a
+    # second, and the file is pasted in public.
+    import hashlib
+
+    pseudonyms = {report["config"]["mains"], *report["window_filled"]}
+    for row in report["contradictions"]:
+        pseudonyms |= {row["switch"], row["circuit"]}
+    for entity in (MAINS, CIRCUIT_A, CIRCUIT_B, "switch.porch_lamp"):
+        digest = hashlib.sha256(entity.encode()).hexdigest()
+        assert not any(p.rsplit("_", 1)[-1] == digest[:8] for p in pseudonyms), (
+            f"{entity} is recoverable from its pseudonym by hashing it"
+        )
+
 
 async def test_standby_refuses_to_answer_from_a_cold_window(
     hass: HomeAssistant, config_entry, powered

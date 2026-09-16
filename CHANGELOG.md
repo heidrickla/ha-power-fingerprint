@@ -80,6 +80,13 @@ and are not documented here.
 
 ### Fixed
 
+- The diagnostics pseudonym is `<domain>.redacted_<n>`, numbered from one per
+  download, and no longer a truncated digest of the entity id. The digest was
+  unsalted over a low-entropy string: a 14,300-candidate dictionary built from
+  five domains, 22 room words, 26 device words and five suffixes recovered all
+  three of the ids this integration names as examples in 0.01 s on one core. A
+  download is pasted into a public issue, and correlating one circuit within
+  one report is all the pseudonym has to do.
 - Renaming a circuit no longer rewrites the unique id of a circuit whose id has
   the renamed one as a prefix. Renaming `sensor.kitchen_power` also rewrote
   `sensor.kitchen_power_2`, which detached that circuit's recorder history and
