@@ -9,6 +9,14 @@ pinned rule list. Run it before a push so the push is not the first
 verification.
 
     python tools/validate_local.py
+
+It also refuses a development host anywhere in the published tree. Addresses
+and URLs are caught from the tree alone. A bare host named in prose has to be
+named somewhere, and naming it in this file would publish it, so the names are
+read from outside the tree: the `PF_INTERNAL_HOSTS` environment variable, the
+gitignored `.internal-hosts` file, and the hosts of the configured git
+remotes. With none of those present the bare-name rule has nothing to match
+and the other two rules still apply.
 """
 
 from __future__ import annotations
@@ -18,10 +26,14 @@ import ipaddress
 import json
 import os
 import re
+import subprocess
 import sys
 import tomllib
 import urllib.parse
 from typing import Any
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _netblocks
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 DOMAIN = "power_fingerprint"
@@ -49,33 +61,51 @@ VALID_IOT_CLASS = {
 # for reachability, so a development address committed to either one reaches
 # the published repo with every check green.
 URL_MANIFEST_KEYS = ("documentation", "issue_tracker")
-# Pinned rather than delegated to ipaddress.is_private, whose membership has
-# changed between Python releases.
 PRIVATE_NETWORKS = tuple(
-    ipaddress.ip_network(cidr)
-    for cidr in (
-        "10.0.0.0/8",
-        "127.0.0.0/8",
-        "169.254.0.0/16",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "::1/128",
-        "fc00::/7",
-        "fe80::/10",
-    )
+    ipaddress.ip_network(cidr) for cidr in _netblocks.PRIVATE_CIDRS
 )
-PRIVATE_SUFFIXES = (".local", ".lan", ".internal")
+PRIVATE_SUFFIXES = _netblocks.PRIVATE_SUFFIXES
 # Directories whose text ships to whoever clones the repo, and the suffixes
-# worth reading in them.
+# worth reading in them. Root-level files of the same suffixes ship too and
+# are collected separately.
 PUBLISHED_DIRS = (".gitea", ".github", "custom_components", "tests", "tools")
 PUBLISHED_SUFFIXES = {".py", ".yml", ".yaml", ".json", ".md", ".toml", ".cfg"}
+# The one published file the tree scan skips, because it holds the private
+# CIDRs the scan matches on.
+SCAN_EXEMPT = os.path.join(ROOT, "tools", "_netblocks.py")
 # A dotted-quad anywhere in that text, tested against PRIVATE_NETWORKS rather
 # than listed a second time.
 IP_LITERAL_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 # Any URL in that text, so a development host reached by name rather than by
-# address is caught by the same rule the manifest keys use. A bare host named
-# in prose with no scheme is not caught by anything here.
+# address is caught by the same rule the manifest keys use.
 URL_RE = re.compile(r"\bhttps?://[^\s\"'`<>)\]]+")
+# Host name parts that name no particular machine, so a remote URL does not
+# turn the forge or the code host into a forbidden word.
+GENERIC_HOST_PARTS = frozenset(
+    {
+        "com",
+        "dev",
+        "git",
+        "gitea",
+        "github",
+        "gitlab",
+        "home",
+        "http",
+        "https",
+        "internal",
+        "io",
+        "lan",
+        "local",
+        "localhost",
+        "net",
+        "org",
+        "ssh",
+        "www",
+    }
+)
+# Where the development host names are read from, none of them in the tree.
+INTERNAL_HOSTS_ENV = "PF_INTERNAL_HOSTS"
+INTERNAL_HOSTS_FILE = os.path.join(ROOT, ".internal-hosts")
 
 # Pinned from developers.home-assistant.io/docs/core/integration-quality-scale/checklist
 # (checked 2026-09-02: 54 rules, none new or deprecated). The list is pinned
@@ -191,17 +221,73 @@ def internal_address(text: str) -> bool:
     return any(address in net for net in PRIVATE_NETWORKS)
 
 
-def published_files() -> list[str]:
-    """Every text file that ships, excluding this one.
+def host_tokens(url: str) -> set[str]:
+    """The machine-naming parts of a git remote URL's host.
 
-    This file carries the forbidden patterns as its own constants, so scanning
-    it would report itself.
+    `urlsplit` returns no host for the scp-style `git@host:path`, so that form
+    is split by hand. A trailing digit is dropped as well as kept, so one
+    remote named after a numbered box also covers its siblings.
     """
-    this_file = os.path.abspath(__file__)
+    host = urllib.parse.urlsplit(url).hostname
+    if not host:
+        head = url.split(":", 1)[0]
+        host = head.split("@")[-1] if "@" in head else ""
+    tokens: set[str] = set()
+    for part in re.split(r"[.\-_]", host):
+        part = part.lower()
+        if not part or part in GENERIC_HOST_PARTS or part.isdigit():
+            continue
+        tokens.add(part)
+        stripped = part.rstrip("0123456789")
+        if len(stripped) >= 4:
+            tokens.add(stripped)
+    return tokens
+
+
+def internal_names() -> list[str]:
+    """Development host names, read from outside the published tree.
+
+    Naming them in this file would publish them, which is the disclosure the
+    rule exists to prevent.
+    """
+    names: set[str] = set()
+    for raw in re.split(r"[,\s]+", os.environ.get(INTERNAL_HOSTS_ENV, "")):
+        if raw:
+            names.add(raw.strip().lower())
+    if os.path.exists(INTERNAL_HOSTS_FILE):
+        for line in read(INTERNAL_HOSTS_FILE).splitlines():
+            line = line.split("#", 1)[0].strip().lower()
+            if line:
+                names.add(line)
+    try:
+        remotes = subprocess.run(
+            ["git", "config", "--get-regexp", r"^remote\..*\.url$"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        remotes = None
+    if remotes is not None and remotes.returncode == 0:
+        for line in remotes.stdout.splitlines():
+            _, _, url = line.partition(" ")
+            names |= host_tokens(url.strip())
+    return sorted(n for n in names if len(n) >= 4)
+
+
+def published_files() -> list[str]:
+    """Every text file that ships, minus the one holding the private CIDRs.
+
+    Root-level files are collected by suffix rather than by name: conftest.py
+    ships and a by-name list did not reach it.
+    """
+    exempt = os.path.abspath(SCAN_EXEMPT)
     found: list[str] = [
         os.path.join(ROOT, f)
-        for f in ("README.md", "CHANGELOG.md", "hacs.json", "pyproject.toml")
-        if os.path.exists(os.path.join(ROOT, f))
+        for f in sorted(os.listdir(ROOT))
+        if os.path.splitext(f)[1] in PUBLISHED_SUFFIXES
+        and os.path.isfile(os.path.join(ROOT, f))
     ]
     for root_dir in PUBLISHED_DIRS:
         for dirpath, dirs, files in os.walk(os.path.join(ROOT, root_dir)):
@@ -210,7 +296,7 @@ def published_files() -> list[str]:
                 path = os.path.join(dirpath, f)
                 if os.path.splitext(f)[1] not in PUBLISHED_SUFFIXES:
                     continue
-                if os.path.abspath(path) == this_file:
+                if os.path.abspath(path) == exempt:
                     continue
                 found.append(path)
     return found
@@ -549,10 +635,25 @@ def main() -> int:
     # The manifest is not the only file that ships. A workflow header and a
     # tool docstring are published too, and neither hassfest nor the HACS
     # action reads them.
+    names = internal_names()
+    if names:
+        name_re = re.compile(
+            r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\w*",
+            re.IGNORECASE,
+        )
+        notes.append(f"{len(names)} development host names supplied to the tree scan")
+    else:
+        name_re = None
+        notes.append(
+            f"no development host names supplied - set {INTERNAL_HOSTS_ENV} or "
+            f"write .internal-hosts to check for a bare host named in prose"
+        )
     for path in published_files():
         text = read(path)
         hits = {m for m in IP_LITERAL_RE.findall(text) if internal_address(m)}
         hits |= {h for url in URL_RE.findall(text) if (h := private_host(url))}
+        if name_re is not None:
+            hits |= {m.lower() for m in name_re.findall(text)}
         for hit in sorted(hits):
             failures.append(
                 f"{os.path.relpath(path, ROOT)} names {hit!r}, which is on the "

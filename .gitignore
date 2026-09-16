@@ -11,3 +11,4 @@ htmlcov/
 dist/
 build/
 .DS_Store
+.internal-hosts
