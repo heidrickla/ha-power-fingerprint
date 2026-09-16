@@ -705,13 +705,27 @@ def scan_controls(name_re: Any) -> None:
         f"the private-suffix rule did not match a bare {suffix} host, so a "
         "clean result says nothing about the suffixed names in the tree",
     )
+    names = internal_names()
+    if not names:
+        return
+    # A pattern that is never built matches nothing just as surely as one that
+    # is built wrong, and skipping the control below would pass either way.
+    check(
+        name_re is not None,
+        "names reached the scans and the bare-name rule got no pattern, so a "
+        "clean result says nothing about the names in the tree",
+    )
     if name_re is None:
         return
-    name = internal_names()[0]
     check(
-        fired(f"control line naming {name}-ci", "development name", name_re),
-        f"the bare-name rule did not match {shown(name)}, a name it was "
+        fired(f"control line naming {names[0]}-ci", "development name", name_re),
+        f"the bare-name rule did not match {shown(names[0])}, a name it was "
         "given, so a clean result says nothing about the names in the tree",
+    )
+    check(
+        not in_ci() or shown(names[0]) != names[0],
+        "a report under CI would print the matched string, which publishes the "
+        "name the scan exists to keep unpublished",
     )
 
 
