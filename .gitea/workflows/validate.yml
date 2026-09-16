@@ -80,7 +80,14 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags, for the same reason as the GitHub workflow: the
+      # default --no-tags --depth=1 leaves `git describe --tags` with nothing
+      # to find, and the released-version check then notes that it could not
+      # compare rather than running.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       # The runner image ships 3.10; Home Assistant 2026.x needs 3.14.
       - uses: actions/setup-python@v5
@@ -106,11 +113,17 @@ jobs:
       - name: mypy strict
         run: python -m mypy custom_components/power_fingerprint
 
-      # No PF_INTERNAL_HOSTS, for the same reason as the GitHub workflow: a
-      # name given to the bare-name rule is printed the first time it fires,
-      # and this job runs on the same tree that is pushed to a public mirror.
-      # The step states that the name half did not run; the address, URL-host
-      # and private-suffix rules run either way, each on a control line first.
+      # No PF_INTERNAL_HOSTS, for the same reason as the GitHub workflow. Every
+      # report redacts its match under CI, so the printed string is not the
+      # reason: a report names the file and the line, which locates the string
+      # in a tree that is also pushed to a public mirror, and a repository
+      # secret is a second copy of the names outside the estate. The step
+      # states that the name half did not run; the address, URL-host,
+      # device-identifier and private-suffix rules run either way, each on a
+      # control line first. A dispatch names no earlier commit, so no
+      # PF_PUSH_RANGE is set and the step states that it covered no commit.
+      # The bare-name and queued-commit halves are a workstation gate, run by
+      # tools/hooks/pre-push.
       - name: Offline HACS and hassfest checks
         run: python tools/validate_local.py
 
