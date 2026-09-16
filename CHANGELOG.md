@@ -9,6 +9,11 @@ and are not documented here.
 
 ## [0.17.1] - 2026-09-16
 
+### Added
+
+- `SECURITY.md`. It names where to report privately, what the diagnostics
+  redaction covers, and the one file the integration writes at runtime.
+
 ### Changed
 
 - `PUBLISHING.md` no longer ships. It described a maintainer workflow, not the
