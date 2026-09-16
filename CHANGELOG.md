@@ -7,6 +7,24 @@ the ones in `manifest.json` and `const.VERSION`, which are kept equal.
 This file starts at 0.17.0. Earlier versions were developed against one install
 and are not documented here.
 
+## [Unreleased]
+
+### Changed
+
+- `PUBLISHING.md` no longer ships. It described a maintainer workflow, not the
+  integration, and was the only file a HACS download carried that a user had
+  no use for.
+- `tools/validate_local.py` fails on a private-network host in `documentation`,
+  in `issue_tracker`, or anywhere in the published tree. It previously printed
+  a note and exited 0. It also refuses a development host named bare in prose;
+  the names come from `PF_INTERNAL_HOSTS`, the gitignored `.internal-hosts`
+  file or the configured git remotes, so no name is published to enforce the
+  rule.
+- The installation section states which reader gets the in-repo brand icon and
+  which gets the CDN placeholder.
+- `tools/identify.py` states `HA_URL` and `HA_TOKEN` in its usage line, and a
+  missing one names itself instead of raising `KeyError`.
+
 ## [0.17.0] - 2026-09-04
 
 ### Added
@@ -23,8 +41,8 @@ and are not documented here.
 ### Changed
 
 - Minimum Home Assistant is now 2026.3. The config flow uses APIs added in
-  2024.12 and the brand images ship inside the repository, which HACS reads
-  from 2026.3.
+  2024.12 and the brand images ship inside the repository, which Home
+  Assistant serves from 2026.3.
 - A new Circuit entity on a mapped device is named after that device, so it
   arrives as `sensor.porch_lamp_circuit` instead of `sensor.circuit_2`.
   Entities that already exist keep the id they have; the unique id is

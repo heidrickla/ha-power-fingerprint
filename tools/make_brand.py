@@ -1,9 +1,13 @@
 """Generate the in-repo brand images.
 
 Since Home Assistant 2026.3 a custom integration carries its own brand images
-and no pull request against `home-assistant/brands` is needed. HACS reads
-`custom_components/<domain>/brand/` first and falls back to the brands
-repository only when the in-repo icon is missing.
+and no pull request against `home-assistant/brands` is needed. Home Assistant
+serves them at `/api/brands/integration/<domain>/<file>`.
+
+HACS's default-store validator reads `custom_components/<domain>/brand/icon.png`
+first and falls back to the brands repository only when it is missing. The HACS
+panel requests the brands.home-assistant.io CDN path instead and shows its
+placeholder: hacs/integration issue 5223, open on 2026-09-16.
 
 Sizes are exact requirements, not suggestions:
 

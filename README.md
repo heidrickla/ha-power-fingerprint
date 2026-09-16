@@ -166,7 +166,18 @@ matching new shapes, but a shape that no longer occurs disappears with its name.
 ## Installation
 
 Home Assistant 2026.3 or later. The config flow uses APIs added in 2024.12, and
-the brand images ship inside the repository, which HACS reads from 2026.3.
+the brand images ship inside the repository, which Home Assistant serves at
+`/api/brands/integration/power_fingerprint/` from 2026.3.
+
+| Reader | Reads | Result |
+|---|---|---|
+| Home Assistant | `/api/brands/integration/power_fingerprint/icon.png` | The shipped icon |
+| HACS default-store validator | `custom_components/power_fingerprint/brand/icon.png` | The shipped icon |
+| HACS panel | `brands.home-assistant.io` CDN | The CDN placeholder |
+
+The HACS panel's icon column requests the CDN path rather than the Home
+Assistant proxy, so it shows a placeholder. Tracked as hacs/integration issue
+5223, open on 2026-09-16.
 
 HACS (custom repository): add `https://github.com/heidrickla/ha-power-fingerprint`
 as a custom repository of type Integration, install, restart Home Assistant.
@@ -187,7 +198,9 @@ appliances and diagnostics files end up in public issue trackers.
 
 Renaming a source sensor on the meter's integration is followed: the circuit
 list, the switch/circuit pairs, the learned library and this integration's own
-entities all move with it, without a reload.
+entities all move with it. Renaming the mains, a circuit or a pair member
+updates the config entry, which reloads it. Renaming an entity that appears
+only in the learned library does not reload.
 
 ### Requirements
 

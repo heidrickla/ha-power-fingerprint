@@ -15,9 +15,13 @@ rules:
   brands:
     status: done
     comment: |
-      Brand images ship in-repo at custom_components/power_fingerprint/brand/
-      (generated and size-checked by tools/make_brand.py), which HACS reads
-      from Home Assistant 2026.3, the floor hacs.json declares.
+      Brand images ship in-repo at custom_components/power_fingerprint/brand/,
+      generated and size-checked by tools/make_brand.py. Home Assistant serves
+      them at /api/brands/integration/power_fingerprint/ from 2026.3, the
+      floor hacs.json declares. HACS's default-store validator reads
+      brand/icon.png. The HACS panel requests the brands.home-assistant.io CDN
+      path instead and shows its placeholder: hacs/integration issue 5223,
+      open on 2026-09-16.
   common-modules: done
   config-flow-test-coverage:
     status: done
@@ -48,8 +52,7 @@ rules:
   docs-removal-instructions:
     status: done
     comment: |
-      README "Removing it". True since async_remove_entry deletes the store
-      file; before that the README claimed a deletion nothing performed.
+      README "Removing it". async_remove_entry deletes the store file.
   docs-triggers:
     status: exempt
     comment: This integration does not provide triggers.
@@ -83,8 +86,7 @@ rules:
     status: done
     comment: |
       Input problems raise ServiceValidationError; the recorder being unloaded
-      raises a translated HomeAssistantError instead of the bare KeyError it
-      used to.
+      raises a translated HomeAssistantError.
   config-entry-unloading: done
   docs-configuration-parameters:
     status: done
@@ -151,19 +153,24 @@ rules:
   entity-disabled-by-default:
     status: done
     comment: |
-      Decided per entity, and nothing qualifies. Unmonitored load, standby
-      power, standby annual cost and silent appliance are the answers this
-      integration exists to give; a user who disabled them would have
-      installed it for nothing. Coverage fault and contradiction are cheap
-      booleans that only move when something is wrong. Unnamed candidates is
-      the only screen that shows what learning found, so disabling it would
-      hide the one thing a new install has to look at. The two
-      attribute-heavy sensors cap their payloads (15 ranking rows, 25
-      candidates) rather than being disabled for size. The per-circuit
-      appliance sensor and the per-device circuit sensor are not created at
-      all until a fingerprint is named or a device is mapped, which is
-      stronger than creating 27 disabled ones. Reviewed again 2026-09-04
-      against the rule's "less popular or noisy" test.
+      Decided per entity against the rule's "less popular or noisy" test.
+      Nothing qualifies.
+
+      | Entity | Why not disabled |
+      |---|---|
+      | unmonitored_load | An answer this integration exists to give |
+      | standby_power | An answer this integration exists to give; ranking capped at 15 rows |
+      | standby_annual_cost | An answer this integration exists to give |
+      | silent_appliance | An answer this integration exists to give |
+      | coverage_fault | Cheap boolean, moves only when something is wrong |
+      | contradiction | Cheap boolean, moves only when something is wrong |
+      | candidates | The only screen showing what learning found; list capped at 25 rows |
+      | appliance | Per-circuit, created only once a fingerprint is named |
+      | circuit | Per-device, created only once a device is mapped |
+
+      The two capped sensors cap their payloads rather than being disabled for
+      size. Creating the last two only on demand is stronger than creating 27
+      disabled ones.
   entity-translations: done
   exception-translations:
     status: done
