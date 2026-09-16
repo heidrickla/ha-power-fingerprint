@@ -12,10 +12,9 @@ on:
     - cron: "0 4 * * 1"
   workflow_dispatch:
 
-# Gitea's the CI runner also picks up .github/workflows, so every job here is
-# gated to GitHub. On the gitea forge these skip instantly and
-# .gitea/workflows/validate.yml is the one that runs - the runner is shared
-# with capacity 1 and duplicate jobs queue behind each other.
+# Every job is gated to GitHub. A mirror that reads .github/workflows as well
+# skips them instantly and runs .gitea/workflows/validate.yml instead, so the
+# same checks are not run twice.
 
 jobs:
   hacs:

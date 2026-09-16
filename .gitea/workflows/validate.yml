@@ -1,7 +1,6 @@
 name: Validate
 
-# Runs on a self-hosted CI runner, so an ordinary push
-# runs ONE fast job. Anything that installs Home Assistant is
+# A push runs the lint job alone. Anything that installs Home Assistant is
 # workflow_dispatch only.
 
 on:
@@ -73,8 +72,8 @@ jobs:
           print(f"{len(rules)} rules; still todo: {', '.join(todo) or 'none'}")
           PY
 
-  # Installs Home Assistant, so it is manual only and never occupies the shared
-  # runner on an ordinary push. This is the job that runs tests/ha/.
+  # Installs Home Assistant, so it is manual only and does not run on an
+  # ordinary push. This is the job that runs tests/ha/.
   home-assistant:
     name: Home Assistant layer
     if: github.event_name == 'workflow_dispatch'
