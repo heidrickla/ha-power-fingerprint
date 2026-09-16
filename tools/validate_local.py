@@ -17,8 +17,14 @@ is read. Addresses, URLs and internal-suffix names are caught from the tree
 alone. A bare host named in prose has to be named somewhere, and naming it in
 this file would publish it, so the names are read from outside the tree: the
 `PF_INTERNAL_HOSTS` environment variable, the gitignored `.internal-hosts`
-file, and the hosts of the configured git remotes. With none of those present
-the bare-name rule has nothing to match and the other rules still apply.
+file, and the hosts of the configured git remotes.
+
+A CI checkout supplies none of the three: the environment variable comes from a
+repository secret, `.internal-hosts` is gitignored so a clone never has it, and
+the only remote is the code host, whose name parts are all generic. Under `CI`
+an empty name list is a failure, because the run that guards the public push is
+the one that cannot derive a name. Off CI it is a note, and the address, URL and
+internal-suffix rules apply either way.
 """
 
 from __future__ import annotations
@@ -193,6 +199,11 @@ def host_tokens(url: str) -> set[str]:
         if len(stripped) >= 4:
             tokens.add(stripped)
     return tokens
+
+
+def in_ci() -> bool:
+    """Whether this run is a CI job. GitHub Actions and the CI runner both set CI."""
+    return os.environ.get("CI", "").strip().lower() not in {"", "0", "false"}
 
 
 def internal_names() -> list[str]:
@@ -458,9 +469,8 @@ def unreachable_host(url: str) -> str | None:
 def malformed_url(url: Any) -> bool:
     """A manifest URL that is not an absolute http(s) URL with a host.
 
-    Kept because envisalink's superseded helper refused a hostless string and
-    unreachable_host cannot: its answer is a host or None, and "not-a-url" has
-    no host to report.
+    unreachable_host cannot report this: its answer is a host or None, and
+    "not-a-url" has no host to report.
     """
     if not isinstance(url, str) or not url:
         return True
@@ -572,6 +582,13 @@ def scan_published_tree() -> None:
                 re.IGNORECASE,
             )
             notes.append(f"{len(names)} development host names given to the tree scan")
+        elif in_ci():
+            failures.append(
+                "no development host names given to the tree scan, so the "
+                f"bare-name rule matched nothing - set {INTERNAL_HOSTS_ENV} "
+                "from a repository secret, or this job passes on a tree that "
+                "names a development host in prose"
+            )
         else:
             notes.append("no development host names given to the tree scan")
     seen = 0
