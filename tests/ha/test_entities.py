@@ -273,6 +273,47 @@ async def test_diagnostics_download_does_not_raise(
     assert "source" in report
 
 
+async def test_diagnostics_carry_no_entity_id(
+    hass: HomeAssistant, config_entry, powered
+):
+    """Entity ids here name rooms and appliances, and the file is pasted into
+    public issue trackers. Every id-bearing key and value is a pseudonym."""
+    import json
+
+    from custom_components.power_fingerprint.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    hass.states.async_set("switch.porch_lamp", "on")
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data={
+            **config_entry.data,
+            "contradiction_pairs": f"switch.porch_lamp: {CIRCUIT_B}",
+        },
+    )
+    powered(b=0.0)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    report = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert report["contradictions"], "the contradiction path must be exercised"
+
+    dumped = json.dumps(report)
+    for entity in (MAINS, CIRCUIT_A, CIRCUIT_B, "switch.porch_lamp"):
+        assert entity not in dumped
+    assert report["config"]["mains"].startswith("sensor.redacted_")
+    for row in report["contradictions"]:
+        assert row["switch"].startswith("switch.redacted_")
+        assert row["circuit"].startswith("sensor.redacted_")
+    for key in report["window_filled"]:
+        assert key.startswith("sensor.redacted_")
+    for key in report["source"]["per_circuit_interval_s"]:
+        assert key.startswith("sensor.redacted_")
+    assert set(report["source"]["units"]) <= {"W", "kW", "(none declared)"}
+
+
 async def test_standby_refuses_to_answer_from_a_cold_window(
     hass: HomeAssistant, config_entry, powered
 ):
