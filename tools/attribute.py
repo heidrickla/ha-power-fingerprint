@@ -65,7 +65,9 @@ def _measure_step(raw: dict[str, list], fallback: int = 12) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--days", type=int, default=3)
     # The grid must be about one reporting interval wide, and that interval is
     # a property of the meter, so it is measured from the history below. Too

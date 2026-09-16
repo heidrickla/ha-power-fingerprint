@@ -24,7 +24,9 @@ import _ha
 analysis = _ha.load_module("analysis")
 virtual = _ha.load_module("virtual")
 
-_ap = argparse.ArgumentParser(description=__doc__)
+_ap = argparse.ArgumentParser(
+    description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+)
 _ap.add_argument("--days", type=int, default=2)
 _ap.add_argument("--circuit", required=True, help="a circuit carrying one load")
 _ap.add_argument("--mains", default="sensor.whole_panel_total_power")

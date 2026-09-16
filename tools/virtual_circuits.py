@@ -34,7 +34,9 @@ attribution = _ha.load_module("attribution")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--days", type=int, default=3)
     ap.add_argument("--mains", default="sensor.whole_panel_total_power")
     ap.add_argument("--threshold", type=float, default=0.9)

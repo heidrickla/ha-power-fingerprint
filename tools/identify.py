@@ -7,10 +7,9 @@ integration to match against.
 
 HA_URL and HA_TOKEN name the install to read from and are required.
 
-    HA_URL=https://homeassistant.example:8123 HA_TOKEN=... \
-        python tools/identify.py --all
-    HA_URL=... HA_TOKEN=... python tools/identify.py \
-        --circuits sensor.circuit_21_power --days 7 --out lib.json
+    export HA_URL=https://ha.example:8123 HA_TOKEN=...
+    python tools/identify.py --all
+    python tools/identify.py --circuits sensor.circuit_21_power --days 7 --out lib.json
 
 History fetching lives in `_ha.py`, including the `end_time` trap - read that
 module's docstring before changing how the window is requested.
@@ -30,7 +29,9 @@ _fp = _ha.load_module("fingerprint")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--circuits", nargs="*", help="entity ids; omit with --all")
     ap.add_argument("--all", action="store_true", help="every power sensor")
     ap.add_argument("--days", type=int, default=7)
