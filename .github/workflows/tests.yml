@@ -65,12 +65,20 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           zero=0000000000000000000000000000000000000000
-          if [ -n "$BASE" ]; then
+          # A force-push names a `before` the new history does not contain, so
+          # the endpoint is tested rather than trusted. An unresolvable range is
+          # a failure in the validator, which is right for a range somebody
+          # typed and wrong for one this step derived.
+          usable() {
+            git cat-file -e "$1^{commit}" 2>/dev/null &&
+              git merge-base --is-ancestor "$1" "$HEAD_SHA" 2>/dev/null
+          }
+          if [ -n "$BASE" ] && usable "$BASE"; then
             echo "PF_PUSH_RANGE=$BASE..$HEAD_SHA" >> "$GITHUB_ENV"
-          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ]; then
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && usable "$BEFORE"; then
             echo "PF_PUSH_RANGE=$BEFORE..$HEAD_SHA" >> "$GITHUB_ENV"
           else
-            echo "this event names no earlier commit, so no range is set"
+            echo "no earlier commit this checkout can reach, so no range is set"
           fi
       # No PF_INTERNAL_HOSTS. Every report redacts its match under CI, so the
       # printed string is not the reason: a report names the file and the line,
