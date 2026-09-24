@@ -1110,7 +1110,11 @@ def main() -> int:
                         f"selector translation {tkey!r} missing from strings.json",
                     )
     except ImportError:
-        notes.append("PyYAML not installed - services.yaml not parsed")
+        check(
+            False,
+            "PyYAML not installed - services.yaml was not parsed, so its "
+            "checks did not run; run under the repo .venv",
+        )
 
     # ---------------------------------------------------------- quality scale
     scale_path = os.path.join(COMP, "quality_scale.yaml")
@@ -1167,7 +1171,11 @@ def main() -> int:
                     "suites - --cov-append is missing",
                 )
         except ImportError:
-            notes.append("PyYAML not installed - quality_scale.yaml not parsed")
+            check(
+                False,
+                "PyYAML not installed - quality_scale.yaml was not parsed, so its "
+                "checks did not run; run under the repo .venv",
+            )
 
     # ------------------------------------------------------ icon translations
     # Every translation key an entity uses needs an icon and a name, and every
