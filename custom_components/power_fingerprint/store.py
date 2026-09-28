@@ -13,25 +13,70 @@ raw data and is the right place for it.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, override
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 from .fingerprint import Fingerprint, carry_labels, is_named
+from .verify import INFERRED, MEASURED
 
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+# Minor 2: an assignment not made by a probe is never `measured`.
+STORAGE_MINOR_VERSION = 2
+
+PROBE = "probe"
+
+
+def reserve_measured_for_probes(data: dict[str, Any]) -> int:
+    """Rewrite each non-probe assignment marked `measured` as `inferred`.
+
+    `measured` means a probe switched the device and watched its circuit move.
+    Passive placements written before that rule carry it. Returns the count.
+    """
+    changed = 0
+    for row in (data.get("assignments") or {}).values():
+        if (
+            isinstance(row, dict)
+            and row.get("source") != PROBE
+            and row.get("confidence") == MEASURED
+        ):
+            row["confidence"] = INFERRED
+            changed += 1
+    return changed
+
+
+class _LibraryStore(Store[dict[str, Any]]):
+    """The Store with this integration's minor-version migrations."""
+
+    @override
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,
+        old_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        if old_minor_version < 2:
+            changed = reserve_measured_for_probes(old_data)
+            if changed:
+                _LOGGER.info(
+                    "Marked %d passive circuit assignment(s) inferred", changed
+                )
+        return old_data
 
 
 class FingerprintStore:
     """Load and save the learned library for one config entry."""
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
-        self._store: Store[dict[str, Any]] = Store(
-            hass, STORAGE_VERSION, f"{DOMAIN}.{entry_id}"
+        self._store: Store[dict[str, Any]] = _LibraryStore(
+            hass,
+            STORAGE_VERSION,
+            f"{DOMAIN}.{entry_id}",
+            minor_version=STORAGE_MINOR_VERSION,
         )
         self._fingerprints: list[Fingerprint] = []
         # Automations this integration switched off for a probe. Persisted so a
@@ -164,12 +209,17 @@ class FingerprintStore:
 
         Returns True when something actually changed, so the caller can avoid
         writing to disk on every no-op refresh.
+
+        `measured` is written only for a probe; any other source is stored as
+        `inferred`, the same rule the minor-2 migration applies to old rows.
         """
         existing = self._assignments.get(device)
         if circuit is None:
             return False
-        if existing and existing.get("source") == "probe" and source != "probe":
+        if existing and existing.get("source") == PROBE and source != PROBE:
             return False
+        if source != PROBE and confidence == MEASURED:
+            confidence = INFERRED
         row = {
             "circuit": circuit,
             "confidence": confidence,

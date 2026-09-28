@@ -7,6 +7,23 @@ the ones in `manifest.json` and `const.VERSION`, which are kept equal.
 This file starts at 0.17.0. Earlier versions were developed against one install
 and are not documented here.
 
+## [0.17.2] - 2026-09-28
+
+### Added
+
+- A library audit: names used by two or more shapes on one circuit, and
+  shapes learned from three runs or fewer. It reports and changes nothing.
+  Shown in the attributes of `sensor.power_fingerprint_unnamed_candidates`
+  (`duplicate_labels`, `small_shapes`), in the `learn` response (`audit`) and
+  in diagnostics, where circuits are pseudonymised and labels omitted.
+
+### Changed
+
+- Storage minor version 2. Loading a minor-1 store rewrites a circuit
+  assignment marked `measured` whose source is not a probe as `inferred`.
+- A circuit assignment is stored `measured` only when a probe made it; any
+  other source is stored `inferred`.
+
 ## [0.17.1] - 2026-09-16
 
 ### Added

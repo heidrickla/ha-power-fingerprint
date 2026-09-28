@@ -189,3 +189,41 @@ def test_a_missing_or_corrupt_library_reads_as_empty(tmp_path):
     broken = tmp_path / "broken.json"
     broken.write_text("{not json", encoding="utf-8")
     assert fp.load_library(str(broken)) == []
+
+
+# --- library audit ---------------------------------------------------------
+
+
+def _shape(label, circuit="sensor.c17", count=5):
+    return fp.Fingerprint(label=label, circuit=circuit, count=count)
+
+
+def test_audit_names_two_shapes_sharing_a_name_on_one_circuit():
+    """The label action renames the first match only, and both shapes share
+    one last-seen key, so a duplicated name needs a person to separate it."""
+    report = fp.audit([_shape("Keurig", count=4), _shape("Keurig", count=5)])
+    assert report["duplicate_labels"] == [
+        {"circuit": "sensor.c17", "label": "Keurig", "shapes": 2}
+    ]
+
+
+def test_audit_does_not_call_one_name_on_two_circuits_a_duplicate():
+    report = fp.audit([_shape("Lights"), _shape("Lights", circuit="sensor.c18")])
+    assert report["duplicate_labels"] == []
+
+
+def test_audit_lists_shapes_learned_from_three_runs_or_fewer():
+    report = fp.audit(
+        [_shape("unnamed_0", count=3), _shape("Kettle", count=1), _shape("x", count=4)]
+    )
+    assert report["small_shapes"] == [
+        {"circuit": "sensor.c17", "label": "Kettle", "runs": 1, "named": True},
+        {"circuit": "sensor.c17", "label": "unnamed_0", "runs": 3, "named": False},
+    ]
+
+
+def test_audit_reports_without_changing_the_library():
+    library = [_shape("Keurig", count=1), _shape("Keurig", count=1)]
+    before = [s.to_dict() for s in library]
+    fp.audit(library)
+    assert [s.to_dict() for s in library] == before

@@ -322,6 +322,13 @@ class CandidatesSensor(_Base):
                 f"action: power_fingerprint.label / circuit: {first['circuit']} / "
                 f"current_label: {first['candidate']} / new_label: <what it is>"
             )
+        # Named shapes as well as candidates: the audit covers the library.
+        report = data.get("library_audit") or {}
+        for key in ("duplicate_labels", "small_shapes"):
+            found = report.get(key, [])
+            out[key] = found[: self._MAX_SHOWN]
+            if len(found) > self._MAX_SHOWN:
+                out[f"{key}_not_shown"] = len(found) - self._MAX_SHOWN
         return out
 
 

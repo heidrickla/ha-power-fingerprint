@@ -87,6 +87,25 @@ async def test_learning_only_the_circuits_asked_for(
     assert list(response["circuits"]) == [CIRCUIT_A]
 
 
+async def test_the_learn_response_carries_the_library_audit(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    """A shape from two runs has not shown that it recurs; the response that
+    proposes it says so."""
+    history[CIRCUIT_A] = cycling(1200.0, runs=2)
+    history[CIRCUIT_B] = cycling(300.0)
+    await _setup(hass, config_entry)
+
+    response = await _learn(hass, days=7)
+
+    assert response["audit"] == {
+        "duplicate_labels": [],
+        "small_shapes": [
+            {"circuit": CIRCUIT_A, "label": "unnamed_0", "runs": 2, "named": False}
+        ],
+    }
+
+
 async def test_an_unread_circuit_says_so_rather_than_reporting_nothing_ran(
     hass: HomeAssistant, config_entry, powered, history, cycling
 ):

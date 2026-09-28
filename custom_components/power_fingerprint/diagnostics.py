@@ -72,6 +72,28 @@ def _unit_histogram(units: dict[str, str | None]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _library_audit(
+    report: dict[str, list[dict[str, Any]]], anon: _Redactor
+) -> dict[str, Any]:
+    """The library audit with circuits pseudonymised and labels dropped."""
+    duplicates = report.get("duplicate_labels", [])
+    small = report.get("small_shapes", [])
+    return {
+        "duplicate_labels": [
+            {"circuit": anon(str(row["circuit"])), "shapes": row["shapes"]}
+            for row in duplicates
+        ],
+        "small_shapes": [
+            {
+                "circuit": anon(str(row["circuit"])),
+                "runs": row["runs"],
+                "named": bool(row["named"]),
+            }
+            for row in small
+        ],
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: PowerFingerprintConfigEntry
 ) -> dict[str, Any]:
@@ -122,6 +144,8 @@ async def async_get_config_entry_diagnostics(
             for entity, count in sorted(coordinator.window_sizes().items())
         },
         "window_hours": round(coordinator.window_hours(), 2),
+        # Labels are what a person named an appliance, so they go as well.
+        "library_audit": _library_audit(data.get("library_audit") or {}, anon),
         # The meter itself. This integration was developed against one brand of
         # per-circuit monitor, and unit and cadence are where another one will
         # differ - so report both rather than making a maintainer ask.

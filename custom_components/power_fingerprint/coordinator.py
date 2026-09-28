@@ -54,7 +54,7 @@ from .const import (
     WINDOW_HOURS,
     profile,
 )
-from .fingerprint import match
+from .fingerprint import audit, match
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -438,6 +438,7 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "tolerance_pct": self.tolerance,
             "labelled_fingerprints": (len(self.store.labelled()) if self.store else 0),
             "candidates": self._candidates(),
+            "library_audit": audit(self.store.fingerprints if self.store else []),
             "running": running,
             "absent": [row for row in quiet if row["state"] == "overdue"],
             "absence_detail": quiet,

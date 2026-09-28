@@ -401,6 +401,82 @@ async def test_the_candidate_list_is_capped_but_the_count_is_the_true_total(
     assert state.attributes["candidates"][0]["runs"] == 30
 
 
+def _audited_library():
+    """Two shapes named Keurig on one circuit, one of them from a single run."""
+    return {
+        "version": 1,
+        "data": {
+            "fingerprints": [
+                Fingerprint(label="Keurig", circuit=CIRCUIT_A, count=4).to_dict(),
+                Fingerprint(label="Keurig", circuit=CIRCUIT_A, count=1).to_dict(),
+                Fingerprint(label="unnamed_2", circuit=CIRCUIT_B, count=30).to_dict(),
+            ]
+        },
+    }
+
+
+async def test_the_candidates_sensor_reports_the_library_audit(
+    hass: HomeAssistant, config_entry, powered, hass_storage
+):
+    """A duplicated name and a shape from one run are named shapes, which the
+    candidate list never shows, so the audit sits beside it."""
+    hass_storage[f"{DOMAIN}.{config_entry.entry_id}"] = _audited_library()
+    await _setup(hass, config_entry)
+
+    state = hass.states.get("sensor.power_fingerprint_unnamed_candidates")
+    assert state.attributes["duplicate_labels"] == [
+        {"circuit": CIRCUIT_A, "label": "Keurig", "shapes": 2}
+    ]
+    assert state.attributes["small_shapes"] == [
+        {"circuit": CIRCUIT_A, "label": "Keurig", "runs": 1, "named": True}
+    ]
+    assert "small_shapes_not_shown" not in state.attributes
+
+
+async def test_the_audit_lists_are_capped_like_the_candidates(
+    hass: HomeAssistant, config_entry, powered, hass_storage
+):
+    hass_storage[f"{DOMAIN}.{config_entry.entry_id}"] = {
+        "version": 1,
+        "data": {
+            "fingerprints": [
+                Fingerprint(label=f"unnamed_{i}", circuit=CIRCUIT_A, count=1).to_dict()
+                for i in range(30)
+            ]
+        },
+    }
+    await _setup(hass, config_entry)
+
+    state = hass.states.get("sensor.power_fingerprint_unnamed_candidates")
+    assert len(state.attributes["small_shapes"]) == 25
+    assert state.attributes["small_shapes_not_shown"] == 5
+
+
+async def test_diagnostics_report_the_audit_without_ids_or_labels(
+    hass: HomeAssistant, config_entry, powered, hass_storage
+):
+    """A label is what a person called an appliance in their house."""
+    import json
+
+    from custom_components.power_fingerprint.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    hass_storage[f"{DOMAIN}.{config_entry.entry_id}"] = _audited_library()
+    await _setup(hass, config_entry)
+    report = await async_get_config_entry_diagnostics(hass, config_entry)
+
+    audit = report["library_audit"]
+    assert [row["shapes"] for row in audit["duplicate_labels"]] == [2]
+    assert audit["duplicate_labels"][0]["circuit"].startswith("sensor.redacted_")
+    assert audit["small_shapes"] == [
+        {"circuit": audit["duplicate_labels"][0]["circuit"], "runs": 1, "named": True}
+    ]
+    dumped = json.dumps(report)
+    assert "Keurig" not in dumped
+    assert CIRCUIT_A not in dumped
+
+
 async def test_a_circuit_entity_without_an_answer_yet_reports_nothing(
     hass: HomeAssistant, config_entry, powered
 ):

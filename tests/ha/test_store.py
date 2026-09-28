@@ -217,3 +217,74 @@ async def test_the_poll_heartbeat_is_kept_without_touching_last_seen(
     store.record_poll("2026-09-04T12:00:00+00:00")
     assert store.last_poll() == "2026-09-04T12:00:00+00:00"
     assert store.last_seen() == {}
+
+
+# --- storage migrations ----------------------------------------------------
+
+
+def _minor_1(assignments):
+    return {
+        "version": 1,
+        "minor_version": 1,
+        "key": f"{DOMAIN}.entry",
+        "data": {"fingerprints": [], "assignments": assignments},
+    }
+
+
+async def test_a_passive_placement_stored_as_measured_loads_as_inferred(
+    hass: HomeAssistant, hass_storage
+):
+    """`measured` is reserved for a probe. Passive rows written before that
+    rule carry it, and a store from then must not keep claiming it."""
+    hass_storage[f"{DOMAIN}.entry"] = _minor_1(
+        {
+            LAMP: {
+                "circuit": "sensor.circuit_16",
+                "confidence": "measured",
+                "source": "correlation",
+                "evidence": {"correlation": 0.019},
+            },
+            "sensor.hall_lamp_power": {
+                "circuit": "sensor.circuit_12",
+                "confidence": "inferred",
+                "source": "correlation",
+                "evidence": {},
+            },
+        }
+    )
+    store = await _loaded(hass)
+    rows = store.assignments()
+    assert rows[LAMP]["confidence"] == "inferred"
+    assert rows[LAMP]["evidence"] == {"correlation": 0.019}
+    assert rows["sensor.hall_lamp_power"]["confidence"] == "inferred"
+    # Written back at the new minor version, so the rewrite happens once.
+    assert hass_storage[f"{DOMAIN}.entry"]["minor_version"] == 2
+    saved = hass_storage[f"{DOMAIN}.entry"]["data"]["assignments"]
+    assert saved[LAMP]["confidence"] == "inferred"
+
+
+async def test_the_migration_leaves_a_probe_answer_measured(
+    hass: HomeAssistant, hass_storage
+):
+    hass_storage[f"{DOMAIN}.entry"] = _minor_1(
+        {
+            "light.archway": {
+                "circuit": "sensor.circuit_30",
+                "confidence": "measured",
+                "source": "probe",
+                "evidence": {"probes": 3, "agreed": 3},
+            }
+        }
+    )
+    store = await _loaded(hass)
+    assert store.assignments()["light.archway"]["confidence"] == "measured"
+    assert store.assignments()["light.archway"]["source"] == "probe"
+
+
+async def test_a_passive_answer_is_never_written_as_measured(hass: HomeAssistant):
+    """The rule holds on the write path too, whatever a caller passes."""
+    store = await _loaded(hass)
+    assert await store.async_record_assignment(
+        LAMP, "sensor.circuit_30", "measured", "correlation"
+    )
+    assert store.assignments()[LAMP]["confidence"] == "inferred"

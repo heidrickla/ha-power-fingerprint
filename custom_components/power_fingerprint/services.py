@@ -47,6 +47,7 @@ from .coordinator import (
 from .dashboard import async_circuit_names
 from .fingerprint import (
     Fingerprint,
+    audit,
     cluster,
     is_named,
     normalize,
@@ -436,7 +437,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
             ]
 
         await coordinator.async_request_refresh()
-        return _response({"circuits": report})
+        return _response({"circuits": report, "audit": audit(store.fingerprints)})
 
     async def _label(call: ServiceCall) -> None:
         runtime = _runtime(hass)

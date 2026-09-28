@@ -29,7 +29,7 @@ Available immediately, with no labelled fingerprints:
 | `sensor.power_fingerprint_standby_power` | Total permanent draw, with a per-circuit ranking in the attributes. |
 | `sensor.power_fingerprint_standby_annual_cost` | What that costs per year. |
 | `binary_sensor.power_fingerprint_state_contradiction` | A switch reports `on` while its circuit draws nothing. |
-| `sensor.power_fingerprint_unnamed_candidates` | Learned shapes waiting for a name, described in the attributes. |
+| `sensor.power_fingerprint_unnamed_candidates` | Learned shapes waiting for a name, described in the attributes, with the [library audit](#library-audit). |
 | `binary_sensor.power_fingerprint_silent_appliance` | A named appliance has stopped running when its own history says it should have. |
 
 Every entity belongs to the `Power Fingerprint` service device, so its id
@@ -56,7 +56,8 @@ established:
 | `correlation` | It observed the two moving together. |
 
 A probe result is never overwritten by a passive one, and a run that resolves
-nothing never erases a previous answer.
+nothing never erases a previous answer. `confidence` reads `measured` only for
+a probe; a correlation is always `inferred`.
 
 ### Filtering by breaker
 
@@ -337,6 +338,20 @@ data:
 Matching happens on a partial run rather than waiting for it to finish, which
 works because duration and energy are weighted to zero for identity. Three
 outcomes: the appliance name, `idle`, or `unknown`.
+
+### Library audit
+
+Two conditions worth a look, reported and never acted on:
+
+| Key | Meaning |
+|---|---|
+| `duplicate_labels` | One name on two or more shapes of one circuit. `label` renames the first match only, and the shapes share one last-seen time. |
+| `small_shapes` | Shapes learned from three runs or fewer, which may be one-off events or fragments of another shape. |
+
+Both appear in the attributes of `sensor.power_fingerprint_unnamed_candidates`
+(25 rows each, with a `_not_shown` count beyond that), in the `learn` response
+under `audit`, and in diagnostics with circuits pseudonymised and labels
+omitted.
 
 ## Passive and active together
 
@@ -819,7 +834,7 @@ working.
 | Entry lifecycle | Setup, unload and removal; the store goes with the entry. |
 | Flows | Config, reconfigure and options, each validation refusal followed by a recovery to a created entry. |
 | Entities | Derived values, availability, device grouping, the appliance sensor following its circuit, the diagnostics download carrying no entity id. |
-| Store | The refusal to overwrite an active probe with a passive answer, and the rename migration. |
+| Store | The refusal to overwrite an active probe with a passive answer, `measured` reserved for probes on write and on the minor-2 migration, and the rename migration. |
 | Dashboard | The energy dashboard reader against every shape the energy schema has had. |
 | Coordinator | The recorder seed, blind-time accounting behind the absence alert, and unit conversion at ingestion. |
 | Actions | All six driven end to end against recorded history, including the probe's restore path, its five refusals and the automations it pauses. |

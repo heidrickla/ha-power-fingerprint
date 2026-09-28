@@ -304,6 +304,44 @@ def is_named(fp: Fingerprint) -> bool:
     return not fp.label.startswith("unnamed_")
 
 
+# A shape learned from this many runs or fewer has not shown that it recurs.
+SMALL_SHAPE_RUNS = 3
+
+
+def audit(
+    library: list[Fingerprint], small_runs: int = SMALL_SHAPE_RUNS
+) -> dict[str, list[dict[str, Any]]]:
+    """What in a library needs a person's look. Reports; changes nothing.
+
+    `duplicate_labels`: one name on two or more shapes of one circuit. The
+    `label` action renames the first match only, and last-seen is keyed by
+    name, so the shapes share one absence clock.
+
+    `small_shapes`: shapes from `small_runs` runs or fewer. Clustering makes a
+    shape of any leftover run, so these may be one-off events or fragments of
+    another shape.
+    """
+    names: dict[tuple[str, str], int] = {}
+    for fp in library:
+        names[fp.circuit, fp.label] = names.get((fp.circuit, fp.label), 0) + 1
+    duplicates = [
+        {"circuit": circuit, "label": label, "shapes": count}
+        for (circuit, label), count in sorted(names.items())
+        if count > 1
+    ]
+    small = [
+        {
+            "circuit": fp.circuit,
+            "label": fp.label,
+            "runs": fp.count,
+            "named": is_named(fp),
+        }
+        for fp in sorted(library, key=lambda f: (f.circuit, f.count, f.label))
+        if fp.count <= small_runs
+    ]
+    return {"duplicate_labels": duplicates, "small_shapes": small}
+
+
 def carry_labels(old: list[Fingerprint], new: list[Fingerprint]) -> list[Fingerprint]:
     """Preserve human-applied labels across a re-learn, by position.
 
