@@ -16,6 +16,11 @@ and are not documented here.
   Shown in the attributes of `sensor.power_fingerprint_unnamed_candidates`
   (`duplicate_labels`, `small_shapes`), in the `learn` response (`audit`) and
   in diagnostics, where circuits are pseudonymised and labels omitted.
+- `tools/labelled_set.py`. Builds a labelled set of runs from exported
+  recorder history (dedicated circuits, metered devices, probe placements and
+  sums of dedicated circuits), freezes it by SHA-256, and scores matching
+  changes on a held-out part, per run or per coordinator poll. `stability`
+  reports each learned shape's bootstrap stability.
 
 ### Changed
 
