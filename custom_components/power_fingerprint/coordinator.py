@@ -25,6 +25,7 @@ from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
     from .store import FingerprintStore
+    from .trips import BreakerWatch
 
 from .analysis import (
     Cadence,
@@ -149,6 +150,8 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_heartbeat: datetime | None = None
         # Resolved once, on the first refresh after startup.
         self._last_poll_gap: float | None = None
+        # Set by setup once the first refresh has run.
+        self.breaker: BreakerWatch | None = None
 
     def _watts(self, entity: str, state: State | None) -> float | None:
         """One reading, converted to watts, or None if it is unusable.

@@ -60,8 +60,9 @@ rules:
     status: done
     comment: |
       Entities are coordinator-driven; CoordinatorEntity subscribes in
-      async_added_to_hass. The registry rename listener and the listeners
-      that add entities are registered through entry.async_on_unload.
+      async_added_to_hass. The registry rename listener, the listeners that
+      add entities and the breaker-trip state listener are registered through
+      entry.async_on_unload.
   entity-unique-id: done
   has-entity-name: done
   runtime-data: done

@@ -297,3 +297,44 @@ async def test_a_probe_answer_is_written_as_measured(hass: HomeAssistant):
         LAMP, "sensor.circuit_30", "measured", "probe"
     )
     assert store.assignments()[LAMP]["confidence"] == "measured"
+
+
+def _trip(start, end=None, circuit=CIRCUIT_A):
+    return {
+        "circuit": circuit,
+        "start": start,
+        "end": end,
+        "confirmed": [],
+        "suspected": [LAMP],
+    }
+
+
+async def test_breaker_trips_survive_a_restart(hass: HomeAssistant):
+    """Eligibility leaves a trip's hours out; forgotten, the trip's 0 W hour
+    would cost its circuit eligibility on the next start."""
+    store = await _loaded(hass)
+    await store.async_record_trip(_trip("2026-09-28T23:52:16+00:00"), "")
+
+    reloaded = await _loaded(hass)
+    assert reloaded.breaker_trips() == [_trip("2026-09-28T23:52:16+00:00")]
+
+
+async def test_trips_older_than_the_lookback_are_dropped(hass: HomeAssistant):
+    store = await _loaded(hass)
+    await store.async_record_trip(_trip("2026-08-01T00:00:00+00:00"), "")
+    await store.async_record_trip(
+        _trip("2026-09-28T23:52:16+00:00"), "2026-08-30T00:00:00+00:00"
+    )
+    assert [t["start"] for t in store.breaker_trips()] == ["2026-09-28T23:52:16+00:00"]
+
+
+async def test_an_open_trip_gets_its_end_once(hass: HomeAssistant):
+    store = await _loaded(hass)
+    await store.async_record_trip(_trip("2026-09-28T23:52:16+00:00"), "")
+    end = "2026-09-28T23:59:00+00:00"
+    assert await store.async_end_trip(CIRCUIT_A, "2026-09-28T23:52:16+00:00", end)
+    assert not await store.async_end_trip(
+        CIRCUIT_A, "2026-09-28T23:52:16+00:00", "2026-09-29T00:10:00+00:00"
+    )
+    reloaded = await _loaded(hass)
+    assert reloaded.breaker_trips()[0]["end"] == end

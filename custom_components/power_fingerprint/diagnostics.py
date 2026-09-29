@@ -15,7 +15,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from .const import CONF_CIRCUITS, CONF_MAINS, CONF_PAIRS
-from .coordinator import PowerFingerprintConfigEntry
+from .coordinator import FingerprintCoordinator, PowerFingerprintConfigEntry
 
 
 class _Redactor:
@@ -94,6 +94,47 @@ def _library_audit(
     }
 
 
+def _breaker(coordinator: FingerprintCoordinator, anon: _Redactor) -> dict[str, Any]:
+    """Which circuits are watched for trips, and the last trip and refusal.
+
+    Counts rather than casualty lists, and no refusal text: both carry
+    entity ids.
+    """
+    watch = coordinator.breaker
+    if watch is None:
+        return {}
+    trip = watch.last_trip()
+    refusal = watch.last_refusal
+    return {
+        "floor_w": watch.floor_w,
+        "armed_at": watch.armed_at.isoformat() if watch.armed_at else None,
+        "incident_open": watch.detector.open_circuit is not None,
+        "eligible": [anon(c) for c in watch.eligible],
+        "circuits": {
+            anon(circuit): verdict.to_dict()
+            for circuit, verdict in sorted(watch.verdicts.items())
+        },
+        "last_trip": None
+        if trip is None
+        else {
+            "circuit": anon(str(trip.get("circuit", ""))),
+            "start": trip.get("start"),
+            "end": trip.get("end"),
+            "confirmed": len(trip.get("confirmed") or []),
+            "suspected": len(trip.get("suspected") or []),
+        },
+        "last_refusal": None
+        if refusal is None
+        else {
+            "circuit": anon(str(refusal.get("circuit", ""))),
+            "start": refusal.get("start"),
+            "end": refusal.get("end"),
+            "kind": refusal.get("kind"),
+            "together": [anon(str(c)) for c in refusal.get("together") or []],
+        },
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: PowerFingerprintConfigEntry
 ) -> dict[str, Any]:
@@ -146,6 +187,7 @@ async def async_get_config_entry_diagnostics(
         "window_hours": round(coordinator.window_hours(), 2),
         # Labels are what a person named an appliance, so they go as well.
         "library_audit": _library_audit(data.get("library_audit") or {}, anon),
+        "breaker": _breaker(coordinator, anon),
         # The meter itself. This integration was developed against one brand of
         # per-circuit monitor, and unit and cadence are where another one will
         # differ - so report both rather than making a maintainer ask.

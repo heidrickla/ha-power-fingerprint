@@ -24,6 +24,7 @@ from .coordinator import (
     PowerFingerprintData,
 )
 from .store import FingerprintStore
+from .trips import BreakerWatch
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,8 +107,15 @@ async def async_setup_entry(
     coordinator = FingerprintCoordinator(hass, options, entry, store)
     await coordinator.async_config_entry_first_refresh()
 
+    watch = BreakerWatch(hass, entry, coordinator, store)
+    coordinator.breaker = watch
     entry.runtime_data = PowerFingerprintData(coordinator=coordinator, store=store)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    watch.async_start()
+    entry.async_on_unload(watch.async_stop)
+    entry.async_create_background_task(
+        hass, watch.async_refresh_eligibility(), f"{DOMAIN} breaker eligibility"
+    )
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     _track_source_renames(hass, entry, options, store)
     return True

@@ -53,11 +53,12 @@ established:
 | `established_by` | Meaning |
 |---|---|
 | `probe` | The integration switched the device and watched a circuit move. |
+| `breaker` | The device dropped when its circuit went dead. See [Breaker trips](#breaker-trips). |
 | `correlation` | It observed the two moving together. |
 
-A probe result is never overwritten by a passive one, and a run that resolves
+A probe result is never overwritten by any other, and a run that resolves
 nothing never erases a previous answer. `confidence` reads `measured` only for
-a probe; a correlation is always `inferred`.
+a probe; any other source is `inferred`.
 
 ### Filtering by breaker
 
@@ -100,6 +101,7 @@ id is the same either way, so nothing else moves.
 
 - Notify when the laundry finishes, with no sensor attached to the machine.
 - Find which of 27 breakers a device is on.
+- Know when a breaker trips, and what went with it.
 - See standby draw per circuit, and what it costs.
 - Detect a CT coming loose, in either direction.
 - Catch a switch reporting `on` while its circuit draws nothing.
@@ -215,8 +217,8 @@ only in the learned library does not reload.
 | Requirement | Detail |
 |---|---|
 | A whole-panel power sensor | Any `device_class: power` sensor reading the mains. |
-| At least one circuit power sensor | One per breaker. Leave out phase and total sensors or they are counted twice. |
-| The recorder | Seeds the 24-hour window at startup and supplies history for `learn` and `map_devices`. Without it the entry still loads, standby figures take a day to mean anything, and those two actions refuse with an error saying the recorder is not running. |
+| At least one circuit power sensor | One per breaker. Leave out phase and total sensors or they are counted twice. Breaker-trip detection reads their long-term statistics, which need `state_class: measurement`. |
+| The recorder | Seeds the 24-hour window at startup, supplies history for `learn` and `map_devices`, and hourly statistics for which circuits are watched for trips. Without it the entry still loads, standby figures take a day to mean anything, those two actions refuse with an error saying the recorder is not running, and no circuit is watched for trips until it has 168 hours of live readings since Home Assistant last started or the entry last loaded. |
 
 Setup validates this before the entry is created: a sensor that does not exist,
 is not reporting a number, or is not in a power unit is refused by name, and
@@ -251,8 +253,8 @@ One setting rather than a dozen thresholds:
 | Eager | More placements, some of them wrong. Useful while exploring a panel, not for driving automations. |
 
 It moves step match, margin, correlation, probes required to agree, cluster
-tightness and absence patience together. An unrecognised value falls back to
-balanced.
+tightness, absence patience and the breaker-trip eligibility floor together. An
+unrecognised value falls back to balanced.
 
 The thresholds are not exposed individually because they were derived by
 measuring against a house with 27 clamps to check answers against, which most
@@ -272,34 +274,91 @@ measured 0.95   chance 0.93   lift 0.02   verdict: chance
 The lowest of several offsets is used. A three-hour shift still overlaps the
 house's daily rhythm; nineteen hours does not.
 
-## Breaker walk
+## Breaker trips
 
 Cutting a breaker is the only causal test here. Correlation and probes show that
-two things move together; killing the circuit proves a device is fed by it.
+two things move together; a circuit going dead proves a device is fed by it.
 
-The integration cannot flip breakers, so this is a guided manual procedure. It
-identifies which breaker was flipped from the circuit clamps, and refuses when:
+The integration watches for trips on its own, from state changes rather than the
+30-second poll. A trip needs exactly one watched circuit to fall to the noise
+floor, 2 W. Devices dropping while every circuit stays live are never a trip,
+however many drop.
 
-- no clamp dropped, meaning the breaker is not one it watches;
-- two circuits dropped together, meaning a double-pole breaker or a main;
-- the candidate circuit was already idle.
+| Condition | Result |
+|---|---|
+| One eligible circuit falls from above 2 W to 2 W or below | Trip |
+| Another circuit falls from above the eligibility floor to 2 W or below, between 30 s before the fall and the close | Refused: a double-pole breaker or a main |
+| The circuit's own reading becomes unreadable (`unavailable`, `unknown`, not a number) before it reads above 2 W again | Refused |
+| The circuit was not above the eligibility floor 30 s before it fell | Refused |
+| A reading that is unreadable, before or after the fall | Nothing |
+| Home Assistant started, or the entry loaded, under 5 minutes ago | Nothing |
 
-Results are split by evidence:
+### Which circuits are watched
+
+A circuit is eligible when its recorded hourly minimum never reached 2 W and
+stayed above the eligibility floor, over the last 720 hours of the recorder's
+statistics, with at least 168 hours to judge on. The circuit sensor needs
+`state_class: measurement` for Home Assistant to keep those statistics. A
+dedicated appliance circuit reaches the noise floor whenever its appliance is
+off, which reads exactly like its breaker going, so it is not watched.
+
+The hours of a recorded trip that took devices with it are left out, so a trip
+does not cost the circuit its eligibility. Any other fall to the floor counts
+against it for 720 hours: a trip that dropped nothing, a refused one, and one
+while detection was not yet running.
+
+| Confidence | Eligibility floor |
+|---|---|
+| Cautious | 6 W |
+| Balanced | 4 W |
+| Eager | 3 W |
+
+### What a trip records
+
+The outage runs from the circuit's last live reading to 30 seconds after it
+reads above 2 W again. A circuit still dead after 2 minutes is reported then,
+with no end; the end is written when it reads above 2 W again. Entities that
+were available for the 5 minutes before the last live reading are classified:
 
 | | Meaning |
 |---|---|
-| `confirmed` | The device's own meter collapsed. |
-| `suspected` | The device vanished, which may mean it lost power or that its Zigbee or Z-Wave parent did. |
-| `unaffected` | Still drawing what it was. |
+| `confirmed` | A power meter fell to a tenth of its reading. |
+| `suspected` | The entity went `unavailable`. `unknown` does not count. |
 
-Anything known to route for other devices stays `suspected`.
+Never casualties: the mains sensor, this integration's entities, and every
+entity on the device of a configured circuit or mains sensor. Wi-Fi and cloud
+devices are marked unavailable within seconds; a Zigbee or Z-Wave mains device
+is usually not marked by an outage of seconds.
 
-`describe()` reports what the meter recorded for a circuit: current draw,
-permanent floor, hours observed, whether it has ever been idle, and which devices
-are attributed to it. It forms no verdict on whether a circuit is safe to cut.
-The permanent floor is the useful figure before anything is identified, since a
-circuit that never falls below several hundred watts has something on it that
-never stops.
+Each device gets one assignment on the tripped circuit, `established_by:
+breaker`, `confidence: inferred`, with the outage times and its entities in the
+evidence. It goes under the key the device already has an assignment on, else
+its own power sensor, else its first casualty. A probe's answer is never
+overwritten.
+
+| Where | What |
+|---|---|
+| Event `power_fingerprint_breaker_trip` | `circuit`, `start`, `end` (null while still dead), `confirmed`, `suspected`: full lists. |
+| `sensor.power_fingerprint_unmonitored_load` | `breaker_trip_circuits`: the circuits watched now. `last_breaker_trip`: the event's keys, each list capped at 25, with `confirmed_not_shown` and `suspected_not_shown` counting the rest. |
+| Diagnostics | Each circuit's eligibility and reason, the last trip with casualties counted, and the last refusal, circuits pseudonymised. |
+
+No notification is created.
+
+```yaml
+automation:
+  - alias: Breaker tripped
+    triggers:
+      - trigger: event
+        event_type: power_fingerprint_breaker_trip
+    actions:
+      - action: notify.mobile_app_phone
+        data:
+          message: >-
+            {{ trigger.event.data.circuit }} went dead at
+            {{ trigger.event.data.start }};
+            {{ (trigger.event.data.confirmed + trigger.event.data.suspected)
+            | count }} entities dropped with it.
+```
 
 ## Naming
 
@@ -548,6 +607,10 @@ reported in diagnostics.
 
 Learning and probing are actions you run. Nothing switches anything unless
 `verify_circuit` is called.
+
+Breaker trips are read from state changes as they happen, since an outage of a
+few seconds falls between two polls. Eligibility is read from the recorder's
+hourly statistics at startup and every hour.
 
 ## Troubleshooting
 
@@ -813,10 +876,16 @@ older interpreter. `tools/hooks/pre-push` runs it at push time and picks its
 interpreter by version; install it with
 `cp tools/hooks/pre-push .git/hooks/pre-push`.
 
-218 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
+268 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
 `verify`, `virtual`, `breaker` - and `tools/labelled_set.py`, which import
 nothing from Home Assistant and are loaded by path, so they run on a bare
 checkout.
+
+`tests/fixtures/breaker_trips.json` holds recorder windows from one install with
+every entity id replaced by a generic one: a 7-second breaker flip, a Home
+Assistant restart, one integration dropping 22 entities with no circuit moving,
+eight appliance circuits reaching the noise floor, and 720 hourly minima per
+circuit. `tests/test_breaker_replay.py` replays them through the trip detector.
 
 `tools/validate_local.py` also refuses a development host or device in the
 published tree and in the commits a push carries, message included. Five rules:
@@ -849,7 +918,7 @@ control line built at runtime first, and the redaction is controlled the same
 way, so a clean result is a matcher that matched rather than one that stopped
 working.
 
-165 more in `tests/ha/` cover the Home Assistant layer.
+198 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|
@@ -860,6 +929,7 @@ working.
 | Dashboard | The energy dashboard reader against every shape the energy schema has had. |
 | Coordinator | The recorder seed, blind-time accounting behind the absence alert, and unit conversion at ingestion. |
 | Actions | All six driven end to end against recorded history, including the probe's restore path, its five refusals and the automations it pauses. |
+| Breaker trips | One assignment per device and the event, arming after startup, eligibility from statistics, what is excluded as a casualty, a probe never overwritten. |
 
 They skip when the harness is absent. On Windows `tests/winposix.py` supplies
 `fcntl` and `resource`, releases `socketpair` from the harness's socket block,

@@ -7,6 +7,31 @@ the ones in `manifest.json` and `const.VERSION`, which are kept equal.
 This file starts at 0.17.0. Earlier versions were developed against one install
 and are not documented here.
 
+## [0.18.0] - 2026-09-29
+
+### Added
+
+- Breaker trips detected automatically. A trip needs exactly one watched
+  circuit to fall to 2 W; a second circuit falling from 30 s before until the
+  incident closes makes it a refusal, and devices dropping with every circuit
+  live are ignored. A circuit is watched when its hourly minimum over 720
+  hours never reached 2 W and stayed above the eligibility floor the
+  confidence setting sets (6, 4 or 3 W); only a trip that took devices with it
+  is left out of that history. Detection starts 5 minutes after Home
+  Assistant has started or the entry has loaded.
+- Per trip: one circuit assignment per device, `established_by: breaker`,
+  `confidence: inferred`, never over a probe's answer; the event
+  `power_fingerprint_breaker_trip`; `breaker_trip_circuits` and
+  `last_breaker_trip` on `sensor.power_fingerprint_unmonitored_load`; each
+  circuit's eligibility, the last trip and the last refusal in diagnostics.
+- `tests/fixtures/breaker_trips.json`: recorder windows from one install with
+  generic entity ids, replayed by `tests/test_breaker_replay.py`.
+
+### Changed
+
+- The README's breaker walk, a manual procedure no action exposed, is replaced
+  by the automatic detection.
+
 ## [0.17.2] - 2026-09-28
 
 ### Added

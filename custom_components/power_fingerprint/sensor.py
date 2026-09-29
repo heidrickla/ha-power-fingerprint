@@ -203,11 +203,14 @@ class UnmonitoredLoadSensor(_Base):
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
         cov = data.get("coverage") or {}
+        breaker = self.coordinator.breaker
         return {
             "mains_w": cov.get("mains_w"),
             "circuits_w": cov.get("circuits_w"),
             "coverage_pct": cov.get("coverage_pct"),
             "silent_circuits": data.get("silent_circuits", []),
+            # Which circuits are watched for trips, and the last one found.
+            **(breaker.attributes() if breaker is not None else {}),
         }
 
 
@@ -382,6 +385,7 @@ class CircuitSensor(AttachedEntity, SensorEntity):
             "circuit_entity": row.get("circuit"),
             "confidence": row.get("confidence"),
             # `probe` switched the device and watched a circuit move.
+            # `breaker` saw it drop when its circuit went dead.
             # `correlation` only observed them moving together.
             "established_by": row.get("source"),
             "evidence": row.get("evidence", {}),

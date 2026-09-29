@@ -98,6 +98,9 @@ class FingerprintStore:
         # Persisted so the per-device entities survive a restart: a mapping that
         # cost an active probe to establish must not evaporate on reboot.
         self._assignments: dict[str, dict[str, Any]] = {}
+        # Breaker trips the integration detected, oldest first. Eligibility
+        # leaves their hours out, or a circuit would lose it by tripping once.
+        self._trips: list[dict[str, Any]] = []
         self._loaded = False
 
     @staticmethod
@@ -147,6 +150,9 @@ class FingerprintStore:
             self._last_seen = dict(data.get("last_seen", {}))
             self._last_poll = data.get("last_poll")
             self._assignments = dict(data.get("assignments", {}))
+            self._trips = [
+                dict(t) for t in data.get("breaker_trips", []) if isinstance(t, dict)
+            ]
             # SELF-HEAL: drop any assignment for this integration's OWN
             # sensors. `unmonitored_load` is mains minus the circuits, so
             # correlating it against a circuit is circular by construction, and
@@ -173,6 +179,7 @@ class FingerprintStore:
             "last_seen": self._last_seen,
             "last_poll": self._last_poll,
             "assignments": self._assignments,
+            "breaker_trips": self._trips,
         }
 
     async def async_save(self) -> None:
@@ -186,6 +193,30 @@ class FingerprintStore:
         self._last_seen = {}
         self._last_poll = None
         self._assignments = {}
+        self._trips = []
+
+    def breaker_trips(self) -> list[dict[str, Any]]:
+        return [dict(t) for t in self._trips]
+
+    async def async_record_trip(self, trip: dict[str, Any], keep_after: str) -> None:
+        """Append a trip, dropping those that started before `keep_after`."""
+        self._trips = [
+            t for t in self._trips if str(t.get("start") or "") >= keep_after
+        ] + [dict(trip)]
+        await self.async_save()
+
+    async def async_end_trip(self, circuit: str, start: str, end: str) -> bool:
+        """Write the end of a trip recorded while its circuit was still dead."""
+        for trip in self._trips:
+            if (
+                trip.get("circuit") == circuit
+                and trip.get("start") == start
+                and trip.get("end") is None
+            ):
+                trip["end"] = end
+                await self.async_save()
+                return True
+        return False
 
     def assignments(self) -> dict[str, dict[str, Any]]:
         return {k: dict(v) for k, v in self._assignments.items()}
@@ -317,6 +348,10 @@ class FingerprintStore:
         for info in self._assignments.values():
             if info.get("circuit") == old:
                 info["circuit"] = new
+                changed = True
+        for trip in self._trips:
+            if trip.get("circuit") == old:
+                trip["circuit"] = new
                 changed = True
         if changed:
             await self.async_save()

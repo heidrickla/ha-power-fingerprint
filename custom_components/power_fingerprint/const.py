@@ -5,7 +5,7 @@ MANUFACTURER = "Power Fingerprint"
 # Must match manifest.json. HACS surfaces the release TAG while Home Assistant
 # reports the MANIFEST version, so a mismatch is a defect users see as a wrong
 # version number. Bump both together.
-VERSION = "0.17.2"
+VERSION = "0.18.0"
 
 CONF_MAINS = "mains"
 CONF_CIRCUITS = "circuits"
@@ -35,6 +35,9 @@ POLL_SECONDS = 30
 # minutes - small next to any appliance cadence - not hours.
 HEARTBEAT_SECONDS = 300
 
+# Fired once per breaker trip the integration detects on its own.
+EVENT_BREAKER_TRIP = f"{DOMAIN}_breaker_trip"
+
 # Below this the standby sensors report `unknown` rather than a number from a
 # window too short to mean anything.
 MIN_STANDBY_WINDOW_HOURS = 1.0
@@ -60,6 +63,7 @@ CONFIDENCE_PROFILES: dict[str, dict[str, float]] = {
         "probes": 3,
         "cluster_threshold": 0.70,
         "absence_patience": 3.0,
+        "breaker_floor_w": 6.0,
     },
     # What the measurements in the README were taken with.
     "balanced": {
@@ -70,6 +74,9 @@ CONFIDENCE_PROFILES: dict[str, dict[str, float]] = {
         "probes": 2,
         "cluster_threshold": 0.90,
         "absence_patience": 2.0,
+        # A circuit is watched for trips only if it never falls below
+        # this. Idle circuits here read up to 3.1 W with nothing on them.
+        "breaker_floor_w": 4.0,
     },
     # More placements, and some of them wrong in a way you cannot see. Sound
     # choice while exploring a panel, poor one for driving automations.
@@ -81,6 +88,7 @@ CONFIDENCE_PROFILES: dict[str, dict[str, float]] = {
         "probes": 1,
         "cluster_threshold": 1.20,
         "absence_patience": 1.5,
+        "breaker_floor_w": 3.0,
     },
 }
 
