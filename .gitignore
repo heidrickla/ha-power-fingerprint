@@ -13,3 +13,9 @@ build/
 .DS_Store
 .internal-hosts
 .labelled/
+
+# Agent instruction files never ship.
+CLAUDE.md
+AGENTS.md
+CONTRIBUTING.md
+.cursorrules
