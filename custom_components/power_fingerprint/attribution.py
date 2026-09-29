@@ -9,7 +9,7 @@ Those devices are worth far more than one extra reading each, because they are
 already labelled. `sensor.patio_sconce_active_power` needs no human to name
 it. That gives three things the circuit CTs alone cannot:
 
-1.  GROUND TJANE DOE FOR FREE. Every metered device is a labelled fingerprint,
+1.  GROUND TRUTH FOR FREE. Every metered device is a labelled fingerprint,
    which is the bootstrap problem solved without asking anyone anything.
 
 2.  SUBTRACTION. A metered device sitting on a monitored circuit can be

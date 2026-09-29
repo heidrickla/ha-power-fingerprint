@@ -72,7 +72,7 @@ def noise_floor(samples: list[Sample], percentile: float = 95.0) -> float:
 def pair_rate(samples: list[Sample], floor_w: float) -> float:
     """What fraction of detected level shifts found a partner.
 
-    THE SELF-CHECK THAT NEEDS NO GROUND TJANE DOE. A floor set too low picks up
+    THE SELF-CHECK THAT NEEDS NO GROUND TRUTH. A floor set too low picks up
     the house breathing: shifts appear that never come back down, overlapping
     loads interleave, and the proportion that pair into a clean run collapses.
     Too high and there is nothing to pair. The floor where pairing stays clean
