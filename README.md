@@ -24,7 +24,7 @@ Available immediately, with no labelled fingerprints:
 
 | Entity | Meaning |
 |---|---|
-| `sensor.power_fingerprint_unmonitored_load` | Mains minus the sum of the circuits. |
+| `sensor.power_fingerprint_unmonitored_load` | Mains minus the sum of the circuits. The attributes carry the circuits watched for [breaker trips](#breaker-trips) and the last trip. |
 | `binary_sensor.power_fingerprint_ct_coverage_fault` | That figure moved outside tolerance. |
 | `sensor.power_fingerprint_standby_power` | Total permanent draw, with a per-circuit ranking in the attributes. |
 | `sensor.power_fingerprint_standby_annual_cost` | What that costs per year. |
@@ -77,25 +77,24 @@ and `remove: true` takes them off.
 
 ### Attaching an entity to another integration's device
 
-Returning the target device's `identifiers` in `DeviceInfo` no longer merges. On
+Returning the target device's `identifiers` in `DeviceInfo` does not merge. On
 Home Assistant 2026.8 it creates a second, nameless device beside the real one;
 the registry now carries `composite_device_id` and treats shared identifiers as
 a composite relationship.
 
 Register with no device and point the entity's registry row at the target in
-`async_added_to_hass`. `setup_entry` prunes stray devices left by earlier
-versions.
+`async_added_to_hass`. `setup_entry` removes nameless devices this integration
+owns that carry none of its own identifiers.
 
 The id is built from the device name plus the entity name at registration,
 before the device is attached, so a new Circuit entity supplies the device name
 itself and arrives as `sensor.porch_lamp_circuit`. A device with no name of its
 own gives `sensor.circuit`.
 
-Entities that already exist keep the id they have. The registry asks for a
-suggested id only when it creates a row, so an install from before this change
-keeps `sensor.circuit`, `sensor.circuit_2` and so on. Deleting one of those
-entities and letting the next poll recreate it is what renames it; the unique
-id is the same either way, so nothing else moves.
+An entity keeps the id it was registered with: the registry asks for a
+suggested id only when it creates a row. An entity registered as
+`sensor.circuit` is renamed by deleting it and letting the next poll recreate
+it; the unique id is the same either way, so nothing else moves.
 
 ## What people use it for
 
@@ -181,8 +180,7 @@ each declares `requires-python >=3.14.2`.
 | HACS panel | `brands.home-assistant.io` CDN | The CDN placeholder |
 
 The HACS panel's icon column requests the CDN path rather than the Home
-Assistant proxy, so it shows a placeholder. Tracked as hacs/integration issue
-5223, open on 2026-09-16.
+Assistant proxy, so it shows a placeholder (hacs/integration issue 5223).
 
 HACS (custom repository): add `https://github.com/heidrickla/ha-power-fingerprint`
 as a custom repository of type Integration, install, restart Home Assistant.
@@ -305,7 +303,7 @@ off, which reads exactly like its breaker going, so it is not watched.
 The hours of a recorded trip that took devices with it are left out, so a trip
 does not cost the circuit its eligibility. Any other fall to the floor counts
 against it for 720 hours: a trip that dropped nothing, a refused one, and one
-while detection was not yet running.
+before detection was armed.
 
 | Confidence | Eligibility floor |
 |---|---|
@@ -326,9 +324,10 @@ were available for the 5 minutes before the last live reading are classified:
 | `suspected` | The entity went `unavailable`. `unknown` does not count. |
 
 Never casualties: the mains sensor, this integration's entities, and every
-entity on the device of a configured circuit or mains sensor. Wi-Fi and cloud
-devices are marked unavailable within seconds; a Zigbee or Z-Wave mains device
-is usually not marked by an outage of seconds.
+entity on the device of a configured circuit or mains sensor. A casualty is
+what its own integration marks unavailable inside the window: Wi-Fi and cloud
+devices within seconds, Zigbee and Z-Wave mains devices after their
+integration's own timeout, which is longer than an outage of seconds.
 
 Each device gets one assignment on the tripped circuit, `established_by:
 breaker`, `confidence: inferred`, with the outage times and its entities in the
@@ -626,6 +625,7 @@ hourly statistics at startup and every hour.
 | Entities unavailable | Every configured source is gone. A single circuit dropping out does not blank the others. |
 | One appliance sensor unavailable | Its circuit's sensor is unavailable. The aggregates stay up and the coverage sensor reports the gap. |
 | Setup keeps retrying | A configured power sensor has not appeared yet. The integration card names the first one it is waiting for. |
+| A circuit is missing from `breaker_trip_circuits` | Diagnostics `breaker.circuits` gives each circuit's reason: its lowest reading, or the hours of history it has. |
 
 ```yaml
 logger:
@@ -664,8 +664,7 @@ covers kettles, microwaves and disposals.
 ## What it has been tested against
 
 One meter: an ESPHome-flashed Emporia Vue, 2 units, 27 circuits, publishing every
-~6 s. Nothing here is written against a vendor API, but that is not the same as
-being tested elsewhere.
+~6 s. Nothing here is written against a vendor API.
 
 Two properties of a meter matter, and both are measured rather than assumed:
 
@@ -674,14 +673,14 @@ Two properties of a meter matter, and both are measured rather than assumed:
 | Unit | Every threshold is in watts. `device_class: power` does not constrain the unit. | Converted at ingestion (W, kW, MW, GW, mW, BTU/h). A non-power unit is dropped and named in the log once. |
 | Reporting cadence | Sets the step-matching window. | Measured from your own history as the median inter-sample gap. |
 
-Both assumptions were wrong on the install they came from:
+Measured on the development install:
 
 - The mains sensor reports kilowatts while all 27 circuits report watts, on the
   same brand and integration. Configured as mains, coverage compared 1.38 against
   2,316.
-- The cadence is ~6.1 s, not the 12 s previously assumed. Measured two ways on
-  two circuits: 14,141 rows over 86,395 s, median gap 6.18 s. Both are upper
-  bounds, since Home Assistant does not restamp an unchanged value.
+- The cadence is ~6.1 s. Measured two ways on two circuits: 14,141 rows over
+  86,395 s, median gap 6.18 s. Both are upper bounds, since Home Assistant does
+  not restamp an unchanged value.
 
 ## Self-metering devices
 
@@ -822,9 +821,10 @@ on time and magnitude alone does not.
 A device that meters itself needs no inference; it is already an exact virtual
 circuit. `--subtract` removes its trace from the aggregate before inferring.
 
-On this install it changed the match rate by nothing, because the metered devices
-are lights against a 4-6 kW aggregate. On a house with a smart-plugged dryer or
-EV charger it should matter.
+On the development install it changed the match rate by nothing, because the
+metered devices are lights against a 4-6 kW aggregate. It is for a metered
+device that is large against the aggregate, such as a smart-plugged dryer or
+an EV charger.
 
 ## Roadmap
 
@@ -851,7 +851,7 @@ Built to Home Assistant's Integration Quality Scale, tracked rule by rule in
 with a reason on every exemption.
 
 Every rule is `done` or `exempt` with a written reason, and the file says
-which. `test-coverage` closed on 2026-09-04: coverage is 99% of
+which. `test-coverage` is `done`: coverage is over 99% of
 `custom_components/power_fingerprint` and the build fails below 95%.
 
 The GitHub `Tests` workflow runs both test suites under coverage with that
@@ -902,9 +902,9 @@ Neither workflow supplies the names, so the bare-name rule is a workstation
 gate and the CI run says so. The reason is not the printed string, which is
 redacted under `CI`: a report names the file and the line, which on a public
 repository locates the string either way, and a repository secret would be a
-second copy of the names outside the network. Measured 2026-09-16 in a fresh
-clone with `CI=true` and no names: exit 0, with a note naming
-`PF_INTERNAL_HOSTS` and stating which rules the result covers.
+second copy of the names outside the network. In a fresh clone with `CI=true`
+and no names the run exits 0, with a note naming `PF_INTERNAL_HOSTS` and
+stating which rules the result covers.
 
 The commit half reads `PF_PUSH_RANGE`, which both workflows set from the push
 event. A range derived from the tracking branch answers on a workstation and

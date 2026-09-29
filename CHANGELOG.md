@@ -31,6 +31,8 @@ and are not documented here.
 
 - The README's breaker walk, a manual procedure no action exposed, is replaced
   by the automatic detection.
+- The README states behaviour and measurements without version history or
+  dated checks.
 
 ## [0.17.2] - 2026-09-28
 
