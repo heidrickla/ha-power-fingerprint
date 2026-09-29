@@ -2,21 +2,15 @@
 
 Identify what is running on a circuit from the shape of its load.
 
-A Home Assistant integration for panels with per-circuit power monitoring. It
-takes `device_class: power` sensors and does not care where they come from, but
-see [What it has been tested against](#what-it-has-been-tested-against).
+A Home Assistant integration for panels with per-circuit power monitoring. It takes `device_class: power` sensors and does not care where they come from, but see [What it has been tested against](#what-it-has-been-tested-against).
 
 ## Why this is not NILM
 
-Non-intrusive load monitoring tries to pull thirty overlapping appliances out of
-one meter reading. That is hard, which is why the field uses neural networks.
+Non-intrusive load monitoring tries to pull thirty overlapping appliances out of one meter reading. That is hard, which is why the field uses neural networks.
 
-With a CT on each circuit the separation is already done in hardware. What is
-left is telling apart the two or three appliances sharing one circuit, which
-needs a handful of features and no machine learning.
+With a CT on each circuit the separation is already done in hardware. What is left is telling apart the two or three appliances sharing one circuit, which needs a handful of features and no machine learning.
 
-On the development install the circuits sum to within 28 W of a 6,556 W mains
-reading. There is nothing meaningful left to disaggregate.
+On the development install the circuits sum to within 28 W of a 6,556 W mains reading. There is nothing meaningful left to disaggregate.
 
 ## Entities
 
@@ -32,23 +26,15 @@ Available immediately, with no labelled fingerprints:
 | `sensor.power_fingerprint_unnamed_candidates` | Learned shapes waiting for a name, described in the attributes, with the [library audit](#library-audit). |
 | `binary_sensor.power_fingerprint_silent_appliance` | A named appliance has stopped running when its own history says it should have. |
 
-Every entity belongs to the `Power Fingerprint` service device, so its id
-carries the device name as a prefix.
+Every entity belongs to the `Power Fingerprint` service device, so its id carries the device name as a prefix.
 
-After naming a fingerprint, an appliance sensor per circuit reads `idle`,
-`starting`, the appliance name, or `unknown`. Its id is built from the circuit
-sensor's own name: a circuit called `Circuit 21 Power` gets
-`sensor.power_fingerprint_circuit_21_power_appliance`. It is `unavailable`
-while that circuit's sensor cannot be read.
+After naming a fingerprint, an appliance sensor per circuit reads `idle`, `starting`, the appliance name, or `unknown`. Its id is built from the circuit sensor's own name: a circuit called `Circuit 21 Power` gets `sensor.power_fingerprint_circuit_21_power_appliance`. It is `unavailable` while that circuit's sensor cannot be read.
 
-`unknown` means the circuit is drawing power in a shape no named fingerprint
-accounts for. That is a signal, not a failure.
+`unknown` means the circuit is drawing power in a shape no named fingerprint accounts for. That is a signal, not a failure.
 
 ### Circuit shown on the device
 
-Once a device is mapped, a Circuit entity appears on that device's own page,
-next to its switch and its power reading. The attributes record how it was
-established:
+Once a device is mapped, a Circuit entity appears on that device's own page, next to its switch and its power reading. The attributes record how it was established:
 
 | `established_by` | Meaning |
 |---|---|
@@ -56,45 +42,25 @@ established:
 | `breaker` | The device dropped when its circuit went dead. See [Breaker trips](#breaker-trips). |
 | `correlation` | It observed the two moving together. |
 
-A probe result is never overwritten by any other, and a run that resolves
-nothing never erases a previous answer. `confidence` reads `measured` only for
-a probe; any other source is `inferred`.
+A probe result is never overwritten by any other, and a run that resolves nothing never erases a previous answer. `confidence` reads `measured` only for a probe; any other source is `inferred`.
 
 ### Filtering by breaker
 
-`power_fingerprint.apply_circuit_labels` adds a label such as `Circuit 23 Study`
-to each mapped device, so devices can be filtered by breaker anywhere in Home
-Assistant.
+`power_fingerprint.apply_circuit_labels` adds a label such as `Circuit 23 Study` to each mapped device, so devices can be filtered by breaker anywhere in Home Assistant.
 
-`via_device` would be the natural mechanism, but an integration may only set it
-on devices it owns and these belong to ZHA or Z-Wave. A device per circuit was
-rejected because entries named "Circuit 30" beside real devices read as
-duplicates.
+`via_device` would be the natural mechanism, but an integration may only set it on devices it owns and these belong to ZHA or Z-Wave. A device per circuit was rejected because entries named "Circuit 30" beside real devices read as duplicates.
 
-Labels are the user's namespace and no integration API for them is documented,
-so the service defaults to a dry run, only adds to a device's existing labels,
-and `remove: true` takes them off.
+Labels are the user's namespace and no integration API for them is documented, so the service defaults to a dry run, only adds to a device's existing labels, and `remove: true` takes them off.
 
 ### Attaching an entity to another integration's device
 
-Returning the target device's `identifiers` in `DeviceInfo` does not merge. On
-Home Assistant 2026.8 it creates a second, nameless device beside the real one;
-the registry now carries `composite_device_id` and treats shared identifiers as
-a composite relationship.
+Returning the target device's `identifiers` in `DeviceInfo` does not merge. On Home Assistant 2026.8 it creates a second, nameless device beside the real one; the registry now carries `composite_device_id` and treats shared identifiers as a composite relationship.
 
-Register with no device and point the entity's registry row at the target in
-`async_added_to_hass`. `setup_entry` removes nameless devices this integration
-owns that carry none of its own identifiers.
+Register with no device and point the entity's registry row at the target in `async_added_to_hass`. `setup_entry` removes nameless devices this integration owns that carry none of its own identifiers.
 
-The id is built from the device name plus the entity name at registration,
-before the device is attached, so a new Circuit entity supplies the device name
-itself and arrives as `sensor.porch_lamp_circuit`. A device with no name of its
-own gives `sensor.circuit`.
+The id is built from the device name plus the entity name at registration, before the device is attached, so a new Circuit entity supplies the device name itself and arrives as `sensor.porch_lamp_circuit`. A device with no name of its own gives `sensor.circuit`.
 
-An entity keeps the id it was registered with: the registry asks for a
-suggested id only when it creates a row. An entity registered as
-`sensor.circuit` is renamed by deleting it and letting the next poll recreate
-it; the unique id is the same either way, so nothing else moves.
+An entity keeps the id it was registered with: the registry asks for a suggested id only when it creates a row. An entity registered as `sensor.circuit` is renamed by deleting it and letting the next poll recreate it; the unique id is the same either way, so nothing else moves.
 
 ## What people use it for
 
@@ -162,16 +128,11 @@ automation:
         response_variable: found
 ```
 
-`learn` replaces a circuit's candidates. Names already given are carried onto the
-matching new shapes, but a shape that no longer occurs disappears with its name.
+`learn` replaces a circuit's candidates. Names already given are carried onto the matching new shapes, but a shape that no longer occurs disappears with its name.
 
 ## Installation
 
-Home Assistant 2026.3 or later. The config flow uses APIs added in 2024.12, and
-the brand images ship inside the repository, which Home Assistant serves at
-`/api/brands/integration/power_fingerprint/` from 2026.3. The source uses
-Python 3.14 syntax, which every Home Assistant release from 2026.3 supplies:
-each declares `requires-python >=3.14.2`.
+Home Assistant 2026.3 or later. The config flow uses APIs added in 2024.12, and the brand images ship inside the repository, which Home Assistant serves at `/api/brands/integration/power_fingerprint/` from 2026.3. The source uses Python 3.14 syntax, which every Home Assistant release from 2026.3 supplies: each declares `requires-python >=3.14.2`.
 
 | Reader | Reads | Result |
 |---|---|---|
@@ -179,36 +140,21 @@ each declares `requires-python >=3.14.2`.
 | HACS default-store validator | `custom_components/power_fingerprint/brand/icon.png` | The shipped icon |
 | HACS panel | `brands.home-assistant.io` CDN | The CDN placeholder |
 
-The HACS panel's icon column requests the CDN path rather than the Home
-Assistant proxy, so it shows a placeholder (hacs/integration issue 5223).
+The HACS panel's icon column requests the CDN path rather than the Home Assistant proxy, so it shows a placeholder (hacs/integration issue 5223).
 
-HACS (custom repository): add `https://github.com/heidrickla/ha-power-fingerprint`
-as a custom repository of type Integration, install, restart Home Assistant.
+HACS (custom repository): add `https://github.com/heidrickla/ha-power-fingerprint` as a custom repository of type Integration, install, restart Home Assistant.
 
-`hacs.json` sets no `country`. That key filters the store listing to the
-countries it names. This integration reads power sensors Home Assistant
-already has: no vendor, no cloud, no regional service. Naming a country would
-hide the listing from everyone outside it and gain nothing.
+`hacs.json` sets no `country`. That key filters the store listing to the countries it names. This integration reads power sensors Home Assistant already has: no vendor, no cloud, no regional service. Naming a country would hide the listing from everyone outside it and gain nothing.
 
-Manual: copy `custom_components/power_fingerprint/` into your Home Assistant
-`config/custom_components/` directory and restart.
+Manual: copy `custom_components/power_fingerprint/` into your Home Assistant `config/custom_components/` directory and restart.
 
 Then Settings -> Devices & Services -> Add Integration -> Power Fingerprint.
 
-There is no discovery, and there is nothing to discover: this integration reads
-sensors another integration has already created, so it is added by hand and
-asks which of those sensors to use. Only one entry is allowed, because a second
-would count every circuit twice.
+There is no discovery, and there is nothing to discover: this integration reads sensors another integration has already created, so it is added by hand and asks which of those sensors to use. Only one entry is allowed, because a second would count every circuit twice.
 
-Entities group under a single service device. `Download diagnostics` produces a
-report with entity ids pseudonymised, since entity names describe rooms and
-appliances and diagnostics files end up in public issue trackers.
+Entities group under a single service device. `Download diagnostics` produces a report with entity ids pseudonymised, since entity names describe rooms and appliances and diagnostics files end up in public issue trackers.
 
-Renaming a source sensor on the meter's integration is followed: the circuit
-list, the switch/circuit pairs, the learned library and this integration's own
-entities all move with it. Renaming the mains, a circuit or a pair member
-updates the config entry, which reloads it. Renaming an entity that appears
-only in the learned library does not reload.
+Renaming a source sensor on the meter's integration is followed: the circuit list, the switch/circuit pairs, the learned library and this integration's own entities all move with it. Renaming the mains, a circuit or a pair member updates the config entry, which reloads it. Renaming an entity that appears only in the learned library does not reload.
 
 ### Requirements
 
@@ -218,27 +164,17 @@ only in the learned library does not reload.
 | At least one circuit power sensor | One per breaker. Leave out phase and total sensors or they are counted twice. Breaker-trip detection reads their long-term statistics, which need `state_class: measurement`. |
 | The recorder | Seeds the 24-hour window at startup, supplies history for `learn` and `map_devices`, and hourly statistics for which circuits are watched for trips. Without it the entry still loads, standby figures take a day to mean anything, those two actions refuse with an error saying the recorder is not running, and no circuit is watched for trips until it has 168 hours of live readings since Home Assistant last started or the entry last loaded. |
 
-Setup validates this before the entry is created: a sensor that does not exist,
-is not reporting a number, or is not in a power unit is refused by name, and
-the message says whether it was the mains or a circuit that failed. If a
-sensor's unit later changes to a non-power unit, a repair issue names it.
+Setup validates this before the entry is created: a sensor that does not exist, is not reporting a number, or is not in a power unit is refused by name, and the message says whether it was the mains or a circuit that failed. If a sensor's unit later changes to a non-power unit, a repair issue names it.
 
 ### Removing it
 
-Settings -> Devices & Services -> Power Fingerprint -> Delete. That removes the
-entry, its device and every entity, and deletes the fingerprint library in
-`.storage/power_fingerprint.<entry_id>`. Nothing is left behind; re-adding the
-integration starts from an empty library.
+Settings -> Devices & Services -> Power Fingerprint -> Delete. That removes the entry, its device and every entity, and deletes the fingerprint library in `.storage/power_fingerprint.<entry_id>`. Nothing is left behind; re-adding the integration starts from an empty library.
 
-An automation paused for a probe is recorded to storage before being switched
-off, and restored at the next startup.
+An automation paused for a probe is recorded to storage before being switched off, and restored at the next startup.
 
 ### Reconfiguring
 
-Reconfigure (the entry's own menu) and Configure (the options button) show the
-same six fields as setup and run the same validation. Reconfigure writes to the
-entry data and clears any saved options; Configure writes options, which take
-precedence at runtime. Either one reloads the entry.
+Reconfigure (the entry's own menu) and Configure (the options button) show the same six fields as setup and run the same validation. Reconfigure writes to the entry data and clears any saved options; Configure writes options, which take precedence at runtime. Either one reloads the entry.
 
 ## Confidence
 
@@ -250,37 +186,26 @@ One setting rather than a dozen thresholds:
 | Balanced | Default. What the measurements below were taken with. |
 | Eager | More placements, some of them wrong. Useful while exploring a panel, not for driving automations. |
 
-It moves step match, margin, correlation, probes required to agree, cluster
-tightness, absence patience and the breaker-trip eligibility floor together. An
-unrecognised value falls back to balanced.
+It moves step match, margin, correlation, probes required to agree, cluster tightness, absence patience and the breaker-trip eligibility floor together. An unrecognised value falls back to balanced.
 
-The thresholds are not exposed individually because they were derived by
-measuring against a house with 27 clamps to check answers against, which most
-installs do not have.
+The thresholds are not exposed individually because they were derived by measuring against a house with 27 clamps to check answers against, which most installs do not have.
 
 ## Controls
 
-Every match rate is reported alongside the score the same test achieves against
-data shifted in time. `analysis.control()` scores the real alignment, then scores
-it at several offsets where the same events did not happen.
+Every match rate is reported alongside the score the same test achieves against data shifted in time. `analysis.control()` scores the real alignment, then scores it at several offsets where the same events did not happen.
 
 ```
 measured 0.91   chance 0.40   lift 0.51   verdict: clear
 measured 0.95   chance 0.93   lift 0.02   verdict: chance
 ```
 
-The lowest of several offsets is used. A three-hour shift still overlaps the
-house's daily rhythm; nineteen hours does not.
+The lowest of several offsets is used. A three-hour shift still overlaps the house's daily rhythm; nineteen hours does not.
 
 ## Breaker trips
 
-Cutting a breaker is the only causal test here. Correlation and probes show that
-two things move together; a circuit going dead proves a device is fed by it.
+Cutting a breaker is the only causal test here. Correlation and probes show that two things move together; a circuit going dead proves a device is fed by it.
 
-The integration watches for trips on its own, from state changes rather than the
-30-second poll. A trip needs exactly one watched circuit to fall to the noise
-floor, 2 W. Devices dropping while every circuit stays live are never a trip,
-however many drop.
+The integration watches for trips on its own, from state changes rather than the 30-second poll. A trip needs exactly one watched circuit to fall to the noise floor, 2 W. Devices dropping while every circuit stays live are never a trip, however many drop.
 
 | Condition | Result |
 |---|---|
@@ -293,17 +218,9 @@ however many drop.
 
 ### Which circuits are watched
 
-A circuit is eligible when its recorded hourly minimum never reached 2 W and
-stayed above the eligibility floor, over the last 720 hours of the recorder's
-statistics, with at least 168 hours to judge on. The circuit sensor needs
-`state_class: measurement` for Home Assistant to keep those statistics. A
-dedicated appliance circuit reaches the noise floor whenever its appliance is
-off, which reads exactly like its breaker going, so it is not watched.
+A circuit is eligible when its recorded hourly minimum never reached 2 W and stayed above the eligibility floor, over the last 720 hours of the recorder's statistics, with at least 168 hours to judge on. The circuit sensor needs `state_class: measurement` for Home Assistant to keep those statistics. A dedicated appliance circuit reaches the noise floor whenever its appliance is off, which reads exactly like its breaker going, so it is not watched.
 
-The hours of a recorded trip that took devices with it are left out, so a trip
-does not cost the circuit its eligibility. Any other fall to the floor counts
-against it for 720 hours: a trip that dropped nothing, a refused one, and one
-before detection was armed.
+The hours of a recorded trip that took devices with it are left out, so a trip does not cost the circuit its eligibility. Any other fall to the floor counts against it for 720 hours: a trip that dropped nothing, a refused one, and one before detection was armed.
 
 | Confidence | Eligibility floor |
 |---|---|
@@ -313,27 +230,16 @@ before detection was armed.
 
 ### What a trip records
 
-The outage runs from the circuit's last live reading to 30 seconds after it
-reads above 2 W again. A circuit still dead after 2 minutes is reported then,
-with no end; the end is written when it reads above 2 W again. Entities that
-were available for the 5 minutes before the last live reading are classified:
+The outage runs from the circuit's last live reading to 30 seconds after it reads above 2 W again. A circuit still dead after 2 minutes is reported then, with no end; the end is written when it reads above 2 W again. Entities that were available for the 5 minutes before the last live reading are classified:
 
 | | Meaning |
 |---|---|
 | `confirmed` | A power meter fell to a tenth of its reading. |
 | `suspected` | The entity went `unavailable`. `unknown` does not count. |
 
-Never casualties: the mains sensor, this integration's entities, and every
-entity on the device of a configured circuit or mains sensor. A casualty is
-what its own integration marks unavailable inside the window: Wi-Fi and cloud
-devices within seconds, Zigbee and Z-Wave mains devices after their
-integration's own timeout, which is longer than an outage of seconds.
+Never casualties: the mains sensor, this integration's entities, and every entity on the device of a configured circuit or mains sensor. A casualty is what its own integration marks unavailable inside the window: Wi-Fi and cloud devices within seconds, Zigbee and Z-Wave mains devices after their integration's own timeout, which is longer than an outage of seconds.
 
-Each device gets one assignment on the tripped circuit, `established_by:
-breaker`, `confidence: inferred`, with the outage times and its entities in the
-evidence. It goes under the key the device already has an assignment on, else
-its own power sensor, else its first casualty. A probe's answer is never
-overwritten.
+Each device gets one assignment on the tripped circuit, `established_by: breaker`, `confidence: inferred`, with the outage times and its entities in the evidence. It goes under the key the device already has an assignment on, else its own power sensor, else its first casualty. A probe's answer is never overwritten.
 
 | Where | What |
 |---|---|
@@ -361,22 +267,15 @@ automation:
 
 ## Naming
 
-`power_fingerprint.autolabel` names shapes whose circuit already says what it is,
-reading the circuit sensor's title and, in preference, the name on the energy
-dashboard.
+`power_fingerprint.autolabel` names shapes whose circuit already says what it is, reading the circuit sensor's title and, in preference, the name on the energy dashboard.
 
-It applies a name only where the circuit has exactly one learned shape and its
-title contains something other than a number. A circuit with several shapes has
-its suggestion returned rather than applied. It never overwrites a name a person
-gave.
+It applies a name only where the circuit has exactly one learned shape and its title contains something other than a number. A circuit with several shapes has its suggestion returned rather than applied. It never overwrites a name a person gave.
 
-On the development install this named 12 of 21 circuits and returned 8 with
-suggestions.
+On the development install this named 12 of 21 circuits and returned 8 with suggestions.
 
 ## Learning fingerprints
 
-Two services. Clustering finds the recurring shapes and cannot name them; naming
-needs someone who knows what is plugged in.
+Two services. Clustering finds the recurring shapes and cannot name them; naming needs someone who knows what is plugged in.
 
 ```yaml
 # Propose candidates from history. Returns a description of each shape.
@@ -393,9 +292,7 @@ data:
   new_label: Dryer
 ```
 
-Matching happens on a partial run rather than waiting for it to finish, which
-works because duration and energy are weighted to zero for identity. Three
-outcomes: the appliance name, `idle`, or `unknown`.
+Matching happens on a partial run rather than waiting for it to finish, which works because duration and energy are weighted to zero for identity. Three outcomes: the appliance name, `idle`, or `unknown`.
 
 ### Library audit
 
@@ -406,60 +303,38 @@ Two conditions worth a look, reported and never acted on:
 | `duplicate_labels` | One name on two or more shapes of one circuit. `label` renames the first match only, and the shapes share one last-seen time. |
 | `small_shapes` | Shapes learned from three runs or fewer, which may be one-off events or fragments of another shape. |
 
-Both appear in the attributes of `sensor.power_fingerprint_unnamed_candidates`
-(25 rows each, with a `_not_shown` count beyond that), in the `learn` response
-under `audit`, and in diagnostics with circuits pseudonymised and labels
-omitted.
+Both appear in the attributes of `sensor.power_fingerprint_unnamed_candidates` (25 rows each, with a `_not_shown` count beyond that), in the `learn` response under `audit`, and in diagnostics with circuits pseudonymised and labels omitted.
 
 ## Passive and active together
 
-`map_devices` correlates each self-metering device against every circuit.
-`verify_circuit` switches a device and watches which circuit moves. Passive
-covers everything at once but is inference; active is measurement but touches one
-device at a time.
+`map_devices` correlates each self-metering device against every circuit. `verify_circuit` switches a device and watches which circuit moves. Passive covers everything at once but is inference; active is measurement but touches one device at a time.
 
 ### Limits of active probing
 
-- Only `switch` and `light` entities are probed. Config and diagnostic entities
-  are refused: a Z-Wave dimmer publishes its settings in the same domain as its
-  load, and flipping `invert_switch` reconfigures the device while moving no
-  current.
-- A device currently drawing a sustained load is refused, because switching it
-  off would interrupt whatever is running. An unmetered device that is on is
-  refused rather than guessed at.
+- Only `switch` and `light` entities are probed. Config and diagnostic entities are refused: a Z-Wave dimmer publishes its settings in the same domain as its load, and flipping `invert_switch` reconfigures the device while moving no current.
+- A device currently drawing a sustained load is refused, because switching it off would interrupt whatever is running. An unmetered device that is on is refused rather than guessed at.
 - Battery devices are refused: they draw no mains current.
-- A single probe never returns `measured`. The defence against coincidence is
-  that independent probes agree, which is vacuous with one.
-- The device's own power sensor is discovered automatically. Without it, ranking
-  falls back to which circuit moved most, and on a house with air conditioning
-  the answer is always the air conditioning.
+- A single probe never returns `measured`. The defence against coincidence is that independent probes agree, which is vacuous with one.
+- The device's own power sensor is discovered automatically. Without it, ranking falls back to which circuit moved most, and on a house with air conditioning the answer is always the air conditioning.
 
 ### Pausing interfering automations
 
-`pause_automations: true` switches off automations that reference the probed
-device or any circuit, using Home Assistant's `referenced_entities`.
+`pause_automations: true` switches off automations that reference the probed device or any circuit, using Home Assistant's `referenced_entities`.
 
-An automation is never paused if it touches any entity in these domains, or any
-sensor with one of these device classes. This is the one list; `verify.py`
-carries it and `services.yaml` points here.
+An automation is never paused if it touches any entity in these domains, or any sensor with one of these device classes. This is the one list; `verify.py` carries it and `services.yaml` points here.
 
 | Never paused | |
 |---|---|
 | Domains | `lock`, `alarm_control_panel`, `cover`, `valve`, `water_heater`, `climate`, `siren`, `humidifier`, `vacuum`, `notify`, `persistent_notification`, `device_tracker`, `person` |
 | Device classes | `moisture`, `smoke`, `gas`, `carbon_monoxide`, `safety`, `problem`, `tamper` |
 
-The list is a denylist and deliberately broad: the cost of leaving an
-automation running is a noisier measurement, the cost of pausing the wrong one
-is a door that stays locked or a leak alert that never fires. Refusals are
-returned in the action's response, not swallowed.
+The list is a denylist and deliberately broad: the cost of leaving an automation running is a noisier measurement, the cost of pausing the wrong one is a door that stays locked or a leak alert that never fires. Refusals are returned in the action's response, not swallowed.
 
-The pause list is written to storage before anything is switched off, and
-restored at the next startup if a probe dies mid-run.
+The pause list is written to storage before anything is switched off, and restored at the next startup if a probe dies mid-run.
 
 ### Field results
 
-18 devices probed across seven rooms. Placements that survived three agreeing
-probes:
+18 devices probed across seven rooms. Placements that survived three agreeing probes:
 
 | Circuit | Devices |
 |---|---|
@@ -469,21 +344,15 @@ probes:
 | `circuit_12` | Shared bathroom vent |
 | `circuit_16` | Kitchen pendant lights |
 
-Six of seven disputed placements collapsed to `unknown` when three probes had to
-agree, having been reported as `measured` at `probes: 1`.
+Six of seven disputed placements collapsed to `unknown` when three probes had to agree, having been reported as `measured` at `probes: 1`.
 
 ## Actions
 
-Six actions under `power_fingerprint.`. Every field is optional unless marked
-required. Where a default reads "confidence setting", leaving the field empty
-uses the value the [Confidence](#confidence) setting supplies, and a value
-overrides it for that call only.
+Six actions under `power_fingerprint.`. Every field is optional unless marked required. Where a default reads "confidence setting", leaving the field empty uses the value the [Confidence](#confidence) setting supplies, and a value overrides it for that call only.
 
 ### `learn`
 
-Read history for each circuit, group the appliance runs by shape, and store
-them as candidates. Returns a description of every shape found. Names already
-given are carried onto the matching new shapes.
+Read history for each circuit, group the appliance runs by shape, and store them as candidates. Returns a description of every shape found. Names already given are carried onto the matching new shapes.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -493,8 +362,7 @@ given are carried onto the matching new shapes.
 
 ### `label`
 
-Turn a candidate into an identification. Only named fingerprints drive
-entities.
+Turn a candidate into an identification. Only named fingerprints drive entities.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -504,9 +372,7 @@ entities.
 
 ### `verify_circuit`
 
-Switch a device and watch which circuit moves. It actuates the device, several
-times, and always restores its prior state. Only `switch` and `light` entities
-may be probed. See [Limits of active probing](#limits-of-active-probing).
+Switch a device and watch which circuit moves. It actuates the device, several times, and always restores its prior state. Only `switch` and `light` entities may be probed. See [Limits of active probing](#limits-of-active-probing).
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -519,9 +385,7 @@ may be probed. See [Limits of active probing](#limits-of-active-probing).
 
 ### `map_devices`
 
-Correlate every self-metering power sensor against every circuit and record
-where each device sits. Reports what it could not place as well as what it
-could.
+Correlate every self-metering power sensor against every circuit and record where each device sits. Reports what it could not place as well as what it could.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -531,13 +395,11 @@ could.
 
 ### `autolabel`
 
-Name every learned shape whose circuit already says what it is. No fields. See
-[Naming](#naming).
+Name every learned shape whose circuit already says what it is. No fields. See [Naming](#naming).
 
 ### `apply_circuit_labels`
 
-Add a label naming the circuit to each mapped device, so devices can be
-filtered by breaker. See [Filtering by breaker](#filtering-by-breaker).
+Add a label naming the circuit to each mapped device, so devices can be filtered by breaker. See [Filtering by breaker](#filtering-by-breaker).
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -547,9 +409,7 @@ filtered by breaker. See [Filtering by breaker](#filtering-by-breaker).
 
 ## Tools
 
-Development scripts in `tools/`, run from a workstation. Most read the REST API;
-`labelled_set.py` reads exported traces.
-They load the pure modules by path and need no Home Assistant install.
+Development scripts in `tools/`, run from a workstation. Most read the REST API; `labelled_set.py` reads exported traces. They load the pure modules by path and need no Home Assistant install.
 
 | Script | Purpose |
 |---|---|
@@ -564,8 +424,7 @@ They load the pure modules by path and need no Home Assistant install.
 
 ### Labelled set
 
-`labelled_set.py` reads one exported trace per entity; its docstring gives the
-recorder query. Labels come from outside the matcher:
+`labelled_set.py` reads one exported trace per entity; its docstring gives the recorder query. Labels come from outside the matcher:
 
 | Source | A run is labelled |
 |---|---|
@@ -573,13 +432,7 @@ recorder query. Labels come from outside the matcher:
 | `declared`, `probe` | A metered device whose own on-stretch starts and ends with the run, at a matching draw. A run it reads off for throughout lists it as absent; unread time is neither. |
 | `summed` | The sum of two dedicated circuits' traces, labelled by which one ran, or both. |
 
-Device labels are counted again with each device trace shifted by 3, 7, 13
-and 19 hours, which gives what coincidence alone labels. Runs split by start
-time into fit (14 days), tune (6) and held-out (the rest). `score` learns on
-fit, names each shape by its labelled members, and counts correct, wrong,
-unknown and partial answers per circuit, per run or with `--live` at every
-poll the coordinator would make. A wrong answer counts twice against a correct
-one.
+Device labels are counted again with each device trace shifted by 3, 7, 13 and 19 hours, which gives what coincidence alone labels. Runs split by start time into fit (14 days), tune (6) and held-out (the rest). `score` learns on fit, names each shape by its labelled members, and counts correct, wrong, unknown and partial answers per circuit, per run or with `--live` at every poll the coordinator would make. A wrong answer counts twice against a correct one.
 
 ## Configuration
 
@@ -596,20 +449,13 @@ The same six fields appear at setup, on Reconfigure and on Configure.
 
 ## How it updates
 
-The coordinator polls the state machine every 30 seconds and keeps a 24-hour
-rolling window in memory, seeded once from the recorder at startup. It does not
-query the recorder on every refresh.
+The coordinator polls the state machine every 30 seconds and keeps a 24-hour rolling window in memory, seeded once from the recorder at startup. It does not query the recorder on every refresh.
 
-30 seconds is the resolution the standby figure needs. The live appliance match
-reads whatever the meter last published; the meter's own cadence is measured and
-reported in diagnostics.
+30 seconds is the resolution the standby figure needs. The live appliance match reads whatever the meter last published; the meter's own cadence is measured and reported in diagnostics.
 
-Learning and probing are actions you run. Nothing switches anything unless
-`verify_circuit` is called.
+Learning and probing are actions you run. Nothing switches anything unless `verify_circuit` is called.
 
-Breaker trips are read from state changes as they happen, since an outage of a
-few seconds falls between two polls. Eligibility is read from the recorder's
-hourly statistics at startup and every hour.
+Breaker trips are read from state changes as they happen, since an outage of a few seconds falls between two polls. Eligibility is read from the recorder's hourly statistics at startup and every hour.
 
 ## Troubleshooting
 
@@ -635,36 +481,23 @@ logger:
 
 ## Design notes
 
-Four things in `analysis.py` exist because the obvious approach failed, each with
-a regression test.
+Four things in `analysis.py` exist because the obvious approach failed, each with a regression test.
 
-Otsu's method, not a percentile, for the on/off threshold. A percentile assumes a
-duty cycle. On a furnace at 68% duty the 40th percentile lands inside a run,
-putting the threshold above the load, and the circuit reports zero runs across
-98,849 samples with no error anywhere.
+Otsu's method, not a percentile, for the on/off threshold. A percentile assumes a duty cycle. On a furnace at 68% duty the 40th percentile lands inside a run, putting the threshold above the load, and the circuit reports zero runs across 98,849 samples with no error anywhere.
 
-Events keep their sub-threshold samples. Storing only samples above the threshold
-pins `floor_w` to the threshold by construction, destroying the feature that
-separates a washer from a dryer.
+Events keep their sub-threshold samples. Storing only samples above the threshold pins `floor_w` to the threshold by construction, destroying the feature that separates a washer from a dryer.
 
-Duration and energy are weighted to zero for clustering. With duration counted,
-one furnace split into four clusters identical in power and differing only in how
-long each run lasted.
+Duration and energy are weighted to zero for clustering. With duration counted, one furnace split into four clusters identical in power and differing only in how long each run lasted.
 
-The floor while running is the discriminator. A washer and dryer sharing a
-circuit have near-identical peaks. The washer drops to near zero between fill,
-soak and spin; the dryer holds a 350-400 W floor.
+The floor while running is the discriminator. A washer and dryer sharing a circuit have near-identical peaks. The washer drops to near zero between fill, soak and spin; the dryer holds a 350-400 W floor.
 
 ### Resolution limit
 
-An appliance shorter than a few reporting intervals is two or three data points
-and cannot be fingerprinted. At the ~6 s the development install publishes, that
-covers kettles, microwaves and disposals.
+An appliance shorter than a few reporting intervals is two or three data points and cannot be fingerprinted. At the ~6 s the development install publishes, that covers kettles, microwaves and disposals.
 
 ## What it has been tested against
 
-One meter: an ESPHome-flashed Emporia Vue, 2 units, 27 circuits, publishing every
-~6 s. Nothing here is written against a vendor API.
+One meter: an ESPHome-flashed Emporia Vue, 2 units, 27 circuits, publishing every ~6 s. Nothing here is written against a vendor API.
 
 Two properties of a meter matter, and both are measured rather than assumed:
 
@@ -675,92 +508,57 @@ Two properties of a meter matter, and both are measured rather than assumed:
 
 Measured on the development install:
 
-- The mains sensor reports kilowatts while all 27 circuits report watts, on the
-  same brand and integration. Configured as mains, coverage compared 1.38 against
-  2,316.
-- The cadence is ~6.1 s. Measured two ways on two circuits: 14,141 rows over
-  86,395 s, median gap 6.18 s. Both are upper bounds, since Home Assistant does
-  not restamp an unchanged value.
+- The mains sensor reports kilowatts while all 27 circuits report watts, on the same brand and integration. Configured as mains, coverage compared 1.38 against 2,316.
+- The cadence is ~6.1 s. Measured two ways on two circuits: 14,141 rows over 86,395 s, median gap 6.18 s. Both are upper bounds, since Home Assistant does not restamp an unchanged value.
 
 ## Self-metering devices
 
-Most homes with per-circuit monitoring also have devices that meter themselves.
-The development install has 40 alongside 27 circuits. They give labelled
-fingerprints without asking anyone, allow a known device to be subtracted from a
-shared circuit, and support automatic device-to-circuit mapping.
+Most homes with per-circuit monitoring also have devices that meter themselves. The development install has 40 alongside 27 circuits. They give labelled fingerprints without asking anyone, allow a known device to be subtracted from a shared circuit, and support automatic device-to-circuit mapping.
 
-Attribution should be treated as a suggestion. Correlation alone placed 2 of 20
-devices, because a 10 W lamp contributes almost nothing to the variance of a
-circuit swinging hundreds of watts. Step matching lifted that to 13. Requiring
-the winner to beat the runner-up then correctly refused four office lights that
-always switch together.
+Attribution should be treated as a suggestion. Correlation alone placed 2 of 20 devices, because a 10 W lamp contributes almost nothing to the variance of a circuit swinging hundreds of watts. Step matching lifted that to 13. Requiring the winner to beat the runner-up then correctly refused four office lights that always switch together.
 
-The grid is measured rather than fixed. At a 12 s grid against a meter publishing
-every 6 s, one circuit claimed devices from three unrelated areas; at the measured
-6 s that fell to zero such circuits, and placements dropped from 13 to 8.
+The grid is measured rather than fixed. At a 12 s grid against a meter publishing every 6 s, one circuit claimed devices from three unrelated areas; at the measured 6 s that fell to zero such circuits, and placements dropped from 13 to 8.
 
 ### No candidate versus nothing to look at
 
-A device that never switched during the window cannot be placed. Correlation and
-step matching both work on transitions.
+A device that never switched during the window cannot be placed. Correlation and step matching both work on transitions.
 
-This is a property of the window, not the device. Network gear draws very
-differently when it starts; it is simply never switched. Six of seven rack PDU
-outlets report `no transition in window` across three days.
+This is a property of the window, not the device. Network gear draws very differently when it starts; it is simply never switched. Six of seven rack PDU outlets report `no transition in window` across three days.
 
-The test is steps, not spread. A light on 3% of the time has an identical 95th
-and 5th percentile; slow thermal drift has a wide one.
+The test is steps, not spread. A light on 3% of the time has an identical 95th and 5th percentile; slow thermal drift has a wide one.
 
 ## Absence detection
 
-The only check here that alerts on too little. A freezer that stopped cycling
-crosses no threshold.
+The only check here that alerts on too little. A freezer that stopped cycling crosses no threshold.
 
-`learn` records when each shape ran, so every named fingerprint carries its own
-cadence: median and 90th-percentile gap between runs. Below five runs it records
-nothing, because four gaps cannot distinguish "runs weekly" from "ran four times
-and stopped".
+`learn` records when each shape ran, so every named fingerprint carries its own cadence: median and 90th-percentile gap between runs. Below five runs it records nothing, because four gaps cannot distinguish "runs weekly" from "ran four times and stopped".
 
-`binary_sensor.silent_appliance` turns on when a named appliance has been silent
-for more than twice its own p90 gap.
+`binary_sensor.silent_appliance` turns on when a named appliance has been silent for more than twice its own p90 gap.
 
 ### Blind time is not silence
 
-Unobserved seconds are tracked per circuit and subtracted before judging, from
-two sources:
+Unobserved seconds are tracked per circuit and subtracted before judging, from two sources:
 
 | Source | Why |
 |---|---|
 | A circuit `unavailable` at a poll | One poll interval unobserved. |
 | Home Assistant restarted | The whole gap since the last recorded poll. |
 
-When more than half the window was unobserved the answer is `unknown`. The
-`unjudgeable` attribute names which appliances are being declined rather than
-counted healthy.
+When more than half the window was unobserved the answer is `unknown`. The `unjudgeable` attribute names which appliances are being declined rather than counted healthy.
 
-Last-seen times are persisted, so a restart does not reset every appliance to
-"never seen".
+Last-seen times are persisted, so a restart does not reset every appliance to "never seen".
 
 ## Virtual circuits
 
-For houses with no per-circuit clamps. Infers large appliances from a whole-house
-meter: a dryer, an oven, an air conditioner, a well pump, an EV charger. It does
-not infer lamps.
+For houses with no per-circuit clamps. Infers large appliances from a whole-house meter: a dryer, an oven, an air conditioner, a well pump, an EV charger. It does not infer lamps.
 
-A load is identified by its on-step and matching off-step. `segment()` is not
-usable, because it finds runs by watching a trace fall back to idle and a
-whole-house trace never does.
+A load is identified by its on-step and matching off-step. `segment()` is not usable, because it finds runs by watching a trace fall back to idle and a whole-house trace never does.
 
-Level shifts, not adjacent samples. A compressor ramps over half a minute, so a
-2 kW load arrives as several smaller deltas and no single one clears the bar.
-Comparing the median of the samples before a point against the median after sees
-the ramp as one step. On the development install that took the result from 0
-paired runs to 168, at 1572-2628 W over 19-24 minutes.
+Level shifts, not adjacent samples. A compressor ramps over half a minute, so a 2 kW load arrives as several smaller deltas and no single one clears the bar. Comparing the median of the samples before a point against the median after sees the ramp as one step. On the development install that took the result from 0 paired runs to 168, at 1572-2628 W over 19-24 minutes.
 
 ### The floor is the meter's own noise floor
 
-Swept against the 27 real clamps, the fraction of inferred runs that
-magnitude-match a real circuit:
+Swept against the 27 real clamps, the fraction of inferred runs that magnitude-match a real circuit:
 
 | Floor | Shapes | Match rate |
 |---|---|---|
@@ -770,17 +568,13 @@ magnitude-match a real circuit:
 | 967 W | 3 | 19% |
 | 1934 W | 2 | 0% |
 
-Raising the floor filters out single appliances rather than noise: what survives
-at 2 kW is the moments when several loads moved together, and a combination
-matches no individual circuit.
+Raising the floor filters out single appliances rather than noise: what survives at 2 kW is the moments when several loads moved together, and a combination matches no individual circuit.
 
-Pair rate, the fraction of level shifts that find a partner, is not used to tune
-this. It reaches 97% at the floor that matches 0%.
+Pair rate, the fraction of level shifts that find a partner, is not used to tune this. It reaches 97% at the floor that matches 0%.
 
 ### A worked example
 
-Circuit 25 carries a garage refrigerator and nothing else, so the mains has to
-find something only the CT can see.
+Circuit 25 carries a garage refrigerator and nothing else, so the mains has to find something only the CT can see.
 
 ```
 circuit 25, 2 days     85 runs   median step 103 W   median 1 min
@@ -800,69 +594,44 @@ With the same runs shifted in time:
 | +13 h | 45% |
 | +19 h | 40% |
 
-So 91% against a 40% chance floor. 526 inferred runs across two days is one every
-five and a half minutes, and a one-minute compressor cycle overlaps one
-constantly.
+So 91% against a 40% chance floor. 526 inferred runs across two days is one every five and a half minutes, and a one-minute compressor cycle overlaps one constantly.
 
-Detecting an event in the aggregate works. Attributing it to a specific appliance
-on time and magnitude alone does not.
+Detecting an event in the aggregate works. Attributing it to a specific appliance on time and magnitude alone does not.
 
 ### What this house is not representative of
 
-- Measured in the hottest week of the year, with two air conditioners, fans and
-  compressors cycling. Its 95th-percentile movement is 69 W, which is high.
-- Both air conditioners have soft starts, which most houses do not, and which is
-  why a compressor here ramps over half a minute.
-- Several large loads run continuously rather than alone. The good case is a
-  dryer, an oven or a charger, which run by themselves and stop.
+- Measured in the hottest week of the year, with two air conditioners, fans and compressors cycling. Its 95th-percentile movement is 69 W, which is high.
+- Both air conditioners have soft starts, which most houses do not, and which is why a compressor here ramps over half a minute.
+- Several large loads run continuously rather than alone. The good case is a dryer, an oven or a charger, which run by themselves and stop.
 
 ### Subtracting self-metering devices
 
-A device that meters itself needs no inference; it is already an exact virtual
-circuit. `--subtract` removes its trace from the aggregate before inferring.
+A device that meters itself needs no inference; it is already an exact virtual circuit. `--subtract` removes its trace from the aggregate before inferring.
 
-On the development install it changed the match rate by nothing, because the
-metered devices are lights against a 4-6 kW aggregate. It is for a metered
-device that is large against the aggregate, such as a smart-plugged dryer or
-an EV charger.
+On the development install it changed the match rate by nothing, because the metered devices are lights against a 4-6 kW aggregate. It is for a metered device that is large against the aggregate, such as a smart-plugged dryer or an EV charger.
 
 ## Roadmap
 
-- Signature drift as health: compare an appliance against its own history. A
-  fridge duty cycle creeping 40% to 70%, a pump's start current climbing.
-- Runtime-based maintenance: blower hours since filter change, dryer cycles since
-  duct clean.
+- Signature drift as health: compare an appliance against its own history. A fridge duty cycle creeping 40% to 70%, a pump's start current climbing.
+- Runtime-based maintenance: blower hours since filter change, dryer cycles since duct clean.
 - Away-mode safety: alarm armed away plus a 2 kW load on the oven circuit.
-- Tariff-aware shifting: fingerprints plus a tariff become "run the dryer after
-  9pm".
+- Tariff-aware shifting: fingerprints plus a tariff become "run the dryer after 9pm".
 
 ### Deliberate non-goals
 
-No deep learning. The data volumes do not justify it and an unexplainable
-classifier is worthless once it drives an alert. The most useful feature so far,
-the floor while running, came from domain knowledge.
+No deep learning. The data volumes do not justify it and an unexplainable classifier is worthless once it drives an alert. The most useful feature so far, the floor while running, came from domain knowledge.
 
 No cloud. Everything runs locally against sensors already in Home Assistant.
 
 ## Quality scale
 
-Built to Home Assistant's Integration Quality Scale, tracked rule by rule in
-[`quality_scale.yaml`](custom_components/power_fingerprint/quality_scale.yaml)
-with a reason on every exemption.
+Built to Home Assistant's Integration Quality Scale, tracked rule by rule in [`quality_scale.yaml`](custom_components/power_fingerprint/quality_scale.yaml) with a reason on every exemption.
 
-Every rule is `done` or `exempt` with a written reason, and the file says
-which. `test-coverage` is `done`: coverage is over 99% of
-`custom_components/power_fingerprint` and the build fails below 95%.
+Every rule is `done` or `exempt` with a written reason, and the file says which. `test-coverage` is `done`: coverage is over 99% of `custom_components/power_fingerprint` and the build fails below 95%.
 
-The GitHub `Tests` workflow runs both test suites under coverage with that
-gate, mypy with the full strict block and the offline validator on every push,
-against Home Assistant 2026.8.3 on Python 3.14. `tools/validate_local.py`
-checks the file against the pinned rule list, refuses to let `manifest.json`
-claim a tier, and refuses `test-coverage: done` if the workflow ever loses the
-gate.
+The GitHub `Tests` workflow runs both test suites under coverage with that gate, mypy with the full strict block and the offline validator on every push, against Home Assistant 2026.8.3 on Python 3.14. `tools/validate_local.py` checks the file against the pinned rule list, refuses to let `manifest.json` claim a tier, and refuses `test-coverage: done` if the workflow ever loses the gate.
 
-The scale is a core-integration concept. A custom integration builds to the rules
-and is not scored.
+The scale is a core-integration concept. A custom integration builds to the rules and is not scored.
 
 ## Tests
 
@@ -871,24 +640,13 @@ python -m pytest tests/ -q
 python3.14 tools/validate_local.py
 ```
 
-`tools/validate_local.py` is 3.14 source and reports a SyntaxError under an
-older interpreter. `tools/hooks/pre-push` runs it at push time and picks its
-interpreter by version; install it with
-`cp tools/hooks/pre-push .git/hooks/pre-push`.
+`tools/validate_local.py` is 3.14 source and reports a SyntaxError under an older interpreter. `tools/hooks/pre-push` runs it at push time and picks its interpreter by version; install it with `cp tools/hooks/pre-push .git/hooks/pre-push`.
 
-268 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
-`verify`, `virtual`, `breaker` - and `tools/labelled_set.py`, which import
-nothing from Home Assistant and are loaded by path, so they run on a bare
-checkout.
+268 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
 
-`tests/fixtures/breaker_trips.json` holds recorder windows from one install with
-every entity id replaced by a generic one: a 7-second breaker flip, a Home
-Assistant restart, one integration dropping 22 entities with no circuit moving,
-eight appliance circuits reaching the noise floor, and 720 hourly minima per
-circuit. `tests/test_breaker_replay.py` replays them through the trip detector.
+`tests/fixtures/breaker_trips.json` holds recorder windows from one install with every entity id replaced by a generic one: a 7-second breaker flip, a Home Assistant restart, one integration dropping 22 entities with no circuit moving, eight appliance circuits reaching the noise floor, and 720 hourly minima per circuit. `tests/test_breaker_replay.py` replays them through the trip detector.
 
-`tools/validate_local.py` also refuses a development host or device in the
-published tree and in the commits a push carries, message included. Five rules:
+`tools/validate_local.py` also refuses a development host or device in the published tree and in the commits a push carries, message included. Five rules:
 
 | Rule | What it refuses | Where it runs |
 |---|---|---|
@@ -898,25 +656,11 @@ published tree and in the commits a push carries, message included. Five rules:
 | device identifier | A MAC, EUI-48 or EUI-64 literal with a vendor OUI. Locally administered addresses and the pinned documentation forms are exempt. | Every run. |
 | bare name | A development host named in prose. The names come from `PF_INTERNAL_HOSTS`, the gitignored `.internal-hosts` or the git remotes. | A workstation run. |
 
-Neither workflow supplies the names, so the bare-name rule is a workstation
-gate and the CI run says so. The reason is not the printed string, which is
-redacted under `CI`: a report names the file and the line, which on a public
-repository locates the string either way, and a repository secret would be a
-second copy of the names outside the network. In a fresh clone with `CI=true`
-and no names the run exits 0, with a note naming `PF_INTERNAL_HOSTS` and
-stating which rules the result covers.
+Neither workflow supplies the names, so the bare-name rule is a workstation gate and the CI run says so. The reason is not the printed string, which is redacted under `CI`: a report names the file and the line, which on a public repository locates the string either way, and a repository secret would be a second copy of the names outside the network. In a fresh clone with `CI=true` and no names the run exits 0, with a note naming `PF_INTERNAL_HOSTS` and stating which rules the result covers.
 
-The commit half reads `PF_PUSH_RANGE`, which both workflows set from the push
-event. A range derived from the tracking branch answers on a workstation and
-cannot answer in CI, where a checkout points that branch at the commit it
-checked out; a derived range that reads nothing is reported as coverage the run
-did not have rather than as a count of zero.
+The commit half reads `PF_PUSH_RANGE`, which both workflows set from the push event. A range derived from the tracking branch answers on a workstation and cannot answer in CI, where a checkout points that branch at the commit it checked out; a derived range that reads nothing is reported as coverage the run did not have rather than as a count of zero.
 
-A match under `CI` prints the file, the line and the rule with the matched text
-replaced by `[redacted]`. A local run prints the match. Each matcher fires on a
-control line built at runtime first, and the redaction is controlled the same
-way, so a clean result is a matcher that matched rather than one that stopped
-working.
+A match under `CI` prints the file, the line and the rule with the matched text replaced by `[redacted]`. A local run prints the match. Each matcher fires on a control line built at runtime first, and the redaction is controlled the same way, so a clean result is a matcher that matched rather than one that stopped working.
 
 198 more in `tests/ha/` cover the Home Assistant layer.
 
@@ -931,14 +675,9 @@ working.
 | Actions | All six driven end to end against recorded history, including the probe's restore path, its five refusals and the automations it pauses. |
 | Breaker trips | One assignment per device and the event, arming after startup, eligibility from statistics, what is excluded as a casualty, a probe never overwritten. |
 
-They skip when the harness is absent. On Windows `tests/winposix.py` supplies
-`fcntl` and `resource`, releases `socketpair` from the harness's socket block,
-and selects the selector event loop. `pyproject.toml` loads it with
-`-p tests.winposix`, before the harness plugin reaches the `fcntl` import.
+They skip when the harness is absent. On Windows `tests/winposix.py` supplies `fcntl` and `resource`, releases `socketpair` from the harness's socket block, and selects the selector event loop. `pyproject.toml` loads it with `-p tests.winposix`, before the harness plugin reaches the `fcntl` import.
 
-GitHub Actions runs both suites on every push under one coverage measurement
-and fails the build below 95%. It is 99%; the only statement not exercised is a
-guard for a device that leaves the registry mid-run.
+GitHub Actions runs both suites on every push under one coverage measurement and fails the build below 95%. It is 99%; the only statement not exercised is a guard for a device that leaves the registry mid-run.
 
 ## Licence
 
