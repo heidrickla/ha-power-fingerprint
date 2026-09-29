@@ -16,22 +16,35 @@ Labels never come from the matcher. Three sources, and one derived from the firs
 
 A device explains a run when one of its own on-stretches starts within 30 s of
 the run and ends within 60 s or 10% of its length, and its mean draw is 0.5-1.5
-times the run's mean above the circuit's pre-run baseline. A run the device is
-off for throughout lists it under `absent`. The same rule with each device
-trace shifted by 3, 7, 13 and 19 hours gives the count coincidence alone
-labels; `set.json` carries both.
+times the run's mean above the circuit's pre-run baseline. A run the device
+read at or below 5 W for throughout lists it under `absent`; a device unread at
+any point of the run is neither. The same rule with each device trace shifted
+by 3, 7, 13 and 19 hours gives the count coincidence alone labels; `set.json`
+carries both.
 
 Splits are by run start: `fit` the first 14 days, `tune` the next 6, `heldout`
 the rest. The on/off threshold of every trace comes from its fit part alone.
 
-Traces are `<entity_id>.csv.gz` files of `<unix seconds>|<state>` lines, for
-example from the recorder database:
+`score --live` replays each run as the coordinator polls it: a hold-last read
+every `POLL_SECONDS` from the run's start, a reset at any read at or below the
+threshold, and a match from the third consecutive read above it. The threshold
+is the fit threshold, where the coordinator takes one from its 24-hour window.
 
-    SELECT printf('%.3f', last_updated_ts) || '|' || state FROM states
+Traces are `<entity_id>.csv.gz` files of `<unix seconds>|<state>` lines. This
+recorder query returns the rows the learn action reads:
+
+    SELECT printf('%.3f', last_updated_ts) || '|' || ifnull(state, '')
+    FROM states
     WHERE metadata_id = (SELECT metadata_id FROM states_meta
                          WHERE entity_id = '<entity_id>')
       AND last_updated_ts >= <start> AND last_updated_ts < <end>
+      AND (last_changed_ts IS NULL OR last_changed_ts = last_updated_ts)
     ORDER BY last_updated_ts;
+
+`unavailable`, `unknown` and empty states are unread time; the recorder writes a
+null state when an entity is removed or renamed. Any other state that is not a
+number, or a line without `|`, stops the build. Every entity needs a power unit
+in the spec.
 
 The spec names the window, the units and the ground truth:
 
@@ -71,6 +84,7 @@ import _ha
 an = _ha.load_module("analysis")
 fp = _ha.load_module("fingerprint")
 at = _ha.load_module("attribution")
+const = _ha.load_module("const")
 
 DAY = 86400.0
 FIT_DAYS, TUNE_DAYS = 14, 6
@@ -81,27 +95,40 @@ DEVICE_ON_W = 5.0
 BASELINE_S = 300.0
 SUM_GRID_S = 6
 MIN_RUNS_TO_SUM = 10
-POLL_EVERY = 5
+UNREAD = frozenset({"unavailable", "unknown", ""})
 Sample = tuple[datetime, float]
+Reading = tuple[datetime, float | None]
 Run = dict[str, Any]
 
 
 # --- traces -----------------------------------------------------------------
 
 
-def read_trace(path: Path, unit: str | None) -> list[Sample]:
-    """A trace in watts. Non-numeric states are unread time, not zero."""
-    out: list[Sample] = []
+def read_trace(path: Path, unit: str | None) -> list[Reading]:
+    """A trace in watts, with None for unread time. A malformed line stops it."""
+    if an.to_watts(1.0, unit) is None:
+        raise SystemExit(f"{path.name}: {unit!r} is not a power unit")
+    out: list[Reading] = []
     with gzip.open(path, "rt", encoding="utf-8") as fh:
-        for line in fh:
-            stamp, _, raw = line.rstrip("\n").partition("|")
+        for number, line in enumerate(fh, start=1):
+            stamp, sep, raw = line.rstrip("\n").partition("|")
             try:
-                watts = an.to_watts(float(raw), unit)
-            except ValueError:
-                continue
-            if watts is not None:
-                out.append((datetime.fromtimestamp(float(stamp), UTC), watts))
+                when = datetime.fromtimestamp(float(stamp), UTC)
+                if not sep:
+                    raise ValueError("no | separator")
+                out.append(
+                    (when, None if raw in UNREAD else an.to_watts(float(raw), unit))
+                )
+            except ValueError as err:
+                raise SystemExit(f"{path.name}:{number}: {err}: {line!r}") from None
+    if not any(w is not None for _t, w in out):
+        raise SystemExit(f"{path.name}: no reading in the file")
     return out
+
+
+def numeric(readings: list[Reading]) -> list[Sample]:
+    """The readings a circuit's history gives the learn action: numbers only."""
+    return [(t, w) for t, w in readings if w is not None]
 
 
 def split_of(start: float, window_start: float) -> str:
@@ -122,8 +149,13 @@ def runs_of(
     """Segment with the integration's own code and a threshold from the fit part."""
     fit = fit_part(samples, window_start)
     threshold = an.on_threshold(fit) if fit else an.on_threshold(samples)
+    times = [t for t, _w in samples]
     runs: list[Run] = []
     for event in an.segment(samples, threshold_w=threshold):
+        lo = bisect.bisect_left(times, event.start)
+        hi = bisect.bisect_right(times, event.end)
+        if hi - lo != len(event.samples):
+            raise SystemExit(f"{circuit}: repeated timestamps at {event.start}")
         start = event.start.timestamp()
         runs.append(
             {
@@ -131,8 +163,10 @@ def runs_of(
                 "start": round(start, 3),
                 "end": round(event.end.timestamp(), 3),
                 "split": split_of(start, window_start),
+                "threshold_w": threshold,
                 "features": event.as_features(),
-                "watts": [round(w, 1) for w in event.samples],
+                "watts": event.samples,
+                "offsets": [round(t.timestamp() - start, 3) for t in times[lo:hi]],
                 "label": None,
                 "source": None,
                 "absent": [],
@@ -146,16 +180,18 @@ def runs_of(
 
 class Held:
     """A sparse trace read hold-last, as the state machine reads it, with the
-    stretches it spends above `DEVICE_ON_W`."""
+    stretches it spends above `DEVICE_ON_W`. None is unread time."""
 
-    def __init__(self, samples: list[Sample], shift_s: float = 0.0) -> None:
+    def __init__(self, samples: list[Reading], shift_s: float = 0.0) -> None:
         self.times = [s[0].timestamp() + shift_s for s in samples]
         self.watts = [s[1] for s in samples]
         self.spans: list[tuple[float, float, float]] = []
         start: float | None = None
         drawn: list[float] = []
         for stamp, watts in zip(self.times, self.watts, strict=True):
-            if watts > DEVICE_ON_W:
+            if watts is None:
+                start = None  # a stretch whose end was not seen is no evidence
+            elif watts > DEVICE_ON_W:
                 if start is None:
                     start, drawn = stamp, []
                 drawn.append(watts)
@@ -165,8 +201,18 @@ class Held:
         self.starts = [s for s, _e, _w in self.spans]
 
     def at(self, stamp: float) -> float | None:
+        """The reading in force at `stamp`, None when unread or not yet reported."""
         i = bisect.bisect_right(self.times, stamp) - 1
         return self.watts[i] if i >= 0 else None
+
+    def off_throughout(self, start: float, end: float) -> bool:
+        """Read, and at or below `DEVICE_ON_W`, from `start` to `end`."""
+        first = self.at(start)
+        i = bisect.bisect_right(self.times, start)
+        j = bisect.bisect_right(self.times, end)
+        return first is not None and all(
+            w is not None and w <= DEVICE_ON_W for w in [first, *self.watts[i:j]]
+        )
 
     def coincides(self, start: float, end: float, low: float, high: float) -> bool:
         """An on-stretch that starts and ends with the run, drawing low-high W."""
@@ -202,13 +248,7 @@ def explain(
             run["start"], run["end"], low * excess, high * excess
         ):
             explained.append(name)
-            continue
-        first = trace.at(run["start"])
-        if first is None:
-            continue  # the device had not reported yet: unread, not off
-        i = bisect.bisect_right(trace.times, run["start"])
-        j = bisect.bisect_right(trace.times, run["end"])
-        if first <= DEVICE_ON_W and all(w <= DEVICE_ON_W for w in trace.watts[i:j]):
+        elif trace.off_throughout(run["start"], run["end"]):
             absent.append(name)
     return (explained[0] if len(explained) == 1 else None), sorted(absent)
 
@@ -255,15 +295,18 @@ def summed_runs(
 
 def build(spec: dict[str, Any], trace_dir: Path) -> tuple[list[Run], dict[str, Any]]:
     window = (float(spec["start"]), float(spec["end"]))
-    units: dict[str, str | None] = spec.get("units", {})
+    units: dict[str, str] = spec["units"]
     dedicated: dict[str, str] = spec.get("dedicated", {})
     devices: dict[str, dict[str, str]] = spec.get("devices", {})
     circuits = sorted({*dedicated, *(d["circuit"] for d in devices.values())})
+    missing = sorted(e for e in (*circuits, *devices) if e not in units)
+    if missing:
+        raise SystemExit(f"no unit in the spec for {', '.join(missing)}")
 
-    def load(entity: str) -> list[Sample]:
-        return read_trace(trace_dir / f"{entity}.csv.gz", units.get(entity))
+    def load(entity: str) -> list[Reading]:
+        return read_trace(trace_dir / f"{entity}.csv.gz", units[entity])
 
-    traces = {c: load(c) for c in circuits}
+    traces = {c: numeric(load(c)) for c in circuits}
     device_samples = {d: load(d) for d in devices}
     out: list[Run] = []
     spans: dict[str, list[tuple[float, float]]] = {}
@@ -580,7 +623,7 @@ def score_circuit(
     library = Library(named)
     tally["shapes"], tally["named"] = len(shapes), len(named)
     for run in test:
-        views = live_views(run["watts"]) if live else [run["features"]]
+        views = live_views(run) if live else [run["features"]]
         for features in views:
             tally[judge(matcher(features, library), run)] += 1
     return dict(tally)
@@ -601,24 +644,39 @@ def judge(pred: str | None, run: Run) -> str:
     return "correct" if sorted(pred.split("+")) == sorted(truth.split("+")) else "wrong"
 
 
-def live_views(watts: list[float]) -> list[dict[str, float]]:
-    """The features the coordinator matches at each poll of a run in progress.
+def polls(run: Run) -> list[float]:
+    """The hold-last reading at each coordinator poll from the run's start."""
+    offsets, watts = run["offsets"], run["watts"]
+    step = float(const.POLL_SECONDS)
+    return [
+        watts[bisect.bisect_right(offsets, k * step) - 1]
+        for k in range(int(offsets[-1] // step) + 1)
+    ]
 
-    It appends one reading per `POLL_SECONDS` poll and matches from the third
-    on. The meter reports about every 6 s, so a poll sees every fifth sample.
+
+def live_views(run: Run) -> list[dict[str, float]]:
+    """`fingerprint.live_features` at each poll where the coordinator matches.
+
+    A read at or below the threshold clears the run, as `_match_live` does, and
+    matching starts at the third consecutive read above it. Built incrementally
+    because a run can last days.
     """
     views = []
     ordered: list[float] = []
     levels: set[int] = set()
-    # `sum()` of floats is Neumaier-compensated; kept the same way so each mean
-    # is the coordinator's to the last bit.
     total = carry = 0.0
-    for n, w in enumerate(watts[::POLL_EVERY], start=1):
+    for w in polls(run):
+        if w <= run["threshold_w"]:
+            ordered, levels, total, carry = [], set(), 0.0, 0.0
+            continue
         bisect.insort(ordered, w)
         levels.add(round(w / 50.0))
+        # `sum()` of floats is Neumaier-compensated; kept the same way so each
+        # mean equals `live_features` to the last bit.
         step = total + w
         carry += (total - step) + w if abs(total) >= abs(w) else (w - step) + total
         total = step
+        n = len(ordered)
         if n < 3:
             continue
         peak = ordered[-1]
@@ -789,7 +847,7 @@ def cmd_stability(args: argparse.Namespace) -> int:
     its bootstrap stability."""
     const = _ha.load_module("const")
     thr = float(const.CONFIDENCE_PROFILES[args.profile]["cluster_threshold"])
-    samples = read_trace(Path(args.trace), args.unit)
+    samples = numeric(read_trace(Path(args.trace), args.unit))
     cut = samples[-1][0].timestamp() - args.days * DAY
     window = [s for s in samples if s[0].timestamp() >= cut]
     rows = [e.as_features() for e in an.segment(window)]

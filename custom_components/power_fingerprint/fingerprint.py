@@ -259,6 +259,22 @@ def summarize(
     return out
 
 
+def live_features(samples: list[float]) -> dict[str, float]:
+    """The features of a run in progress, from the readings polled so far.
+
+    Duration and energy are left out: they are weighted zero for identity and
+    are not known until the run ends.
+    """
+    peak = max(samples)
+    return {
+        "peak_w": peak,
+        "floor_w": min(samples),
+        "mean_w": sum(samples) / len(samples),
+        "plateaus": len({round(w / 50.0) for w in samples}),
+        "duty_above_half_peak": sum(1 for w in samples if w > peak / 2) / len(samples),
+    }
+
+
 def match(
     features: dict[str, float], library: list[Fingerprint], tolerance: float = 1.0
 ) -> tuple[Fingerprint | None, float]:

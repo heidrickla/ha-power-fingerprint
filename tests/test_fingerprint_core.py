@@ -131,6 +131,17 @@ def test_an_empty_library_matches_nothing():
     assert distance == float("inf")
 
 
+def test_live_features_describe_the_readings_so_far():
+    """What the coordinator matches mid-run: no duration, no energy."""
+    assert fp.live_features([100.0, 300.0, 60.0]) == {
+        "peak_w": 300.0,
+        "floor_w": 60.0,
+        "mean_w": 460.0 / 3,
+        "plateaus": 3,
+        "duty_above_half_peak": 1 / 3,
+    }
+
+
 def test_the_nearest_centroid_wins():
     dryer = fp.Fingerprint(
         label="Dryer", circuit="sensor.c", count=9, centroid=run(2400, 350)

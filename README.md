@@ -512,7 +512,7 @@ recorder query. Labels come from outside the matcher:
 | Source | A run is labelled |
 |---|---|
 | `dedicated` | On a breaker that feeds one appliance, every run is that appliance. |
-| `declared`, `probe` | A metered device whose own on-stretch starts and ends with the run, at a matching draw. A run it is off for throughout lists it as absent. |
+| `declared`, `probe` | A metered device whose own on-stretch starts and ends with the run, at a matching draw. A run it reads off for throughout lists it as absent; unread time is neither. |
 | `summed` | The sum of two dedicated circuits' traces, labelled by which one ran, or both. |
 
 Device labels are counted again with each device trace shifted by 3, 7, 13
@@ -813,7 +813,7 @@ older interpreter. `tools/hooks/pre-push` runs it at push time and picks its
 interpreter by version; install it with
 `cp tools/hooks/pre-push .git/hooks/pre-push`.
 
-203 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
+218 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`,
 `verify`, `virtual`, `breaker` - and `tools/labelled_set.py`, which import
 nothing from Home Assistant and are loaded by path, so they run on a bare
 checkout.
@@ -849,7 +849,7 @@ control line built at runtime first, and the redaction is controlled the same
 way, so a clean result is a matcher that matched rather than one that stopped
 working.
 
-164 more in `tests/ha/` cover the Home Assistant layer.
+165 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|

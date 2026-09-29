@@ -288,3 +288,12 @@ async def test_a_passive_answer_is_never_written_as_measured(hass: HomeAssistant
         LAMP, "sensor.circuit_30", "measured", "correlation"
     )
     assert store.assignments()[LAMP]["confidence"] == "inferred"
+
+
+async def test_a_probe_answer_is_written_as_measured(hass: HomeAssistant):
+    """The rule narrows `measured` to probes; it must not take it from them."""
+    store = await _loaded(hass)
+    assert await store.async_record_assignment(
+        LAMP, "sensor.circuit_30", "measured", "probe"
+    )
+    assert store.assignments()[LAMP]["confidence"] == "measured"

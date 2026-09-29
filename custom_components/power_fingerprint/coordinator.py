@@ -54,7 +54,7 @@ from .const import (
     WINDOW_HOURS,
     profile,
 )
-from .fingerprint import audit, match
+from .fingerprint import audit, live_features, match
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -254,16 +254,7 @@ class FingerprintCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not library:
             return {"state": "unknown", "reason": "no named fingerprint yet"}
 
-        peak = max(samples)
-        features = {
-            "peak_w": peak,
-            "floor_w": min(samples),
-            "mean_w": sum(samples) / len(samples),
-            "plateaus": len({round(w / 50.0) for w in samples}),
-            "duty_above_half_peak": sum(1 for w in samples if w > peak / 2)
-            / len(samples),
-        }
-        best, distance = match(features, library)
+        best, distance = match(live_features(samples), library)
         return {
             "state": best.label if best else "unknown",
             "distance": round(distance, 3),
