@@ -24,7 +24,7 @@ LIVE = FALL + 291.0
 
 
 def _trip() -> OutageEvidence:
-    return OutageEvidence("sensor.circuit_22", FALL)
+    return OutageEvidence("sensor.circuit_7", FALL)
 
 
 def test_a_node_dead_in_the_outage_and_alive_with_the_power_is_a_casualty() -> None:

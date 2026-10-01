@@ -436,10 +436,10 @@ A time that went down before the circuit went dead, or came back more than 30 s 
 ```yaml
 action: power_fingerprint.record_breaker_evidence
 data:
-  circuit: sensor.circuit_22_power
+  circuit: sensor.circuit_7_power
   start: "2026-09-30T23:30:46.655261+00:00"
   devices:
-    - entity: light.living_room_fan_light
+    - entity: light.ceiling_fan_light
       signal: zwave_node_dead
       down_at: "2026-09-30T23:32:01+00:00"
       back_at: "2026-09-30T23:35:34+00:00"
@@ -737,7 +737,7 @@ A match under `CI` prints the file, the line and the rule with the matched text 
 | Coordinator | The recorder seed, blind-time accounting behind the absence alert, and unit conversion at ingestion. |
 | Actions | All seven driven end to end, the history actions against recorded history, including the probe's restore path, its five refusals and the automations it pauses, and `record_breaker_evidence`'s timing refusals. |
 | Breaker trips | One assignment per device and the event, arming after startup, eligibility from statistics, what is excluded as a casualty, a probe never overwritten. |
-| Outage evidence | A trip with a Zigbee device, a Z-Wave node and a TV on circuit-22 timings; a TV switched off by a person; a node that never comes back; a refused incident; a circuit dead past the limit; a second trip during an outage; probing off; an unload mid-outage; a request that hangs; discovery leaving out battery and lock devices; reading a failed request by its cause. |
+| Outage evidence | A trip with a Zigbee device, a Z-Wave node and a TV on a measured trip's timings; a TV switched off by a person; a node that never comes back; a refused incident; a circuit dead past the limit; a second trip during an outage; probing off; an unload mid-outage; a request that hangs; discovery leaving out battery and lock devices; reading a failed request by its cause. |
 
 They skip when the harness is absent. On Windows `tests/winposix.py` supplies `fcntl` and `resource`, releases `socketpair` from the harness's socket block, and selects the selector event loop. `pyproject.toml` loads it with `-p tests.winposix`, before the harness plugin reaches the `fcntl` import.
 

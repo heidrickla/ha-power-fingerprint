@@ -1,6 +1,6 @@
 """Outage evidence during a live trip: Zigbee probes, Z-Wave node status, a TV.
 
-Timings follow a real trip on circuit 22: TV off 14 s after the circuit read
+Timings follow a measured trip: TV off 14 s after the circuit read
 dead, nodes dead from 53 s, the circuit live again at 200 s here, the node
 alive 4 s before that reading, and the TV back on 60 s after it.
 """
@@ -136,7 +136,7 @@ def radios(hass, request, monkeypatch):
 async def _outage(
     hass, freezer, radios, *, tv_by_person=False, also=(), node_back=True
 ):
-    """A off for 200 s, devices following it the way they did on circuit 22."""
+    """A off for 200 s, devices following it the way they did in a measured trip."""
     hass.states.async_set(CIRCUIT_A, 0.0, POWER)
     for circuit in also:
         hass.states.async_set(circuit, 0.0, POWER)
