@@ -194,8 +194,10 @@ class OutageRun:
         self.finished = False
         self._on_done = on_done
         self._after_done = not probe
-        # The dead-circuit deadline, the current return's timers, and the rest.
+        # The dead-circuit deadline, the dead interval's probe, the current
+        # return's timers, and the rest.
         self._dead: CALLBACK_TYPE | None = None
+        self._probe_at: CALLBACK_TYPE | None = None
         self._returning: list[CALLBACK_TYPE] = []
         self._timers: list[CALLBACK_TYPE] = []
         self._tasks: set[asyncio.Task[None]] = set()
@@ -211,7 +213,7 @@ class OutageRun:
     @callback
     def start(self) -> None:
         self._snapshot()
-        self._timers.append(self._at(self.fall + PROBE_DELAY_S, self._on_probe))
+        self._probe_at = self._at(self.fall + PROBE_DELAY_S, self._on_probe)
         self._dead = self._at(self.fall + MAX_OUTAGE_S, self._on_expired)
 
     @callback
@@ -219,8 +221,10 @@ class OutageRun:
         self.finished = True
         for cancel in [*self._timers, *self._returning]:
             cancel()
-        if self._dead is not None:
-            self._dead()
+        for handle in (self._dead, self._probe_at):
+            if handle is not None:
+                handle()
+        self._probe_at = None
         self._timers.clear()
         self._returning.clear()
         self._dead = None
@@ -282,6 +286,9 @@ class OutageRun:
         if self._dead is not None:
             self._dead()
             self._dead = None
+        if self._probe_at is not None:
+            self._probe_at()
+            self._probe_at = None
         if self._probing is not None:
             # Requests near a return say nothing. Forgotten as well as cancelled, so a
             # later death starts a fresh pass however long this one takes to unwind.
@@ -306,7 +313,7 @@ class OutageRun:
             self._control.cancel()
         self._after_done = not self.probe
         self._dead = self._at(self.fall + MAX_OUTAGE_S, self._on_expired)
-        self._timers.append(self._at(stamp + PROBE_DELAY_S, self._on_probe))
+        self._probe_at = self._at(stamp + PROBE_DELAY_S, self._on_probe)
 
     @callback
     def decide(self, trip: dict[str, Any] | None) -> None:
@@ -331,6 +338,7 @@ class OutageRun:
 
     @callback
     def _on_probe(self, _now: datetime) -> None:
+        self._probe_at = None
         if not self.probe or self.evidence.restored is not None:
             return
         if self._probing is None or self._probing.done():

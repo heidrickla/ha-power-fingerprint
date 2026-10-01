@@ -652,3 +652,35 @@ async def test_a_tv_with_an_unreadable_sibling_is_not_judged_down(
     trip = watch.last_trip()
     assert "media_player.tv" not in trip["outage"]["casualties"]
     assert "media_player.tv" not in watch._store.assignments()
+
+
+async def test_a_return_before_the_first_probe_cancels_it(
+    hass: HomeAssistant, config_entry, powered, radios, freezer
+):
+    """Back at +5, dead again at +10: the first probe, due at +15, never runs."""
+    release = asyncio.Event()
+
+    async def _press(call):
+        radios["pings"].append(call.data["entity_id"])
+        await release.wait()
+
+    hass.services.async_register("button", "press", _press)
+
+    async def _step(seconds):
+        freezer.tick(timedelta(seconds=seconds))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)
+    await _step(5)
+    hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +5
+    await _step(5)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)  # +10: dead again
+    await _step(6)  # +16
+    assert radios["pings"] == []
+    await _step(10)  # +26: PROBE_DELAY_S after the second death
+    assert radios["pings"] == [NODE_PING]
+    release.set()
+    await _tick(hass, freezer, 1)
