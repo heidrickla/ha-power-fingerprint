@@ -83,8 +83,8 @@ async def test_hand_evidence_is_added_to_the_trip(
         recovered=[
             {
                 "entity": "switch.sub",
-                "failed_at": "2026-09-30T23:31:30+00:00",
-                "answered_at": "2026-09-30T23:36:30+00:00",
+                "failed_at": "2026-09-30T23:06:33+00:00",
+                "answered_at": "2026-09-30T23:37:11+00:00",
             }
         ],
     )
@@ -157,3 +157,96 @@ async def test_answers_alone_are_noted_without_an_event(
     assert response["trip"]["suspected"] == []
     assert runtime.store.assignments() == {}
     assert events == []
+
+
+@pytest.mark.parametrize(
+    ("failed_at", "answered_at"),
+    [
+        # Refused after the circuit went dead: that is a casualty's evidence.
+        ("2026-09-30T23:31:30+00:00", "2026-09-30T23:37:11+00:00"),
+        # Answered while the circuit was still dead.
+        ("2026-09-30T23:06:33+00:00", "2026-09-30T23:33:00+00:00"),
+    ],
+)
+async def test_a_recovered_device_that_does_not_fit_the_trip_is_refused(
+    hass: HomeAssistant, config_entry, powered, failed_at, answered_at
+):
+    runtime = await _loaded(hass, config_entry)
+    with pytest.raises(ServiceValidationError):
+        await _call(
+            hass,
+            recovered=[
+                {
+                    "entity": "switch.sub",
+                    "failed_at": failed_at,
+                    "answered_at": answered_at,
+                }
+            ],
+        )
+    assert "outage" not in runtime.store.breaker_trips()[-1]
+
+
+async def test_a_trip_with_no_return_takes_answers_but_no_casualties(
+    hass: HomeAssistant, config_entry, powered
+):
+    runtime = await _loaded(hass, config_entry)
+    # The same trip, its circuit still dead: it replaces the ended one.
+    await runtime.store.async_record_trip(
+        {
+            "circuit": CIRCUIT,
+            "start": START,
+            "end": None,
+            "confirmed": [],
+            "suspected": [],
+        },
+        "9999",
+    )
+    assert len(runtime.store.breaker_trips()) == 1
+    with pytest.raises(ServiceValidationError) as refused:
+        await _call(
+            hass,
+            devices=[
+                {
+                    "entity": "light.couch",
+                    "signal": "zwave_node_dead",
+                    "down_at": "2026-09-30T23:31:39+00:00",
+                    "back_at": "2026-09-30T23:35:33+00:00",
+                }
+            ],
+        )
+    assert refused.value.translation_key == "trip_not_ended"
+    assert runtime.store.assignments() == {}
+    response = await _call(hass, answered=["light.couch"])
+    assert response["trip"]["outage"]["answered"] == ["light.couch"]
+
+
+async def test_a_second_import_adds_to_the_first(
+    hass: HomeAssistant, config_entry, powered
+):
+    await _loaded(hass, config_entry)
+    await _call(
+        hass,
+        devices=[
+            {
+                "entity": "light.couch",
+                "signal": "zwave_node_dead",
+                "down_at": "2026-09-30T23:31:39+00:00",
+                "back_at": "2026-09-30T23:35:33+00:00",
+            }
+        ],
+        answered=["switch.outlet"],
+    )
+    response = await _call(
+        hass,
+        recovered=[
+            {
+                "entity": "switch.sub",
+                "failed_at": "2026-09-30T23:06:33+00:00",
+                "answered_at": "2026-09-30T23:37:11+00:00",
+            }
+        ],
+    )
+    outage = response["trip"]["outage"]
+    assert list(outage["casualties"]) == ["light.couch"]
+    assert outage["answered"] == ["switch.outlet"]
+    assert list(outage["recovered"]) == ["switch.sub"]

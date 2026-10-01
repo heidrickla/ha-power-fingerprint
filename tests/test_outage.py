@@ -12,11 +12,13 @@ from custom_components.power_fingerprint.outage import (
     DURING,
     MEDIA,
     METER_LAG_S,
+    PROBE_DELAY_S,
     RETURN_S,
     ZIGBEE,
     ZWAVE,
     OutageEvidence,
     ProbeResult,
+    merge_outage,
 )
 
 FALL = 1000.0
@@ -199,3 +201,57 @@ def test_before_the_return_nothing_is_judged_and_unsteady_devices_never_wait() -
     ev.node("n", LIVE + 5, alive=True)
     # The unsteady node never came back, and holds nothing open.
     assert not ev.waiting(LIVE + 10)
+
+
+def test_an_answer_after_the_return_window_says_nothing() -> None:
+    ev = _trip()
+    ev.probe(_probe("slow", DURING, FALL + 15, False))
+    ev.restore(LIVE)
+    ev.probe(ProbeResult("slow", AFTER, LIVE + 100, LIVE + RETURN_S + 1, True))
+    verdict = ev.judge()
+    assert verdict.casualties == {}
+    assert verdict.indeterminate == ["slow"]
+
+
+def test_a_return_that_did_not_hold_is_not_the_return() -> None:
+    ev = _trip()
+    flicker = FALL + 100
+    ev.probe(_probe("outlet", DURING, FALL + 15, False))
+    # In flight when the power came back for a moment: says nothing.
+    ev.probe(ProbeResult("edge", DURING, flicker - 5, flicker + 2, False))
+    ev.restore(flicker)
+    ev.probe(_probe("outlet", AFTER, flicker + 1, False))
+    ev.dead_again(flicker + 10)
+    assert ev.restored is None
+    assert ev.asked_while_dead() == {"outlet"}
+    # Asked again once the supplies drained.
+    ev.probe(_probe("edge", DURING, flicker + 10 + PROBE_DELAY_S, False))
+    ev.restore(LIVE)
+    ev.probe(_probe("outlet", AFTER, LIVE + 30, True))
+    ev.probe(_probe("edge", AFTER, LIVE + 30, True))
+    verdict = ev.judge()
+    assert set(verdict.casualties) == {"outlet", "edge"}
+    assert verdict.casualties["edge"]["failed_at"] == flicker + 20 + PROBE_DELAY_S
+    assert verdict.casualties["outlet"]["answered_at"] == LIVE + 40
+
+
+def test_a_second_write_adds_to_the_first() -> None:
+    first = {
+        "casualties": {"a": {"signal": ZIGBEE}},
+        "answered": ["b"],
+        "indeterminate": ["c", "d"],
+        "recovered": {},
+    }
+    second = {
+        "casualties": {"c": {"signal": ZWAVE}},
+        "answered": ["a"],
+        "indeterminate": [],
+        "recovered": {"d": {"failed_at": "x"}},
+    }
+    merged = merge_outage(first, second)
+    assert merged["casualties"] == {"a": {"signal": ZIGBEE}, "c": {"signal": ZWAVE}}
+    # One place per device, a casualty first.
+    assert merged["answered"] == ["b"]
+    assert merged["recovered"] == {"d": {"failed_at": "x"}}
+    assert merged["indeterminate"] == []
+    assert merge_outage(None, first) == first

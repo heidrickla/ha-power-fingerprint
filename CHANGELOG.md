@@ -4,6 +4,19 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.19.1] - 2026-10-01
+
+### Fixed
+
+- A circuit back within its 6-hour limit kept the limit running, and an outage ending near it dropped its evidence.
+- A circuit that read dead again before its incident closed kept its first return: the controls ran with the circuit dead. The return now waits for the next live reading, and requests around the short return say nothing.
+- The controls after the return are cut off 120 s after it, and an answer after that says nothing. A long list of devices that do not answer no longer outlasts the run.
+- A disabled lock, cover, valve, alarm panel or battery entity no longer lets its device be probed.
+- A TV's `remote` going off while its `media_player` stayed on counted as the TV losing power. A TV is now on while any of its media entities is.
+- An outage casualty whose main entities are disabled was stored under its ping button.
+- A second `record_breaker_evidence` call for a trip replaced its `outage`; it now adds to it.
+- `record_breaker_evidence` refuses `devices` and `recovered` for a trip whose circuit has not read live again, and checks `recovered` times: refused before the fall, answered after the return.
+
 ## [0.19.0] - 2026-09-30
 
 ### Added

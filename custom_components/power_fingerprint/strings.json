@@ -299,6 +299,9 @@
     },
     "outage_timing": {
       "message": "The times given for {entity} do not fit the trip: it must go down after the circuit went dead and come back with the power."
+    },
+    "trip_not_ended": {
+      "message": "The trip on {circuit} has no recorded return yet. Casualties and recovered devices need the power back."
     }
   },
   "issues": {

@@ -77,15 +77,19 @@ def discover(hass: HomeAssistant, excluded: set[str]) -> Targets:
     registry = er.async_get(hass)
     rows_by_device: dict[str, list[er.RegistryEntry]] = {}
     for row in registry.entities.values():
-        if row.device_id and row.disabled_by is None and row.device_id not in excluded:
+        if row.device_id and row.device_id not in excluded:
             rows_by_device.setdefault(row.device_id, []).append(row)
     targets = Targets()
-    for device, rows in sorted(rows_by_device.items()):
+    for device, every in sorted(rows_by_device.items()):
+        # What a device is comes from all its entities; only enabled ones are used.
+        rows = [r for r in every if r.disabled_by is None]
         media = sorted(r.entity_id for r in rows if r.domain in MEDIA_DOMAINS)
         if media:
             targets.media[device] = media
-        classes = {r.entity_id: r.device_class or r.original_device_class for r in rows}
-        if is_battery_powered(classes) or {r.domain for r in rows} & _SKIP_DOMAINS:
+        classes = {
+            r.entity_id: r.device_class or r.original_device_class for r in every
+        }
+        if is_battery_powered(classes) or {r.domain for r in every} & _SKIP_DOMAINS:
             continue
         endpoints: list[tuple[int, str]] = []
         ping = status = None
@@ -164,7 +168,8 @@ class OutageRun:
     Driven by Home Assistant timers. Nothing is written here: once power has
     been back `RETURN_S`, or every device that went down is back, and the trip
     was accepted, `on_done` gets the evidence. A refused trip, a circuit dead
-    for `MAX_OUTAGE_S` or an unload ends the run with nothing recorded.
+    for `MAX_OUTAGE_S` or an unload ends the run with nothing recorded. A return
+    that does not hold before the incident closes puts the run back to dead.
     """
 
     def __init__(
@@ -189,23 +194,34 @@ class OutageRun:
         self.finished = False
         self._on_done = on_done
         self._after_done = not probe
+        # The dead-circuit deadline, the current return's timers, and the rest.
+        self._dead: CALLBACK_TYPE | None = None
+        self._returning: list[CALLBACK_TYPE] = []
         self._timers: list[CALLBACK_TYPE] = []
         self._tasks: set[asyncio.Task[None]] = set()
+        self._probing: asyncio.Task[None] | None = None
+        self._control: asyncio.Task[None] | None = None
         # Entity -> (kind, device) for the passive signals.
         self.watching: dict[str, tuple[str, str]] = {}
+        # Media entity -> whether it reads up; a TV is up while any of them is.
+        self._media_up: dict[str, bool] = {}
 
     @callback
     def start(self) -> None:
         self._snapshot()
-        self._later(self.fall + PROBE_DELAY_S, self._on_probe)
-        self._later(self.fall + MAX_OUTAGE_S, self._on_expired)
+        self._timers.append(self._at(self.fall + PROBE_DELAY_S, self._on_probe))
+        self._dead = self._at(self.fall + MAX_OUTAGE_S, self._on_expired)
 
     @callback
     def stop(self) -> None:
         self.finished = True
-        for cancel in self._timers:
+        for cancel in [*self._timers, *self._returning]:
             cancel()
+        if self._dead is not None:
+            self._dead()
         self._timers.clear()
+        self._returning.clear()
+        self._dead = None
         for task in self._tasks:
             task.cancel()
 
@@ -226,6 +242,9 @@ class OutageRun:
                 continue
             stable = all(s.last_changed_timestamp <= self.fall - STABLE_S for s in up)
             self.evidence.track_media(device, True, stable)
+            for state in states:
+                if (reading := _up_media(state)) is not None:
+                    self._media_up[state.entity_id] = reading
             for entity in entities:
                 self.watching[entity] = ("media", device)
 
@@ -237,17 +256,43 @@ class OutageRun:
             if new.state in ("alive", "dead"):
                 self.evidence.node(device, stamp, new.state == "alive")
         elif (up := _up_media(new)) is not None:
-            self.evidence.media(device, stamp, up, _by_person(new))
+            was = self._tv_up(device)
+            self._media_up[entity] = up
+            if self._tv_up(device) != was:
+                self.evidence.media(device, stamp, up, _by_person(new))
         self._check()
+
+    def _tv_up(self, device: str) -> bool:
+        return any(self._media_up.get(e, False) for e in self.targets.media[device])
 
     @callback
     def restore(self, stamp: float) -> None:
         if self.evidence.restored is not None or self.finished:
             return
         self.evidence.restore(stamp)
-        self._later(stamp + SETTLE_S, self._on_settled)
-        self._later(stamp + RETURN_S, self._on_tick)
-        self._later(stamp + RETURN_S + DECIDE_S, self._on_expired)
+        if self._dead is not None:
+            self._dead()
+            self._dead = None
+        self._returning = [
+            self._at(stamp + SETTLE_S, self._on_settled),
+            self._at(stamp + RETURN_S, self._on_tick),
+            self._at(stamp + RETURN_S + DECIDE_S, self._on_expired),
+        ]
+
+    @callback
+    def dead_again(self, stamp: float) -> None:
+        """Its circuit died again before the incident closed: power is not back."""
+        if self.evidence.restored is None or self.finished:
+            return
+        self.evidence.dead_again(stamp)
+        for cancel in self._returning:
+            cancel()
+        self._returning.clear()
+        if self._control is not None:
+            self._control.cancel()
+        self._after_done = not self.probe
+        self._dead = self._at(self.fall + MAX_OUTAGE_S, self._on_expired)
+        self._timers.append(self._at(stamp + PROBE_DELAY_S, self._on_probe))
 
     @callback
     def decide(self, trip: dict[str, Any] | None) -> None:
@@ -260,28 +305,34 @@ class OutageRun:
         self._check()
 
     @callback
-    def _later(self, when: float, action: Callable[[datetime], None]) -> None:
-        delay = max(0.0, when - _now())
-        self._timers.append(async_call_later(self.hass, delay, action))
+    def _at(self, when: float, action: Callable[[datetime], None]) -> CALLBACK_TYPE:
+        return async_call_later(self.hass, max(0.0, when - _now()), action)
 
     @callback
-    def _spawn(self, work: Coroutine[Any, Any, None], name: str) -> None:
+    def _spawn(self, work: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
         task = self._entry.async_create_background_task(self.hass, work, name)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        return task
 
     @callback
     def _on_probe(self, _now: datetime) -> None:
-        if self.probe and self.evidence.restored is None:
-            self._spawn(self._probe_during(), f"{DOMAIN} outage probe")
+        if not self.probe or self.evidence.restored is not None:
+            return
+        if self._probing is None or self._probing.done():
+            self._probing = self._spawn(self._probe_during(), f"{DOMAIN} outage probe")
 
     @callback
     def _on_settled(self, _now: datetime) -> None:
         if self.probe:
-            self._spawn(self._probe_after(), f"{DOMAIN} outage control")
+            self._control = self._spawn(self._probe_after(), f"{DOMAIN} outage control")
 
     @callback
     def _on_tick(self, _now: datetime) -> None:
+        # The return window is over: a control pass still asking is cut off.
+        if self._control is not None:
+            self._control.cancel()
+        self._after_done = True
         self._check()
 
     @callback
@@ -313,19 +364,19 @@ class OutageRun:
         )
 
     async def _probe_during(self) -> None:
+        asked = self.evidence.asked_while_dead()
         await asyncio.gather(
-            self._zigbee(DURING, sorted(self.targets.zigbee)),
+            self._zigbee(DURING, sorted(set(self.targets.zigbee) - asked)),
             self._zwave(sorted(self.targets.zwave)),
         )
 
     async def _probe_after(self) -> None:
-        try:
-            await asyncio.gather(
-                self._zigbee(AFTER, self.evidence.failed_zigbee()),
-                self._zwave(self._still_dead()),
-            )
-        finally:
-            self._after_done = True
+        # Cancelled when the return window ends or the circuit dies again.
+        await asyncio.gather(
+            self._zigbee(AFTER, self.evidence.failed_zigbee()),
+            self._zwave(self._still_dead()),
+        )
+        self._after_done = True
         self._check()
 
     async def _zigbee(self, phase: str, devices: list[str]) -> None:

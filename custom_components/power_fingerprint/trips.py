@@ -411,8 +411,12 @@ class BreakerWatch:
         if run is not None and run.finished:
             run = self._outage = None
         if run is not None:
-            if entity == run.circuit and watts is not None and watts > DEAD_W:
-                run.restore(stamp)
+            if entity == run.circuit and watts is not None:
+                if watts > DEAD_W:
+                    run.restore(stamp)
+                elif self.detector.open_start == run.fall:
+                    # Dead again before its incident closed: the same outage.
+                    run.dead_again(stamp)
             return
         start = self.detector.open_start
         if start is None or self.detector.open_circuit != entity:
@@ -612,10 +616,15 @@ class BreakerWatch:
         existing = self._store.assignments()
 
         def key(device: str) -> tuple[str, list[str]]:
-            rows = er.async_entries_for_device(registry, device)
+            rows = er.async_entries_for_device(
+                registry, device, include_disabled_entities=True
+            )
             # A node's ping button and status sensor are not what it is.
-            primary = [r.entity_id for r in rows if r.entity_category is None]
-            entities = sorted(primary or [r.entity_id for r in rows])
+            primary = [r for r in rows if r.entity_category is None]
+            enabled = [r.entity_id for r in primary if r.disabled_by is None]
+            entities = sorted(
+                enabled or [r.entity_id for r in primary] or [r.entity_id for r in rows]
+            )
             if not entities:
                 return device, [device]
             return self._key_for(registry, device, entities, existing), entities

@@ -1132,6 +1132,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
             )
         fall = dt_util.parse_datetime(str(trip["start"]))
         back = dt_util.parse_datetime(str(trip.get("end") or ""))
+        if back is None and (call.data["devices"] or call.data["recovered"]):
+            # Coming back with the power needs the power back.
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="trip_not_ended",
+                translation_placeholders={"circuit": circuit},
+            )
         registry = er.async_get(hass)
 
         def device_of(entity: str) -> str:
@@ -1168,6 +1175,22 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 names[1]: came.isoformat(),
                 "imported": True,
             }
+        for row in call.data["recovered"]:
+            # Refused before the circuit went dead, answered once it was back.
+            failed, came = row["failed_at"], row["answered_at"]
+            if (
+                (fall is not None and failed >= fall)
+                or (
+                    back is not None
+                    and came.timestamp() < back.timestamp() - METER_LAG_S
+                )
+                or came <= failed
+            ):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="outage_timing",
+                    translation_placeholders={"entity": row["entity"]},
+                )
         recovered = {
             device_of(row["entity"]): {
                 "failed_at": row["failed_at"].isoformat(),

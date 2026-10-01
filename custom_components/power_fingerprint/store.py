@@ -20,6 +20,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 from .fingerprint import Fingerprint, carry_labels, is_named
+from .outage import merge_outage
 from .verify import INFERRED, MEASURED
 
 _LOGGER = logging.getLogger(__name__)
@@ -239,7 +240,7 @@ class FingerprintStore:
         for trip in self._trips:
             if trip.get("circuit") == circuit and trip.get("start") == start:
                 trip["suspected"] = sorted({*trip.get("suspected", []), *suspected})
-                trip["outage"] = evidence
+                trip["outage"] = merge_outage(trip.get("outage"), evidence)
                 await self.async_save()
                 return dict(trip)
         return None

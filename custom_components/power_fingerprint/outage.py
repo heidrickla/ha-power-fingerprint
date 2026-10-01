@@ -22,6 +22,7 @@ that answered while the circuit was dead is evidence it is fed from elsewhere.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 # Probing starts this long after the circuit reads dead: supplies drain and
 # integrations notice in the first seconds, and a breaker flicked straight back
@@ -93,6 +94,8 @@ class OutageEvidence:
         self.circuit = circuit
         self.fall = fall
         self.restored: float | None = None
+        # Returns that did not hold: (live, dead again).
+        self.flickers: list[tuple[float, float]] = []
         self._probes: list[ProbeResult] = []
         self._nodes: dict[str, _Track] = {}
         self._media: dict[str, _Track] = {}
@@ -123,6 +126,18 @@ class OutageEvidence:
         if self.restored is None:
             self.restored = t
 
+    def dead_again(self, t: float) -> None:
+        """The circuit died again inside the same incident: its return did not hold."""
+        if self.restored is not None:
+            self.flickers.append((self.restored, t))
+            self.restored = None
+
+    def asked_while_dead(self) -> set[str]:
+        """Devices with a request that still counts as made while dead."""
+        return {
+            p.device for p in self._probes if p.phase == DURING and self._while_dead(p)
+        }
+
     # --- judging ---------------------------------------------------------
 
     def waiting(self, now: float) -> bool:
@@ -150,9 +165,25 @@ class OutageEvidence:
         )
 
     def _while_dead(self, p: ProbeResult) -> bool:
-        """Sent and finished inside the outage; one near the return says nothing."""
-        return p.sent >= self.fall and (
-            self.restored is None or p.done <= self.restored - METER_LAG_S
+        """Sent and finished inside the outage; one near a return says nothing."""
+        if p.sent < self.fall:
+            return False
+        if self.restored is not None and p.done > self.restored - METER_LAG_S:
+            return False
+        # Devices powered by a return that did not hold drain again from its end.
+        return all(
+            p.done <= live - METER_LAG_S or p.sent >= dead + PROBE_DELAY_S
+            for live, dead in self.flickers
+        )
+
+    def _after(self, p: ProbeResult) -> bool:
+        """Sent after the return and finished inside its window."""
+        restored = self.restored
+        return (
+            p.phase == AFTER
+            and restored is not None
+            and restored <= p.sent
+            and p.done <= restored + RETURN_S
         )
 
     def _down(self, track: _Track) -> tuple[float, bool] | None:
@@ -197,13 +228,7 @@ class OutageEvidence:
             by_device.setdefault(p.device, []).append(p)
         for device, results in sorted(by_device.items()):
             during = [p for p in results if p.phase == DURING and self._while_dead(p)]
-            after = [
-                p
-                for p in results
-                if p.phase == AFTER
-                and self.restored is not None
-                and p.sent >= self.restored
-            ]
+            after = [p for p in results if self._after(p)]
             failed = [p for p in during if p.answered is False]
             if any(p.answered for p in during):
                 # It answered with its circuit dead: fed from elsewhere, whatever else.
@@ -239,3 +264,27 @@ class OutageEvidence:
                 indeterminate.add(device)
                 continue
             casualties[device] = {"signal": signal, "down_at": went, "back_at": back}
+
+
+def merge_outage(old: dict[str, Any] | None, new: dict[str, Any]) -> dict[str, Any]:
+    """A trip's outage evidence after another write: later rows win per device.
+
+    Each device sits in one place, in the order `judge` ranks them: a casualty,
+    then answered, then recovered, then indeterminate.
+    """
+    old = old or {}
+    casualties = {**old.get("casualties", {}), **new.get("casualties", {})}
+    answered = {*old.get("answered", []), *new.get("answered", [])} - set(casualties)
+    recovered = {
+        k: v
+        for k, v in {**old.get("recovered", {}), **new.get("recovered", {})}.items()
+        if k not in casualties and k not in answered
+    }
+    indeterminate = {*old.get("indeterminate", []), *new.get("indeterminate", [])}
+    indeterminate -= {*casualties, *answered, *recovered}
+    return {
+        "casualties": casualties,
+        "answered": sorted(answered),
+        "indeterminate": sorted(indeterminate),
+        "recovered": recovered,
+    }

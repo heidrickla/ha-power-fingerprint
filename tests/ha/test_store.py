@@ -168,7 +168,24 @@ async def test_amending_a_trip_adds_to_it_and_nothing_else(hass: HomeAssistant):
     )
     assert amended is not None
     assert amended["suspected"] == ["switch.a", "switch.b"]
-    assert store.breaker_trips()[-1]["outage"] == {"answered": []}
+    assert store.breaker_trips()[-1]["outage"] == {
+        "casualties": {},
+        "answered": [],
+        "indeterminate": [],
+        "recovered": {},
+    }
+    # A later amendment adds to the outage instead of replacing it.
+    await store.async_amend_trip(
+        CIRCUIT_A, trip["start"], [], {"casualties": {"switch.a": {}}}
+    )
+    await store.async_amend_trip(
+        CIRCUIT_A, trip["start"], [], {"answered": ["switch.c"]}
+    )
+    outage = store.breaker_trips()[-1]["outage"]
+    assert (list(outage["casualties"]), outage["answered"]) == (
+        ["switch.a"],
+        ["switch.c"],
+    )
 
 
 async def test_i_could_not_tell_this_time_is_not_recorded(hass: HomeAssistant):

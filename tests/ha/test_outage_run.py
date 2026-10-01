@@ -19,6 +19,7 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_capture_events,
+    async_fire_time_changed,
 )
 
 from custom_components.power_fingerprint import probes
@@ -424,3 +425,142 @@ async def test_one_outage_is_followed_at_a_time(
     assert trips[first]["outage"]["casualties"]["media_player.tv"]["signal"] == (
         "media_off"
     )
+
+
+async def test_a_return_near_the_dead_limit_is_still_followed(
+    hass: HomeAssistant, config_entry, powered, radios, freezer, monkeypatch
+):
+    # Back at +200, ten seconds inside the limit: the limit no longer applies.
+    monkeypatch.setattr(probes, "MAX_OUTAGE_S", 210.0)
+    watch = await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    await _outage(hass, freezer, radios)
+    assert "switch.outlet" in watch.last_trip()["outage"]["casualties"]
+
+
+async def test_a_return_that_does_not_hold_waits_for_the_power(
+    hass: HomeAssistant, config_entry, powered, radios, freezer
+):
+    watch = await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)
+    radios["dead"].add(OUTLET_IEEE)
+    await _tick(hass, freezer, 16)  # the outlet fails, elsewhere answers
+    run = watch._outage
+    assert run is not None
+    await _tick(hass, freezer, 44)
+    hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +60: live for ten seconds
+    await _tick(hass, freezer, 10)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)  # +70: dead again, same incident
+    await _tick(hass, freezer, 1)
+    assert run.evidence.restored is None
+    asked = len(radios["zha"])
+    await _tick(hass, freezer, 128)  # +199
+    # Nothing was asked to answer while the circuit was dead again.
+    assert len(radios["zha"]) == asked
+    radios["dead"].discard(OUTLET_IEEE)
+    hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +200
+    await _tick(hass, freezer, 31)  # the controls after SETTLE_S
+    await _tick(hass, freezer, 1)
+    casualty = watch.last_trip()["outage"]["casualties"]["switch.outlet"]
+    assert casualty["answered_at"] >= watch.last_trip()["end"]
+    assert "switch.outlet" in watch._store.assignments()
+
+
+async def test_the_controls_end_with_the_return_window(
+    hass: HomeAssistant, config_entry, powered, radios, freezer
+):
+    watch = await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)
+    radios["dead"].add(OUTLET_IEEE)
+    await _tick(hass, freezer, 16)
+
+    async def _hang(call):
+        radios["zha"].append(dict(call.data))
+        await asyncio.Event().wait()
+
+    hass.services.async_register("zha", "issue_zigbee_cluster_command", _hang)
+    await _tick(hass, freezer, 184)
+    hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +200
+
+    async def _step(seconds):
+        # The hanging request is a background task; waiting for it never returns.
+        freezer.tick(timedelta(seconds=seconds))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    await _step(31)
+    assert radios["zha"][-1]["ieee"] == OUTLET_IEEE  # asked again, no answer yet
+    await _step(89)  # +320: RETURN_S after the return
+    await _tick(hass, freezer, 1)
+    trip = watch.last_trip()
+    assert trip["outage"]["indeterminate"] == ["switch.outlet"]
+    assert trip["outage"]["answered"] == ["switch.elsewhere"]
+
+
+async def test_one_media_entity_going_off_is_not_the_tv_going_off(
+    hass: HomeAssistant, config_entry, powered, radios, freezer
+):
+    watch = await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)
+    await _tick(hass, freezer, 14)
+    hass.states.async_set("remote.tv", "off")  # the media player stays on
+    await _tick(hass, freezer, 186)
+    hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +200
+    await _tick(hass, freezer, 60)
+    hass.states.async_set("remote.tv", "on")
+    await _tick(hass, freezer, 61)
+    trip = watch.last_trip()
+    assert "media_player.tv" not in trip["outage"]["casualties"]
+    assert "media_player.tv" not in watch._store.assignments()
+
+
+async def test_a_device_with_its_main_entity_disabled_keeps_its_own_key(
+    hass: HomeAssistant, config_entry, powered, radios, freezer
+):
+    registry = er.async_get(hass)
+    registry.async_update_entity(
+        "light.couch", disabled_by=er.RegistryEntryDisabler.USER
+    )
+    watch = await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    await _outage(hass, freezer, radios)
+    rows = watch._store.assignments()
+    assert rows["light.couch"]["evidence"]["signal"] == "zwave_node_dead"
+    assert NODE_PING not in rows
+
+
+async def test_discovery_reads_disabled_entities_for_what_a_device_is(
+    hass: HomeAssistant, radios
+):
+    other = MockConfigEntry(domain="demo")
+    other.add_to_hass(hass)
+    devices = dr.async_get(hass)
+    registry = er.async_get(hass)
+    for name, extra in (
+        ("hidden_battery", ("sensor", "battery", "battery")),
+        ("hidden_lock", ("lock", "bolt", None)),
+    ):
+        device = devices.async_get_or_create(
+            config_entry_id=other.entry_id, identifiers={("demo", name)}, name=name
+        )
+        registry.async_get_or_create(
+            "button",
+            "zha",
+            f"00:00:00:00:00:00:01:{len(name):02d}-1-3",
+            device_id=device.id,
+        )
+        domain, object_id, device_class = extra
+        registry.async_get_or_create(
+            domain,
+            "demo",
+            f"{name}-{object_id}",
+            device_id=device.id,
+            original_device_class=device_class,
+            disabled_by=er.RegistryEntryDisabler.USER,
+        )
+    targets = probes.discover(hass, set())
+    names = {devices.async_get(d).name for d in targets.zigbee}
+    assert names == {"outlet", "elsewhere"}
