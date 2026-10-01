@@ -419,7 +419,9 @@ class BreakerWatch:
                     run.dead_again(stamp)
             return
         start = self.detector.open_start
-        if start is None or self.detector.open_circuit != entity:
+        # Only the reading that opened the incident starts a run: one opened while
+        # another run was going stays without outage evidence, however long it lasts.
+        if start is None or start != stamp or self.detector.open_circuit != entity:
             return
         run = OutageRun(
             self.hass,

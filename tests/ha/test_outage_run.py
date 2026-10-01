@@ -571,3 +571,84 @@ async def test_discovery_reads_disabled_entities_for_what_a_device_is(
     targets = probes.discover(hass, set())
     names = {devices.async_get(d).name for d in targets.zigbee}
     assert names == {"outlet", "elsewhere"}
+
+
+async def test_an_incident_opened_during_a_run_never_gets_one_later(
+    hass: HomeAssistant, config_entry, powered, radios, freezer
+):
+    """A trips again while its first run waits for the TV, and stays dead after."""
+    watch = await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)
+    await _tick(hass, freezer, 14)
+    for entity in ("media_player.tv", "remote.tv"):
+        hass.states.async_set(entity, "off")
+    hass.states.async_set("binary_sensor.bed_occupied", "unavailable")
+    await _tick(hass, freezer, 30)
+    hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +44
+    hass.states.async_set("binary_sensor.bed_occupied", "off")
+    await _tick(hass, freezer, 31)  # the first trip closes
+    first = watch._outage
+    assert first is not None
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)  # +75: a second incident, skipped
+    await _tick(hass, freezer, 25)
+    for entity in ("media_player.tv", "remote.tv"):
+        hass.states.async_set(entity, "on")  # +100: the first run ends
+    await _tick(hass, freezer, 1)
+    assert first.finished
+    hass.states.async_set(CIRCUIT_A, 0.5, POWER)  # +101: still dead, a new reading
+    await _tick(hass, freezer, 1)
+    assert watch._outage is None
+
+
+async def test_a_return_that_does_not_hold_starts_a_fresh_probe_pass(
+    hass: HomeAssistant, config_entry, powered, radios, freezer
+):
+    release = asyncio.Event()
+
+    async def _press(call):
+        radios["pings"].append(call.data["entity_id"])
+        await release.wait()
+
+    hass.services.async_register("button", "press", _press)
+
+    async def _step(seconds):
+        # Frozen time only: a press waits until released, so background tasks
+        # are not awaited.
+        freezer.tick(timedelta(seconds=seconds))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    watch = await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)
+    await _step(16)  # the first pass: its ping is still waiting
+    assert radios["pings"] == [NODE_PING]
+    await _step(44)
+    hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +60
+    await _step(10)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)  # +70: dead again, same incident
+    await _step(16)  # +86: PROBE_DELAY_S after it
+    assert radios["pings"] == [NODE_PING, NODE_PING]
+    assert watch._outage is not None
+    release.set()
+    await _tick(hass, freezer, 1)
+
+
+async def test_a_tv_with_an_unreadable_sibling_is_not_judged_down(
+    hass: HomeAssistant, config_entry, powered, radios, freezer
+):
+    hass.states.async_set("remote.tv", "unavailable")
+    watch = await _setup(hass, config_entry)
+    await _arm(hass, freezer)
+    hass.states.async_set(CIRCUIT_A, 0.0, POWER)
+    await _tick(hass, freezer, 14)
+    hass.states.async_set("media_player.tv", "off")  # the remote's state is not known
+    await _tick(hass, freezer, 186)
+    hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +200
+    await _tick(hass, freezer, 60)
+    hass.states.async_set("media_player.tv", "on")
+    await _tick(hass, freezer, 61)
+    trip = watch.last_trip()
+    assert "media_player.tv" not in trip["outage"]["casualties"]
+    assert "media_player.tv" not in watch._store.assignments()

@@ -203,8 +203,10 @@ class OutageRun:
         self._control: asyncio.Task[None] | None = None
         # Entity -> (kind, device) for the passive signals.
         self.watching: dict[str, tuple[str, str]] = {}
-        # Media entity -> whether it reads up; a TV is up while any of them is.
-        self._media_up: dict[str, bool] = {}
+        # Media entity -> whether it reads up (None: unreadable); each TV's last
+        # known state.
+        self._media_up: dict[str, bool | None] = {}
+        self._tv_last: dict[str, bool] = {}
 
     @callback
     def start(self) -> None:
@@ -242,9 +244,9 @@ class OutageRun:
                 continue
             stable = all(s.last_changed_timestamp <= self.fall - STABLE_S for s in up)
             self.evidence.track_media(device, True, stable)
+            self._tv_last[device] = True
             for state in states:
-                if (reading := _up_media(state)) is not None:
-                    self._media_up[state.entity_id] = reading
+                self._media_up[state.entity_id] = _up_media(state)
             for entity in entities:
                 self.watching[entity] = ("media", device)
 
@@ -255,15 +257,22 @@ class OutageRun:
         if kind == "node":
             if new.state in ("alive", "dead"):
                 self.evidence.node(device, stamp, new.state == "alive")
-        elif (up := _up_media(new)) is not None:
-            was = self._tv_up(device)
-            self._media_up[entity] = up
-            if self._tv_up(device) != was:
+        else:
+            self._media_up[entity] = _up_media(new)
+            up = self._tv_up(device)
+            if up is not None and up != self._tv_last[device]:
+                self._tv_last[device] = up
                 self.evidence.media(device, stamp, up, _by_person(new))
         self._check()
 
-    def _tv_up(self, device: str) -> bool:
-        return any(self._media_up.get(e, False) for e in self.targets.media[device])
+    def _tv_up(self, device: str) -> bool | None:
+        """Up while any media entity is up, down once all are down, else unknown."""
+        readings = [self._media_up.get(e) for e in self.targets.media[device]]
+        if True in readings:
+            return True
+        if all(r is False for r in readings):
+            return False
+        return None
 
     @callback
     def restore(self, stamp: float) -> None:
@@ -273,6 +282,11 @@ class OutageRun:
         if self._dead is not None:
             self._dead()
             self._dead = None
+        if self._probing is not None:
+            # Requests near a return say nothing. Forgotten as well as cancelled, so a
+            # later death starts a fresh pass however long this one takes to unwind.
+            self._probing.cancel()
+            self._probing = None
         self._returning = [
             self._at(stamp + SETTLE_S, self._on_settled),
             self._at(stamp + RETURN_S, self._on_tick),

@@ -283,7 +283,7 @@ Three kinds of device do not go `unavailable` in an outage of minutes. While a t
 |---|---|---|
 | Zigbee, mains, with an Identify cluster | Identify with a time of zero, awaited | The request fails while the circuit is dead and the same request is answered after power returns. |
 | Z-Wave, mains | The node's ping button; Z-Wave JS marks a node that does not answer `dead` | The node status goes from `alive` to `dead` while the circuit is dead and back to `alive` with the power. |
-| `media_player` and `remote` | State, per device: on while any of its media entities is on | The device goes from on, playing or idle to `off` or `standby` within 30 s of the fall, with no user or parent context, and comes back on with the power. |
+| `media_player` and `remote` | State, per device: on while any of its media entities is on, off once all are; an unreadable one leaves it unknown | The device goes from on, playing or idle to `off` or `standby` within 30 s of the fall, with no user or parent context, and comes back on with the power. |
 
 | Step | When |
 |---|---|
@@ -297,7 +297,7 @@ Three kinds of device do not go `unavailable` in an outage of minutes. While a t
 - Battery devices and devices with a lock, cover, valve or alarm panel entity get no request, whether that entity is enabled or disabled.
 - A circuit that reads dead again before its incident closes has not returned: the controls wait for the next live reading, and requests around the short return say nothing.
 - Every casualty is `suspected`: a device that stops answering may have lost its parent router rather than its power. A Zigbee casualty is stored `established_by: probe`, `confidence: inferred`, with `probe_kind: breaker_reachability` in the evidence; Z-Wave and TV casualties are stored `established_by: breaker`.
-- A refused incident records nothing from its outage. A circuit dead for 6 hours from the fall is not followed to its return.
+- A refused incident records nothing from its outage. A circuit dead for 6 hours from the fall is not followed to its return. One incident is followed at a time: one that opens while another is followed gets no outage evidence, however long it stays open.
 - `Probe devices during a breaker trip` in the configuration turns the requests off; node status and TV state are still read.
 
 The trip gains `outage`: `casualties` with each device's signal and times, `answered`, `indeterminate`, and `recovered` from [`record_breaker_evidence`](#record_breaker_evidence).
