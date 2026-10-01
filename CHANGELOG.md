@@ -4,6 +4,12 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.19.2] - 2026-10-01
+
+### Changed
+
+- Requires Home Assistant 2026.8. A stray nameless device entry is removed with `async_remove_device`; the `remove_config_entry_id` parameter it replaces is removed in Home Assistant 2027.8.
+
 ## [0.19.1] - 2026-10-01
 
 ### Fixed

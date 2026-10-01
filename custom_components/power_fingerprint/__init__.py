@@ -205,7 +205,7 @@ def _prune_stray_devices(
             "Removing a stray device entry: %s",
             device.identifiers,
         )
-        devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
+        devices.async_remove_device(device.id)
 
 
 async def async_unload_entry(

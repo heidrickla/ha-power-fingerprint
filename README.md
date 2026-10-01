@@ -142,7 +142,7 @@ automation:
 
 ## Installation
 
-Home Assistant 2026.3 or later. The config flow uses APIs added in 2024.12, and the brand images ship inside the repository, which Home Assistant serves at `/api/brands/integration/power_fingerprint/` from 2026.3. The source uses Python 3.14 syntax, which every Home Assistant release from 2026.3 supplies: each declares `requires-python >=3.14.2`.
+Home Assistant 2026.8 or later. A device belongs to one config entry from 2026.8, and a stray device entry is removed with `async_remove_device`, the call that replaces the config-entry parameters removed in 2027.8. The config flow uses APIs added in 2024.12, and the brand images ship inside the repository, which Home Assistant serves at `/api/brands/integration/power_fingerprint/` from 2026.3. The source uses Python 3.14 syntax, which every Home Assistant release from 2026.3 supplies: each declares `requires-python >=3.14.2`.
 
 | Reader | Reads | Result |
 |---|---|---|
