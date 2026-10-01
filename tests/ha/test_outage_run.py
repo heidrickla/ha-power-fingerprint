@@ -475,6 +475,8 @@ async def test_the_controls_end_with_the_return_window(
     hass.states.async_set(CIRCUIT_A, 0.0, POWER)
     radios["dead"].add(OUTLET_IEEE)
     await _tick(hass, freezer, 16)
+    run = watch._outage
+    assert run is not None
 
     async def _hang(call):
         radios["zha"].append(dict(call.data))
@@ -483,16 +485,21 @@ async def test_the_controls_end_with_the_return_window(
     hass.services.async_register("zha", "issue_zigbee_cluster_command", _hang)
     await _tick(hass, freezer, 184)
     hass.states.async_set(CIRCUIT_A, 100.0, POWER)  # +200
+    asked = len(radios["zha"])
 
     async def _step(seconds):
-        # The hanging request is a background task; waiting for it never returns.
+        # Frozen time only: the hanging request would end at its real 30 s timeout.
         freezer.tick(timedelta(seconds=seconds))
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
 
     await _step(31)
-    assert radios["zha"][-1]["ieee"] == OUTLET_IEEE  # asked again, no answer yet
+    # Asked again after SETTLE_S, and no answer yet.
+    assert [c["ieee"] for c in radios["zha"][asked:]] == [OUTLET_IEEE]
+    assert not run.finished
     await _step(89)  # +320: RETURN_S after the return
+    # Handed over at the window's end, with the request still unanswered.
+    assert run.finished
     await _tick(hass, freezer, 1)
     trip = watch.last_trip()
     assert trip["outage"]["indeterminate"] == ["switch.outlet"]
