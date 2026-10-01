@@ -47,6 +47,7 @@
     "verify_circuit": "mdi:check-decagram",
     "map_devices": "mdi:sitemap",
     "autolabel": "mdi:auto-fix",
-    "apply_circuit_labels": "mdi:label-multiple"
+    "apply_circuit_labels": "mdi:label-multiple",
+    "record_breaker_evidence": "mdi:electric-switch-closed"
   }
 }

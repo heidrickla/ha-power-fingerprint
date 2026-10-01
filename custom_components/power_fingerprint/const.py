@@ -5,13 +5,17 @@ MANUFACTURER = "Power Fingerprint"
 # Must match manifest.json. HACS surfaces the release TAG while Home Assistant
 # reports the MANIFEST version, so a mismatch is a defect users see as a wrong
 # version number. Bump both together.
-VERSION = "0.18.0"
+VERSION = "0.19.0"
 
 CONF_MAINS = "mains"
 CONF_CIRCUITS = "circuits"
 CONF_PRICE = "price_per_kwh"
 CONF_TOLERANCE = "coverage_tolerance_pct"
 CONF_PAIRS = "contradiction_pairs"
+# Whether a breaker trip sends each mains Zigbee and Z-Wave device a request
+# that changes nothing, to find the ones that lost power with it.
+CONF_BREAKER_PROBE = "breaker_probe"
+DEFAULT_BREAKER_PROBE = True
 
 # ONLY A LAST RESORT. `dashboard.async_dashboard_price` is asked first, because a
 # second place to type your tariff is a second place for it to be wrong, and the

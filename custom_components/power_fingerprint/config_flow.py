@@ -16,6 +16,7 @@ from homeassistant.helpers import selector
 
 from .analysis import to_watts
 from .const import (
+    CONF_BREAKER_PROBE,
     CONF_CIRCUITS,
     CONF_CONFIDENCE,
     CONF_MAINS,
@@ -23,6 +24,7 @@ from .const import (
     CONF_PRICE,
     CONF_TOLERANCE,
     CONFIDENCE_PROFILES,
+    DEFAULT_BREAKER_PROBE,
     DEFAULT_CONFIDENCE,
     DEFAULT_PRICE,
     DEFAULT_TOLERANCE,
@@ -91,6 +93,10 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Optional(
+                CONF_BREAKER_PROBE,
+                default=defaults.get(CONF_BREAKER_PROBE, DEFAULT_BREAKER_PROBE),
+            ): selector.BooleanSelector(),
             # One `switch.entity: sensor.circuit_power` per line. Kept as free
             # text because a config flow has no native pair-list selector, and
             # this is easier to review than a nested repeating form.

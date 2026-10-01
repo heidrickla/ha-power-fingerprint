@@ -459,6 +459,11 @@ class TripDetector:
     def open_circuit(self) -> str | None:
         return self._open.circuit if self._open else None
 
+    @property
+    def open_start(self) -> float | None:
+        """When the open incident's circuit first read dead."""
+        return self._open.start if self._open else None
+
     def _edge(self, stamp: float) -> float:
         """Oldest time a record is kept for; an open incident's needs come first."""
         edge = stamp - _HORIZON_S

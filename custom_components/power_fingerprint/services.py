@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 import voluptuous as vol
@@ -54,6 +54,7 @@ from .fingerprint import (
     suggest_label,
     summarize,
 )
+from .outage import MEDIA, METER_LAG_S, ZIGBEE, ZIGBEE_COMMAND, ZWAVE
 from .verify import (
     INFERRED,
     agree,
@@ -75,6 +76,7 @@ SERVICE_VERIFY = "verify_circuit"
 SERVICE_MAP = "map_devices"
 SERVICE_AUTOLABEL = "autolabel"
 SERVICE_LABELS = "apply_circuit_labels"
+SERVICE_OUTAGE = "record_breaker_evidence"
 
 LEARN_SCHEMA = vol.Schema(
     {
@@ -114,6 +116,46 @@ MAP_SCHEMA = vol.Schema(
         vol.Optional("step"): vol.All(int, vol.Range(min=1, max=300)),
         vol.Optional("min_correlation"): vol.All(
             vol.Coerce(float), vol.Range(min=0.0, max=1.0)
+        ),
+    }
+)
+
+_ZIGBEE_SIGNALS = (ZIGBEE, ZIGBEE_COMMAND)
+_OUTAGE_DEVICE = vol.Any(
+    vol.Schema(
+        {
+            vol.Required("entity"): cv.entity_id,
+            vol.Required("signal"): vol.In(_ZIGBEE_SIGNALS),
+            vol.Required("failed_at"): cv.datetime,
+            vol.Required("answered_at"): cv.datetime,
+        }
+    ),
+    vol.Schema(
+        {
+            vol.Required("entity"): cv.entity_id,
+            vol.Required("signal"): vol.In((ZWAVE, MEDIA)),
+            vol.Required("down_at"): cv.datetime,
+            vol.Required("back_at"): cv.datetime,
+        }
+    ),
+)
+OUTAGE_SCHEMA = vol.Schema(
+    {
+        vol.Required("circuit"): cv.entity_id,
+        vol.Required("start"): cv.datetime,
+        vol.Optional("devices", default=[]): vol.All(cv.ensure_list, [_OUTAGE_DEVICE]),
+        vol.Optional("answered", default=[]): cv.entity_ids,
+        vol.Optional("recovered", default=[]): vol.All(
+            cv.ensure_list,
+            [
+                vol.Schema(
+                    {
+                        vol.Required("entity"): cv.entity_id,
+                        vol.Required("failed_at"): cv.datetime,
+                        vol.Required("answered_at"): cv.datetime,
+                    }
+                )
+            ],
         ),
     }
 )
@@ -1062,6 +1104,92 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_MAP,
         _map,
         schema=MAP_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    async def _record_outage(call: ServiceCall) -> ServiceResponse:
+        runtime = _runtime(hass)
+        watch = runtime.coordinator.breaker
+        circuit = str(call.data["circuit"])
+        start = call.data["start"].timestamp()
+        trip = None
+        if watch is not None:
+            trip = next(
+                (
+                    t
+                    for t in runtime.store.breaker_trips()
+                    if t.get("circuit") == circuit
+                    and (at := dt_util.parse_datetime(str(t.get("start"))))
+                    and abs(at.timestamp() - start) < 1.0
+                ),
+                None,
+            )
+        if watch is None or trip is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="no_trip",
+                translation_placeholders={"circuit": circuit},
+            )
+        fall = dt_util.parse_datetime(str(trip["start"]))
+        back = dt_util.parse_datetime(str(trip.get("end") or ""))
+        registry = er.async_get(hass)
+
+        def device_of(entity: str) -> str:
+            row = registry.async_get(entity)
+            return row.device_id if row is not None and row.device_id else entity
+
+        def check(entity: str, went: datetime, came: datetime) -> None:
+            # Down while the circuit was dead, and back no earlier than the
+            # meter's lag before its first live reading.
+            late = back is not None and went > back
+            early = back is not None and came.timestamp() < (
+                back.timestamp() - METER_LAG_S
+            )
+            if (fall is not None and went < fall) or late or early or came <= went:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="outage_timing",
+                    translation_placeholders={"entity": entity},
+                )
+
+        casualties: dict[str, dict[str, Any]] = {}
+        for row in call.data["devices"]:
+            went = row.get("failed_at") or row["down_at"]
+            came = row.get("answered_at") or row["back_at"]
+            check(row["entity"], went, came)
+            names = (
+                ("failed_at", "answered_at")
+                if row["signal"] in _ZIGBEE_SIGNALS
+                else ("down_at", "back_at")
+            )
+            casualties[device_of(row["entity"])] = {
+                "signal": row["signal"],
+                names[0]: went.isoformat(),
+                names[1]: came.isoformat(),
+                "imported": True,
+            }
+        recovered = {
+            device_of(row["entity"]): {
+                "failed_at": row["failed_at"].isoformat(),
+                "answered_at": row["answered_at"].isoformat(),
+            }
+            for row in call.data["recovered"]
+        }
+        amended = await watch.async_record_outage(
+            circuit,
+            str(trip["start"]),
+            casualties,
+            [device_of(e) for e in call.data["answered"]],
+            [],
+            recovered,
+        )
+        return _response({"trip": amended})
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_OUTAGE,
+        _record_outage,
+        schema=OUTAGE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(

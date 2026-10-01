@@ -29,6 +29,29 @@ STORAGE_VERSION = 1
 STORAGE_MINOR_VERSION = 2
 
 PROBE = "probe"
+BREAKER = "breaker"
+CONFIRMED = "confirmed"
+
+# Disagreements kept on a row; the oldest goes first.
+MAX_CONFLICTS = 5
+
+
+def strength(row: dict[str, Any]) -> int:
+    """How strong an assignment's evidence is; a weaker one never replaces it.
+
+    A probe that switched the device and watched the circuit move, then a
+    breaker trip during which the device's own meter collapsed, then a probe
+    or an outage answer that may only show a lost route, then a device that
+    went quiet with a breaker, then a correlation.
+    """
+    source = row.get("source")
+    if source == PROBE:
+        return 4 if row.get("confidence") == MEASURED else 2
+    if source == BREAKER:
+        evidence = row.get("evidence")
+        confirmed = isinstance(evidence, dict) and evidence.get("result") == CONFIRMED
+        return 3 if confirmed else 1
+    return 0
 
 
 def reserve_measured_for_probes(data: dict[str, Any]) -> int:
@@ -205,6 +228,22 @@ class FingerprintStore:
         ] + [dict(trip)]
         await self.async_save()
 
+    async def async_amend_trip(
+        self,
+        circuit: str,
+        start: str,
+        suspected: list[str],
+        evidence: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Add what an outage showed after a trip was recorded; the trip, or None."""
+        for trip in self._trips:
+            if trip.get("circuit") == circuit and trip.get("start") == start:
+                trip["suspected"] = sorted({*trip.get("suspected", []), *suspected})
+                trip["outage"] = evidence
+                await self.async_save()
+                return dict(trip)
+        return None
+
     async def async_end_trip(self, circuit: str, start: str, end: str) -> bool:
         """Write the end of a trip recorded while its circuit was still dead."""
         for trip in self._trips:
@@ -231,15 +270,16 @@ class FingerprintStore:
     ) -> bool:
         """Remember which circuit a device was found on.
 
-        AN ACTIVE PROBE MUST NOT OVERWRITE ITSELF WITH A WEAKER ANSWER.
-        A probe that switched a real light and watched a real circuit move is
-        stronger evidence than a passive correlation, and a later passive sweep
-        finding nothing must not erase it. A `None` circuit is never recorded
-        over an existing assignment at all - "I could not tell this time" is
-        not the same as "it is not there".
+        A WEAKER ANSWER NEVER REPLACES A STRONGER ONE (`strength`). A probe
+        that switched a real light and watched a real circuit move outranks a
+        trip, and a trip outranks a correlation; a later passive sweep finding
+        nothing must not erase either. A weaker answer naming another circuit
+        is kept on the row as a conflict rather than dropped. A `None` circuit
+        is never recorded at all - "I could not tell this time" is not the same
+        as "it is not there".
 
-        Returns True when something actually changed, so the caller can avoid
-        writing to disk on every no-op refresh.
+        Returns True when the device's assignment changed. A conflict noted on
+        a stronger row is saved once and returns False: it placed nothing.
 
         `measured` is written only for a probe; any other source is stored as
         `inferred`, the same rule the minor-2 migration applies to old rows.
@@ -247,16 +287,37 @@ class FingerprintStore:
         existing = self._assignments.get(device)
         if circuit is None:
             return False
-        if existing and existing.get("source") == PROBE and source != PROBE:
-            return False
         if source != PROBE and confidence == MEASURED:
             confidence = INFERRED
-        row = {
+        row: dict[str, Any] = {
             "circuit": circuit,
             "confidence": confidence,
             "source": source,
             "evidence": evidence or {},
         }
+        if existing is not None and strength(row) < strength(existing):
+            conflict = {"source": source, "circuit": circuit}
+            seen = existing.get("conflicts", [])
+            if existing.get("circuit") != circuit and conflict not in seen:
+                existing["conflicts"] = [*seen, conflict][-MAX_CONFLICTS:]
+                await self.async_save()
+            return False
+        if existing is not None:
+            # The answer it replaces disagreed, or an earlier one did.
+            carried = [*existing.get("conflicts", [])]
+            if existing.get("circuit") != circuit:
+                carried.append(
+                    {
+                        "source": existing.get("source"),
+                        "circuit": existing.get("circuit"),
+                    }
+                )
+            kept: list[dict[str, Any]] = []
+            for c in carried:
+                if c.get("circuit") != circuit and c not in kept:
+                    kept.append(c)
+            if kept:
+                row["conflicts"] = kept[-MAX_CONFLICTS:]
         if existing == row:
             return False
         self._assignments[device] = row

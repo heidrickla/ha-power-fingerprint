@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.power_fingerprint.const import DOMAIN
 from custom_components.power_fingerprint.fingerprint import Fingerprint
-from custom_components.power_fingerprint.store import FingerprintStore
+from custom_components.power_fingerprint.store import MAX_CONFLICTS, FingerprintStore
 
 CIRCUIT_A = "sensor.circuit_a_power"
 CIRCUIT_B = "sensor.circuit_b_power"
@@ -96,6 +96,79 @@ async def test_a_passive_sweep_never_overwrites_a_probe(hass: HomeAssistant):
         LAMP, "sensor.circuit_18", "inferred", "correlation"
     )
     assert store.assignments()[LAMP]["circuit"] == "sensor.circuit_30"
+    # Kept as a disagreement, once.
+    assert not await store.async_record_assignment(
+        LAMP, "sensor.circuit_18", "inferred", "correlation"
+    )
+    assert store.assignments()[LAMP]["conflicts"] == [
+        {"source": "correlation", "circuit": "sensor.circuit_18"}
+    ]
+
+
+def _breaker(result: str) -> dict:
+    return {"result": result, "start": "2026-09-30T23:30:46+00:00"}
+
+
+async def test_evidence_strength_decides_which_answer_stands(hass: HomeAssistant):
+    """probe measured > breaker confirmed > probe inferred > breaker suspected >
+    correlation; an equal answer replaces, a weaker one is kept as a conflict."""
+    store = await _loaded(hass)
+    await store.async_record_assignment(
+        LAMP, "sensor.circuit_1", "inferred", "correlation"
+    )
+    # A suspected trip outranks a correlation.
+    assert await store.async_record_assignment(
+        LAMP, "sensor.circuit_2", "inferred", "breaker", _breaker("suspected")
+    )
+    # An outage probe outranks it; a confirmed trip outranks the probe.
+    assert await store.async_record_assignment(
+        LAMP, "sensor.circuit_3", "inferred", "probe", {"result": "suspected"}
+    )
+    assert not await store.async_record_assignment(
+        LAMP, "sensor.circuit_4", "inferred", "breaker", _breaker("suspected")
+    )
+    assert await store.async_record_assignment(
+        LAMP, "sensor.circuit_5", "inferred", "breaker", _breaker("confirmed")
+    )
+    row = store.assignments()[LAMP]
+    assert (row["circuit"], row["source"]) == ("sensor.circuit_5", "breaker")
+    # Every answer that disagreed is still on the row.
+    assert [c["circuit"] for c in row["conflicts"]] == [
+        "sensor.circuit_1",
+        "sensor.circuit_2",
+        "sensor.circuit_4",
+        "sensor.circuit_3",
+    ]
+    # Only a measured probe replaces a confirmed trip.
+    assert not await store.async_record_assignment(
+        LAMP, "sensor.circuit_6", "inferred", "probe", {}
+    )
+    assert await store.async_record_assignment(
+        LAMP, "sensor.circuit_5", "measured", "probe", {"probes": 3}
+    )
+    row = store.assignments()[LAMP]
+    assert row["confidence"] == "measured"
+    assert len(row["conflicts"]) == MAX_CONFLICTS
+    assert all(c["circuit"] != "sensor.circuit_5" for c in row["conflicts"])
+
+
+async def test_amending_a_trip_adds_to_it_and_nothing_else(hass: HomeAssistant):
+    store = await _loaded(hass)
+    trip = {
+        "circuit": CIRCUIT_A,
+        "start": "2026-09-30T23:30:46+00:00",
+        "end": None,
+        "confirmed": [],
+        "suspected": ["switch.b"],
+    }
+    await store.async_record_trip(trip, "")
+    assert await store.async_amend_trip(CIRCUIT_A, "nope", ["switch.a"], {}) is None
+    amended = await store.async_amend_trip(
+        CIRCUIT_A, trip["start"], ["switch.a", "switch.b"], {"answered": []}
+    )
+    assert amended is not None
+    assert amended["suspected"] == ["switch.a", "switch.b"]
+    assert store.breaker_trips()[-1]["outage"] == {"answered": []}
 
 
 async def test_i_could_not_tell_this_time_is_not_recorded(hass: HomeAssistant):

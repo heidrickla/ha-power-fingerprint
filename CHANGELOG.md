@@ -4,6 +4,19 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.19.0] - 2026-09-30
+
+### Added
+
+- Outage evidence during a breaker trip, for devices that stay available through an outage of minutes. Mains Zigbee devices get Identify with a time of zero 15 s after the fall and again 30 s after the return to each that failed; mains Z-Wave nodes get a ping. A Zigbee failure with the circuit dead and an answer after the return, a Z-Wave node `dead` with the circuit and `alive` with the power, and a TV `off` within 30 s of the fall with no user context and on again with the power each make the device `suspected` on the tripped circuit. The trip gains `outage`, and the event fires again with `amended: true`.
+- Option `Probe devices during a breaker trip`, on by default.
+- Action `record_breaker_evidence`: outage evidence gathered by hand, added to a recorded trip.
+- `conflicts` on a circuit assignment: the last five answers naming another circuit.
+
+### Changed
+
+- A circuit assignment is replaced by evidence strength: `verify_circuit` `measured`, then a trip's `confirmed` meter, then an `inferred` probe or a device that stopped answering, then a trip's `suspected` device, then correlation. Before, only a probe's answer was protected, from every other source.
+
 ## [0.18.0] - 2026-09-29
 
 ### Added

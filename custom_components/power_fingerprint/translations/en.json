@@ -10,7 +10,8 @@
           "price_per_kwh": "Electricity price per kWh",
           "coverage_tolerance_pct": "Coverage tolerance",
           "contradiction_pairs": "Switch/circuit pairs",
-          "confidence": "How sure do you want to be?"
+          "confidence": "How sure do you want to be?",
+          "breaker_probe": "Probe devices during a breaker trip"
         },
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
@@ -18,7 +19,8 @@
           "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
           "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing.",
-          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one."
+          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one.",
+          "breaker_probe": "While a watched circuit is dead, send each mains Zigbee device an Identify with a time of zero and press each mains Z-Wave node's ping button. Neither changes the device. A device that fails while the circuit is dead and answers once power is back is recorded as suspected on that circuit."
         }
       },
       "reconfigure": {
@@ -30,7 +32,8 @@
           "price_per_kwh": "Electricity price per kWh",
           "coverage_tolerance_pct": "Coverage tolerance",
           "contradiction_pairs": "Switch/circuit pairs",
-          "confidence": "How sure do you want to be?"
+          "confidence": "How sure do you want to be?",
+          "breaker_probe": "Probe devices during a breaker trip"
         },
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
@@ -38,7 +41,8 @@
           "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
           "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing.",
-          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one."
+          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one.",
+          "breaker_probe": "While a watched circuit is dead, send each mains Zigbee device an Identify with a time of zero and press each mains Z-Wave node's ping button. Neither changes the device. A device that fails while the circuit is dead and answers once power is back is recorded as suspected on that circuit."
         }
       }
     },
@@ -163,6 +167,32 @@
           "description": "What each label is called before the circuit's name."
         }
       }
+    },
+    "record_breaker_evidence": {
+      "name": "Record breaker evidence",
+      "description": "Add what devices did during a recorded breaker trip, for evidence gathered by hand. Each device is stored as suspected on the trip's circuit.",
+      "fields": {
+        "circuit": {
+          "name": "Circuit",
+          "description": "The circuit the trip was recorded on."
+        },
+        "start": {
+          "name": "Trip start",
+          "description": "The recorded trip's start, as the trip event and diagnostics give it."
+        },
+        "devices": {
+          "name": "Devices",
+          "description": "One entry per device: `entity`, `signal` and its two times. `zigbee_command` or `zigbee_identify` take `failed_at` (a request failed with the circuit dead) and `answered_at` (the same device answered with power back). `zwave_node_dead` or `media_off` take `down_at` and `back_at`."
+        },
+        "answered": {
+          "name": "Answered",
+          "description": "Entities whose devices answered while the circuit was dead: fed from elsewhere."
+        },
+        "recovered": {
+          "name": "Recovered",
+          "description": "Devices that refused requests before the trip and answered after it, each with `entity`, `failed_at` and `answered_at`. Noted on the trip, never assigned."
+        }
+      }
     }
   },
   "options": {
@@ -176,7 +206,8 @@
           "price_per_kwh": "Electricity price per kWh",
           "coverage_tolerance_pct": "Coverage tolerance",
           "contradiction_pairs": "Switch/circuit pairs",
-          "confidence": "How sure do you want to be?"
+          "confidence": "How sure do you want to be?",
+          "breaker_probe": "Probe devices during a breaker trip"
         },
         "data_description": {
           "mains": "The sensor reading the whole panel. Its total should be close to the sum of the circuits below.",
@@ -184,7 +215,8 @@
           "price_per_kwh": "Used only to turn standby watts into an annual figure. Pre-filled from your energy dashboard's configured price when it has one, so there is only one place to keep it right.",
           "coverage_tolerance_pct": "How far the circuits may drift from the mains before a fault is raised. 5% is comfortably outside normal noise.",
           "contradiction_pairs": "One `switch.entity: sensor.circuit_power` per line. Each pair is checked for a switch that says on while its circuit draws nothing.",
-          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one."
+          "confidence": "Cautious answers only where the evidence clearly beats coincidence. Eager finds more and gets some of them wrong in a way you cannot see. A missing answer is visible; a wrong one looks exactly like a right one.",
+          "breaker_probe": "While a watched circuit is dead, send each mains Zigbee device an Identify with a time of zero and press each mains Z-Wave node's ping button. Neither changes the device. A device that fails while the circuit is dead and answers once power is back is recorded as suspected on that circuit."
         }
       }
     },
@@ -261,6 +293,12 @@
     },
     "automation_service_missing": {
       "message": "automation.turn_on is not registered yet and {count} automation(s) paused for a probe still need restoring."
+    },
+    "no_trip": {
+      "message": "No breaker trip is recorded on {circuit} at that start time."
+    },
+    "outage_timing": {
+      "message": "The times given for {entity} do not fit the trip: it must go down after the circuit went dead and come back with the power."
     }
   },
   "issues": {

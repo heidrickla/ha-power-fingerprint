@@ -38,11 +38,21 @@ Once a device is mapped, a Circuit entity appears on that device's own page, nex
 
 | `established_by` | Meaning |
 |---|---|
-| `probe` | The integration switched the device and watched a circuit move. |
+| `probe` | The integration switched the device and watched a circuit move, or the device stopped answering while its circuit was dead and answered once power was back. See [Outage evidence](#outage-evidence). |
 | `breaker` | The device dropped when its circuit went dead. See [Breaker trips](#breaker-trips). |
 | `correlation` | It observed the two moving together. |
 
-A probe result is never overwritten by any other, and a run that resolves nothing never erases a previous answer. `confidence` reads `measured` only for a probe; any other source is `inferred`.
+`confidence` reads `measured` only for a probe that switched the device; any other answer is `inferred`. A weaker answer never replaces a stronger one; an equal one does. An answer naming another circuit that does not replace the current one is kept in `conflicts` on the row, the last five.
+
+| Strength | Answer |
+|---|---|
+| 4 | `verify_circuit`, `measured` |
+| 3 | A trip during which the device's own power meter fell to a tenth (`confirmed`) |
+| 2 | `verify_circuit`, `inferred`, or a device that stopped answering during a trip |
+| 1 | A device that went unavailable, dead or off during a trip (`suspected`) |
+| 0 | Correlation |
+
+A run that resolves nothing never erases a previous answer.
 
 ### Filtering by breaker
 
@@ -239,11 +249,11 @@ The outage runs from the circuit's last live reading to 30 seconds after it read
 
 Never casualties: the mains sensor, this integration's entities, and every entity on the device of a configured circuit or mains sensor. A casualty is what its own integration marks unavailable inside the window: Wi-Fi and cloud devices within seconds, Zigbee and Z-Wave mains devices after their integration's own timeout, which is longer than an outage of seconds.
 
-Each device gets one assignment on the tripped circuit, `established_by: breaker`, `confidence: inferred`, with the outage times and its entities in the evidence. It goes under the key the device already has an assignment on, else its own power sensor, else its first casualty. A probe's answer is never overwritten.
+Each device gets one assignment on the tripped circuit, `established_by: breaker`, `confidence: inferred`, with the outage times and its entities in the evidence. It goes under the key the device already has an assignment on, else its own power sensor, else its first casualty. A stronger answer is never overwritten (see [Circuit shown on the device](#circuit-shown-on-the-device)).
 
 | Where | What |
 |---|---|
-| Event `power_fingerprint_breaker_trip` | `circuit`, `start`, `end` (null while still dead), `confirmed`, `suspected`: full lists. |
+| Event `power_fingerprint_breaker_trip` | `circuit`, `start`, `end` (null while still dead), `confirmed`, `suspected`: full lists. Fired again with `amended: true` and `outage` when [outage evidence](#outage-evidence) adds devices. |
 | `sensor.power_fingerprint_unmonitored_load` | `breaker_trip_circuits`: the circuits watched now. `last_breaker_trip`: the event's keys, each list capped at 25, with `confirmed_not_shown` and `suspected_not_shown` counting the rest. |
 | Diagnostics | Each circuit's eligibility and reason, the last trip with casualties counted, and the last refusal, circuits pseudonymised. |
 
@@ -264,6 +274,32 @@ automation:
             {{ (trigger.event.data.confirmed + trigger.event.data.suspected)
             | count }} entities dropped with it.
 ```
+
+### Outage evidence
+
+Three kinds of device do not go `unavailable` in an outage of minutes. While a trip's incident is open the integration collects evidence for them, and adds it to the trip once power has been back long enough.
+
+| Device | Signal | Casualty when |
+|---|---|---|
+| Zigbee, mains, with an Identify cluster | Identify with a time of zero, awaited | The request fails while the circuit is dead and the same request is answered after power returns. |
+| Z-Wave, mains | The node's ping button; Z-Wave JS marks a node that does not answer `dead` | The node status goes from `alive` to `dead` while the circuit is dead and back to `alive` with the power. |
+| `media_player` and `remote` | State | The device goes from on, playing or idle to `off` or `standby` within 30 s of the fall, with no user or parent context, and comes back on with the power. |
+
+| Step | When |
+|---|---|
+| Zigbee requests, one at a time; Z-Wave pings, one a second | 15 s after the circuit reads dead, until it reads live again |
+| The same Zigbee request to each that failed; a ping to each node still dead | 30 s after the circuit reads live |
+| Judged | When every device that went down is back, or 120 s after the circuit reads live |
+
+- Nodes and TVs count only if they held their state for the 5 minutes before the fall.
+- A Zigbee device that answers while the circuit is dead is recorded in `outage.answered`: fed from elsewhere.
+- A request finished within 30 s of the circuit's first live reading says nothing either way; the meter's reading trails the power.
+- Battery devices and devices with a lock, cover, valve or alarm panel entity get no request.
+- Every casualty is `suspected`: a device that stops answering may have lost its parent router rather than its power. A Zigbee casualty is stored `established_by: probe`, `confidence: inferred`, with `probe_kind: breaker_reachability` in the evidence; Z-Wave and TV casualties are stored `established_by: breaker`.
+- A refused incident records nothing from its outage. A circuit dead for 6 hours is not followed to its return.
+- `Probe devices during a breaker trip` in the configuration turns the requests off; node status and TV state are still read.
+
+The trip gains `outage`: `casualties` with each device's signal and times, `answered`, `indeterminate`, and `recovered` from [`record_breaker_evidence`](#record_breaker_evidence).
 
 ## Naming
 
@@ -348,7 +384,7 @@ Six of seven disputed placements collapsed to `unknown` when three probes had to
 
 ## Actions
 
-Six actions under `power_fingerprint.`. Every field is optional unless marked required. Where a default reads "confidence setting", leaving the field empty uses the value the [Confidence](#confidence) setting supplies, and a value overrides it for that call only.
+Seven actions under `power_fingerprint.`. Every field is optional unless marked required. Where a default reads "confidence setting", leaving the field empty uses the value the [Confidence](#confidence) setting supplies, and a value overrides it for that call only.
 
 ### `learn`
 
@@ -382,6 +418,32 @@ Switch a device and watch which circuit moves. It actuates the device, several t
 | `settle` | 30 | Seconds to wait for the meter after each switch, 10 to 120. Must be at least twice the meter's reporting interval; the action warns when it is not. |
 | `pause_automations` | `false` | Switch off automations that reference the device or a circuit for the duration. See [Pausing interfering automations](#pausing-interfering-automations). |
 | `force` | `false` | Probe even though the device is carrying a load. |
+
+### `record_breaker_evidence`
+
+Add outage evidence gathered by hand to a recorded trip, stored as [Outage evidence](#outage-evidence) is. Returns the trip.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `circuit` | required | The trip's circuit. |
+| `start` | required | The trip's start, from the event or diagnostics; matched within 1 s. |
+| `devices` | none | Per device: `entity`, `signal`, and two times. `zigbee_command` or `zigbee_identify`: `failed_at`, a request that failed with the circuit dead, and `answered_at`, the same device answering with power back. `zwave_node_dead` or `media_off`: `down_at` and `back_at`. |
+| `answered` | none | Entities whose devices answered while the circuit was dead. |
+| `recovered` | none | Devices that refused requests before the trip and answered after it: `entity`, `failed_at`, `answered_at`. Noted on the trip, never assigned. |
+
+A time that went down before the circuit went dead, or came back more than 30 s before its first live reading, is refused.
+
+```yaml
+action: power_fingerprint.record_breaker_evidence
+data:
+  circuit: sensor.circuit_22_power
+  start: "2026-09-30T23:30:46.655261+00:00"
+  devices:
+    - entity: light.living_room_fan_light
+      signal: zwave_node_dead
+      down_at: "2026-09-30T23:32:01+00:00"
+      back_at: "2026-09-30T23:35:34+00:00"
+```
 
 ### `map_devices`
 
@@ -436,7 +498,7 @@ Device labels are counted again with each device trace shifted by 3, 7, 13 and 1
 
 ## Configuration
 
-The same six fields appear at setup, on Reconfigure and on Configure.
+The same seven fields appear at setup, on Reconfigure and on Configure.
 
 | Field | Required | Default | Meaning |
 |---|---|---|---|
@@ -445,6 +507,7 @@ The same six fields appear at setup, on Reconfigure and on Configure.
 | Electricity price per kWh | no | the energy dashboard's price, else 0.13 | Turns standby watts into an annual figure. A price set here beats the dashboard's. |
 | Coverage tolerance | no | 5 % | How far the circuits may drift from the mains before a fault is raised. |
 | How sure do you want to be? | no | Balanced | See [Confidence](#confidence). |
+| Probe devices during a breaker trip | no | on | Sends the requests described in [Outage evidence](#outage-evidence). Neither changes the device. |
 | Switch/circuit pairs | no | none | One `switch.entity: sensor.circuit_power` per line, checked for a switch that says on while its circuit draws nothing. |
 
 ## How it updates
@@ -453,7 +516,7 @@ The coordinator polls the state machine every 30 seconds and keeps a 24-hour rol
 
 30 seconds is the resolution the standby figure needs. The live appliance match reads whatever the meter last published; the meter's own cadence is measured and reported in diagnostics.
 
-Learning and probing are actions you run. Nothing switches anything unless `verify_circuit` is called.
+Learning and probing are actions you run. Nothing switches anything unless `verify_circuit` is called. During a breaker trip mains Zigbee devices get an Identify with a time of zero and mains Z-Wave nodes a ping, which change nothing; `Probe devices during a breaker trip` turns them off.
 
 Breaker trips are read from state changes as they happen, since an outage of a few seconds falls between two polls. Eligibility is read from the recorder's hourly statistics at startup and every hour.
 
@@ -642,7 +705,7 @@ python3.14 tools/validate_local.py
 
 `tools/validate_local.py` is 3.14 source and reports a SyntaxError under an older interpreter. `tools/hooks/pre-push` runs it at push time and picks its interpreter by version; install it with `cp tools/hooks/pre-push .git/hooks/pre-push`.
 
-268 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
+280 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
 
 `tests/fixtures/breaker_trips.json` holds recorder windows from one install with every entity id replaced by a generic one: a 7-second breaker flip, a Home Assistant restart, one integration dropping 22 entities with no circuit moving, eight appliance circuits reaching the noise floor, and 720 hourly minima per circuit. `tests/test_breaker_replay.py` replays them through the trip detector.
 
@@ -662,18 +725,19 @@ The commit half reads `PF_PUSH_RANGE`, which both workflows set from the push ev
 
 A match under `CI` prints the file, the line and the rule with the matched text replaced by `[redacted]`. A local run prints the match. Each matcher fires on a control line built at runtime first, and the redaction is controlled the same way, so a clean result is a matcher that matched rather than one that stopped working.
 
-198 more in `tests/ha/` cover the Home Assistant layer.
+216 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|
 | Entry lifecycle | Setup, unload and removal; the store goes with the entry. |
 | Flows | Config, reconfigure and options, each validation refusal followed by a recovery to a created entry. |
 | Entities | Derived values, availability, device grouping, the appliance sensor following its circuit, the diagnostics download carrying no entity id. |
-| Store | The refusal to overwrite an active probe with a passive answer, `measured` reserved for probes on write and on the minor-2 migration, and the rename migration. |
+| Store | Evidence strength deciding which answer stands and the conflicts kept, `measured` reserved for probes on write and on the minor-2 migration, amending a trip, and the rename migration. |
 | Dashboard | The energy dashboard reader against every shape the energy schema has had. |
 | Coordinator | The recorder seed, blind-time accounting behind the absence alert, and unit conversion at ingestion. |
-| Actions | All six driven end to end against recorded history, including the probe's restore path, its five refusals and the automations it pauses. |
+| Actions | All seven driven end to end, the history actions against recorded history, including the probe's restore path, its five refusals and the automations it pauses, and `record_breaker_evidence`'s timing refusals. |
 | Breaker trips | One assignment per device and the event, arming after startup, eligibility from statistics, what is excluded as a casualty, a probe never overwritten. |
+| Outage evidence | A trip with a Zigbee device, a Z-Wave node and a TV on circuit-22 timings; a TV switched off by a person; a node that never comes back; a refused incident; a circuit dead past the limit; a second trip during an outage; probing off; an unload mid-outage; a request that hangs; discovery leaving out battery and lock devices; reading a failed request by its cause. |
 
 They skip when the harness is absent. On Windows `tests/winposix.py` supplies `fcntl` and `resource`, releases `socketpair` from the harness's socket block, and selects the selector event loop. `pyproject.toml` loads it with `-p tests.winposix`, before the harness plugin reaches the `fcntl` import.
 

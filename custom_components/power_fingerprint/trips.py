@@ -4,6 +4,10 @@ Feeds `breaker.TripDetector` every circuit reading and every other entity's
 availability changes, judges which circuits are eligible from the recorder's
 hourly statistics, and records what a trip proved: one assignment per device,
 an event, and the last trip for the entities and diagnostics.
+
+While an incident is open, `probes.OutageRun` asks mains Zigbee and Z-Wave
+devices for an answer and watches Z-Wave node status and TVs. What it finds is
+added to the trip once power has been back long enough.
 """
 
 from __future__ import annotations
@@ -45,7 +49,15 @@ from .breaker import (
     TripOutcome,
     eligibility,
 )
-from .const import DOMAIN, EVENT_BREAKER_TRIP
+from .const import (
+    CONF_BREAKER_PROBE,
+    DEFAULT_BREAKER_PROBE,
+    DOMAIN,
+    EVENT_BREAKER_TRIP,
+)
+from .outage import ZIGBEE, ZIGBEE_COMMAND
+from .probes import OutageRun, discover
+from .store import BREAKER, CONFIRMED, PROBE
 from .verify import INFERRED
 
 if TYPE_CHECKING:
@@ -54,9 +66,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-BREAKER = "breaker"
-CONFIRMED = "confirmed"
 SUSPECTED = "suspected"
+# Recorded on a probe row so it is never read as `verify_circuit`'s answer.
+PROBE_KIND = "breaker_reachability"
 
 _CIRCUIT = "circuit"
 _METER = "meter"
@@ -121,6 +133,10 @@ class BreakerWatch:
         self._no_stats: set[str] = set()
         # Circuit -> start of its trip recorded while still dead.
         self._open_trips: dict[str, str] = {}
+        options = {**entry.data, **entry.options}
+        self._probe = bool(options.get(CONF_BREAKER_PROBE, DEFAULT_BREAKER_PROBE))
+        # One incident's outage evidence at a time.
+        self._outage: OutageRun | None = None
 
     # --- lifecycle -------------------------------------------------------
 
@@ -163,6 +179,9 @@ class BreakerWatch:
             unsub()
         self._unsubs.clear()
         self._cancel_timer()
+        if self._outage is not None:
+            self._outage.stop()
+        self._outage = None
 
     @callback
     def _on_started(self, _hass: HomeAssistant) -> None:
@@ -337,6 +356,12 @@ class BreakerWatch:
         new = event.data["new_state"]
         if new is None:
             return  # removed, not unavailable
+        if (
+            self._outage is not None
+            and not self._outage.finished
+            and entity in self._outage.watching
+        ):
+            self._outage.feed(entity, new)
         kind = self._kind(entity, new)
         if kind is None:
             return
@@ -356,6 +381,7 @@ class BreakerWatch:
             watts = self._watts(new)
             self.detector.circuit(entity, watts, stamp)
             self._note_hour(entity, watts, stamp)
+            self._follow_outage(entity, watts, stamp)
             if watts is not None and watts > DEAD_W and entity in self._open_trips:
                 start = self._open_trips.pop(entity)
                 self._entry.async_create_background_task(
@@ -377,6 +403,31 @@ class BreakerWatch:
         else:
             return
         self._schedule()
+
+    @callback
+    def _follow_outage(self, entity: str, watts: float | None, stamp: float) -> None:
+        """Start an incident's outage run, and tell it when its circuit is back."""
+        run = self._outage
+        if run is not None and run.finished:
+            run = self._outage = None
+        if run is not None:
+            if entity == run.circuit and watts is not None and watts > DEAD_W:
+                run.restore(stamp)
+            return
+        start = self.detector.open_start
+        if start is None or self.detector.open_circuit != entity:
+            return
+        run = OutageRun(
+            self.hass,
+            self._entry,
+            entity,
+            start,
+            discover(self.hass, self._excluded_devices),
+            self._probe,
+            self._async_record_run,
+        )
+        self._outage = run
+        run.start()
 
     def _note_hour(self, circuit: str, watts: float | None, stamp: float) -> None:
         """Keep the hour's lowest reading, for the hours statistics lack yet."""
@@ -430,7 +481,15 @@ class BreakerWatch:
 
     async def async_handle(self, outcome: TripOutcome) -> None:
         """Record a trip, or note why an incident was not one."""
+        run = self._outage
+        if run is not None and (run.circuit, run.fall) != (
+            outcome.circuit,
+            outcome.start,
+        ):
+            run = None
         if not outcome.accepted:
+            if run is not None:
+                run.decide(None)
             self.last_refusal = {
                 "circuit": outcome.circuit,
                 "start": _stamp(outcome.start),
@@ -458,6 +517,8 @@ class BreakerWatch:
         keep_after = _stamp(dt_util.utcnow().timestamp() - LOOKBACK_H * 3600.0)
         await self._store.async_record_trip(trip, keep_after or "")
         await self._record_devices(outcome.circuit, trip, confirmed, suspected)
+        if run is not None:
+            run.decide(dict(trip))
         self.hass.bus.async_fire(EVENT_BREAKER_TRIP, dict(trip))
         _LOGGER.info(
             "Breaker trip on %s: %d confirmed, %d suspected",
@@ -508,6 +569,103 @@ class BreakerWatch:
                     "entities": sorted(entities),
                 },
             )
+
+    async def _async_record_run(self, run: OutageRun) -> None:
+        trip = run.trip or {}
+        verdict = run.evidence.judge()
+        await self.async_record_outage(
+            run.circuit,
+            str(trip.get("start")),
+            verdict.casualties,
+            verdict.answered,
+            verdict.indeterminate,
+        )
+
+    async def async_record_outage(
+        self,
+        circuit: str,
+        start: str,
+        casualties: dict[str, dict[str, Any]],
+        answered: list[str],
+        indeterminate: list[str],
+        recovered: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        """Add an outage's evidence to a recorded trip; the trip, or None if absent.
+
+        Keys are device ids, or entity ids for entities without a device. Each
+        casualty is `suspected`: a device that stops answering may only have
+        lost its parent router. A Zigbee answer is stored as a probe and the
+        rest as breaker evidence. `recovered` devices refused requests before
+        the outage and answered after it: noted on the trip, never assigned.
+        """
+        trip = next(
+            (
+                t
+                for t in self._store.breaker_trips()
+                if t.get("circuit") == circuit and t.get("start") == start
+            ),
+            None,
+        )
+        if trip is None or not (casualties or answered or indeterminate or recovered):
+            return trip
+        registry = er.async_get(self.hass)
+        existing = self._store.assignments()
+
+        def key(device: str) -> tuple[str, list[str]]:
+            rows = er.async_entries_for_device(registry, device)
+            # A node's ping button and status sensor are not what it is.
+            primary = [r.entity_id for r in rows if r.entity_category is None]
+            entities = sorted(primary or [r.entity_id for r in rows])
+            if not entities:
+                return device, [device]
+            return self._key_for(registry, device, entities, existing), entities
+
+        def stamped(found: dict[str, Any]) -> dict[str, Any]:
+            return {
+                k: _stamp(v) if k.endswith("_at") and isinstance(v, float) else v
+                for k, v in found.items()
+            }
+
+        shown: dict[str, dict[str, Any]] = {}
+        for device, raw in sorted(casualties.items()):
+            found = stamped(raw)
+            name, entities = key(device)
+            active = found.get("signal") in (ZIGBEE, ZIGBEE_COMMAND)
+            evidence: dict[str, Any] = {
+                "start": start,
+                "result": SUSPECTED,
+                "entities": entities[:MAX_SHOWN],
+                **found,
+            }
+            if active:
+                evidence["probe_kind"] = PROBE_KIND
+            await self._store.async_record_assignment(
+                name, circuit, INFERRED, PROBE if active else BREAKER, evidence
+            )
+            shown[name] = dict(found)
+        amended = await self._store.async_amend_trip(
+            circuit,
+            start,
+            sorted(shown),
+            {
+                "casualties": shown,
+                "answered": sorted(key(d)[0] for d in answered),
+                "indeterminate": sorted(key(d)[0] for d in indeterminate),
+                "recovered": {
+                    key(d)[0]: stamped(v) for d, v in sorted((recovered or {}).items())
+                },
+            },
+        )
+        if amended is not None and shown:
+            self.hass.bus.async_fire(EVENT_BREAKER_TRIP, {**amended, "amended": True})
+            _LOGGER.info(
+                "Breaker trip on %s: %d more suspected from its outage",
+                circuit,
+                len(shown),
+            )
+        self._rejudge()
+        self._coordinator.async_update_listeners()
+        return amended
 
     @staticmethod
     def _key_for(

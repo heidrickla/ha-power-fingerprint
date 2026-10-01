@@ -122,6 +122,11 @@ def _breaker(coordinator: FingerprintCoordinator, anon: _Redactor) -> dict[str, 
             "end": trip.get("end"),
             "confirmed": len(trip.get("confirmed") or []),
             "suspected": len(trip.get("suspected") or []),
+            # Counted, never listed: the lists hold entity ids.
+            "outage": {
+                key: len(value)
+                for key, value in sorted((trip.get("outage") or {}).items())
+            },
         },
         "last_refusal": None
         if refusal is None
