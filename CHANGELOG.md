@@ -14,7 +14,7 @@ This file starts at 0.17.0. Earlier versions were developed against one install 
 - A disabled lock, cover, valve, alarm panel or battery entity no longer lets its device be probed.
 - A TV's `remote` going off while its `media_player` stayed on counted as the TV losing power. A TV is now on while any of its media entities is, off once all are, and unknown while one is unreadable.
 - A second incident opened while a first was followed could gain an outage run once the first ended. Only the reading that opens an incident starts a run.
-- A return that did not hold could leave the probe pass of the first dead interval running, so the second interval got none. A return now ends that pass.
+- A return that did not hold could leave the first dead interval's probe pass running, or its probe still due, so the second interval got none. A return now ends that pass and cancels a probe still due.
 - An outage casualty whose main entities are disabled was stored under its ping button.
 - A second `record_breaker_evidence` call for a trip replaced its `outage`; it now adds to it.
 - `record_breaker_evidence` refuses `devices` and `recovered` for a trip whose circuit has not read live again, and checks `recovered` times: refused before the fall, answered after the return.

@@ -295,8 +295,8 @@ Three kinds of device do not go `unavailable` in an outage of minutes. While a t
 - A Zigbee device that answers while the circuit is dead is recorded in `outage.answered`: fed from elsewhere.
 - A request finished within 30 s of the circuit's first live reading says nothing either way; the meter's reading trails the power.
 - Battery devices and devices with a lock, cover, valve or alarm panel entity get no request, whether that entity is enabled or disabled.
-- A circuit that reads dead again before its incident closes has not returned: the controls wait for the next live reading, and requests around the short return say nothing.
-- Every casualty is `suspected`: a device that stops answering may have lost its parent router rather than its power. A Zigbee casualty is stored `established_by: probe`, `confidence: inferred`, with `probe_kind: breaker_reachability` in the evidence; Z-Wave and TV casualties are stored `established_by: breaker`.
+- A circuit that reads dead again before its incident closes has not returned: the controls wait for the next live reading, requests around the short return say nothing, and probing starts again 15 s after the circuit reads dead again.
+- Every casualty is `suspected`: a device that stops answering may have lost its parent router rather than its power. A Zigbee casualty is stored `established_by: probe`, `confidence: inferred`, with `probe_kind: breaker_reachability` in the evidence; Z-Wave and TV casualties are stored `established_by: breaker`. A casualty goes under the key its device already has an assignment on, else its own power sensor, else its first enabled main entity, else its first main entity.
 - A refused incident records nothing from its outage. A circuit dead for 6 hours from the fall is not followed to its return. One incident is followed at a time: one that opens while another is followed gets no outage evidence, however long it stays open.
 - `Probe devices during a breaker trip` in the configuration turns the requests off; node status and TV state are still read.
 
@@ -706,7 +706,7 @@ python3.14 tools/validate_local.py
 
 `tools/validate_local.py` is 3.14 source and reports a SyntaxError under an older interpreter. `tools/hooks/pre-push` runs it at push time and picks its interpreter by version; install it with `cp tools/hooks/pre-push .git/hooks/pre-push`.
 
-280 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
+283 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
 
 `tests/fixtures/breaker_trips.json` holds recorder windows from one install with every entity id replaced by a generic one: a 7-second breaker flip, a Home Assistant restart, one integration dropping 22 entities with no circuit moving, eight appliance circuits reaching the noise floor, and 720 hourly minima per circuit. `tests/test_breaker_replay.py` replays them through the trip detector.
 
@@ -726,23 +726,23 @@ The commit half reads `PF_PUSH_RANGE`, which both workflows set from the push ev
 
 A match under `CI` prints the file, the line and the rule with the matched text replaced by `[redacted]`. A local run prints the match. Each matcher fires on a control line built at runtime first, and the redaction is controlled the same way, so a clean result is a matcher that matched rather than one that stopped working.
 
-216 more in `tests/ha/` cover the Home Assistant layer.
+230 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|
 | Entry lifecycle | Setup, unload and removal; the store goes with the entry. |
 | Flows | Config, reconfigure and options, each validation refusal followed by a recovery to a created entry. |
 | Entities | Derived values, availability, device grouping, the appliance sensor following its circuit, the diagnostics download carrying no entity id. |
-| Store | Evidence strength deciding which answer stands and the conflicts kept, `measured` reserved for probes on write and on the minor-2 migration, amending a trip, and the rename migration. |
+| Store | Evidence strength deciding which answer stands and the conflicts kept, `measured` reserved for probes on write and on the minor-2 migration, amendments to a trip adding up, and the rename migration. |
 | Dashboard | The energy dashboard reader against every shape the energy schema has had. |
 | Coordinator | The recorder seed, blind-time accounting behind the absence alert, and unit conversion at ingestion. |
-| Actions | All seven driven end to end, the history actions against recorded history, including the probe's restore path, its five refusals and the automations it pauses, and `record_breaker_evidence`'s timing refusals. |
+| Actions | All seven driven end to end, the history actions against recorded history, including the probe's restore path, its five refusals and the automations it pauses, and `record_breaker_evidence`'s timing refusals, its refusal of casualties on a trip with no return, and a second import adding to the first. |
 | Breaker trips | One assignment per device and the event, arming after startup, eligibility from statistics, what is excluded as a casualty, a probe never overwritten. |
-| Outage evidence | A trip with a Zigbee device, a Z-Wave node and a TV on a measured trip's timings; a TV switched off by a person; a node that never comes back; a refused incident; a circuit dead past the limit; a second trip during an outage; probing off; an unload mid-outage; a request that hangs; discovery leaving out battery and lock devices; reading a failed request by its cause. |
+| Outage evidence | A trip with a Zigbee device, a Z-Wave node and a TV on a measured trip's timings; a TV switched off by a person; a node that never comes back; a refused incident; a circuit dead past the limit; a second trip during an outage; probing off; an unload mid-outage; a request that hangs; discovery leaving out battery and lock devices, enabled or disabled; reading a failed request by its cause; a return near the dead limit; a return that does not hold, before and after the first probe; the controls cut off at the window's end; one media entity going off, and one unreadable; a device with its main entity disabled; an incident opened during a run. |
 
 They skip when the harness is absent. On Windows `tests/winposix.py` supplies `fcntl` and `resource`, releases `socketpair` from the harness's socket block, and selects the selector event loop. `pyproject.toml` loads it with `-p tests.winposix`, before the harness plugin reaches the `fcntl` import.
 
-GitHub Actions runs both suites on every push under one coverage measurement and fails the build below 95%. It is 99%; the only statement not exercised is a guard for a device that leaves the registry mid-run.
+GitHub Actions runs both suites on every push under one coverage measurement and fails the build below 95%. It is 99%.
 
 ## Licence
 
