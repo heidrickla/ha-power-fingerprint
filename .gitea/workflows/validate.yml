@@ -14,15 +14,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 15
 
       # Pinned: an unpinned linter makes CI non-reproducible.
       - name: Install ruff (PINNED)
+        timeout-minutes: 15
         run: |
           python3 -m pip install --quiet --upgrade pip
           python3 -m pip install --quiet "ruff==0.15.21"
           python3 -m ruff --version
 
       - name: Ruff
+        timeout-minutes: 15
         run: |
           python3 -m ruff check .
           python3 -m ruff format --check .
@@ -32,6 +35,7 @@ jobs:
       # except groups, which that interpreter cannot parse. Ruff parses every
       # file at py314 in the step above.
       - name: JSON is valid
+        timeout-minutes: 15
         run: |
           for f in custom_components/power_fingerprint/*.json hacs.json; do
             python3 -c "import json,sys; json.load(open(sys.argv[1],encoding='utf-8'))" "$f" || exit 1
@@ -39,6 +43,7 @@ jobs:
           echo "all JSON valid"
 
       - name: Manifest sanity
+        timeout-minutes: 15
         run: |
           python3 - <<'PY'
           import json
@@ -52,6 +57,7 @@ jobs:
           PY
 
       - name: Quality scale is complete and honest
+        timeout-minutes: 15
         run: |
           python3 -m pip install --quiet "PyYAML==6.0.2"
           python3 - <<'PY'
@@ -85,32 +91,38 @@ jobs:
       # to find, and the released-version check then notes that it could not
       # compare rather than running.
       - uses: actions/checkout@v4
+        timeout-minutes: 15
         with:
           fetch-depth: 0
           fetch-tags: true
 
       # The runner image ships 3.10; Home Assistant 2026.x needs 3.14.
       - uses: actions/setup-python@v5
+        timeout-minutes: 15
         with:
           python-version: "3.14"
 
       # The same pins as .github/workflows/tests.yml: 0.13.357 carries Home
       # Assistant 2026.8.3 and brings pytest, its plugins and pytest-cov.
       - name: Install
+        timeout-minutes: 15
         run: |
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet "mypy==1.18.2" \
             "pytest-homeassistant-custom-component==0.13.357"
 
       - name: Pure tests
-        run: python -m pytest tests -q --ignore=tests/ha -p no:homeassistant
+        timeout-minutes: 15
+        run: python -m pytest --durations=15 --junitxml=reports/junit-1.xml tests -q --ignore=tests/ha -p no:homeassistant
 
       - name: Home Assistant layer tests
+        timeout-minutes: 15
         run: >-
-          python -m pytest tests/ha -q
+          python -m pytest --durations=15 --junitxml=reports/junit-2.xml tests/ha -q
           --cov=custom_components/power_fingerprint --cov-report=term-missing
 
       - name: mypy strict
+        timeout-minutes: 15
         run: python -m mypy custom_components/power_fingerprint
 
       # No PF_INTERNAL_HOSTS, for the same reason as the GitHub workflow. Every
@@ -125,7 +137,18 @@ jobs:
       # The bare-name and queued-commit halves are a workstation gate, run by
       # tools/hooks/pre-push.
       - name: Offline HACS and hassfest checks
+        timeout-minutes: 15
         run: python tools/validate_local.py
+
+      # each test's time and result, kept whatever the outcome: the forge shows no job log
+      - name: test results
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3.2.1
+        with:
+          name: test-results-${{ github.job }}
+          path: reports/
+          retention-days: 14
 
   # No continue-on-error: a red hassfest check is a real failure, and
   # a step that cannot fail proves nothing.
@@ -137,4 +160,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 15
       - uses: home-assistant/actions/hassfest@master
+        timeout-minutes: 15
