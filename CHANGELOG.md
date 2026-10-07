@@ -4,6 +4,12 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.19.3] - 2026-10-07
+
+### Changed
+
+- The forge CI stops each step after 15 minutes, as Gitea 1.24 ignores a job's limit, and keeps each test's time (`reports/`, uploaded whatever the result).
+
 ## [0.19.2] - 2026-10-01
 
 ### Changed

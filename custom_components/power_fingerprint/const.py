@@ -5,7 +5,7 @@ MANUFACTURER = "Power Fingerprint"
 # Must match manifest.json. HACS surfaces the release TAG while Home Assistant
 # reports the MANIFEST version, so a mismatch is a defect users see as a wrong
 # version number. Bump both together.
-VERSION = "0.19.2"
+VERSION = "0.19.3"
 
 CONF_MAINS = "mains"
 CONF_CIRCUITS = "circuits"
