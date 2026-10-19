@@ -275,8 +275,15 @@ def live_features(samples: list[float]) -> dict[str, float]:
     }
 
 
+# The distance within which a run is called a named shape; `carry_labels` uses
+# the same one, so a name only follows a shape the live match would accept.
+MATCH_TOLERANCE = 1.0
+
+
 def match(
-    features: dict[str, float], library: list[Fingerprint], tolerance: float = 1.0
+    features: dict[str, float],
+    library: list[Fingerprint],
+    tolerance: float = MATCH_TOLERANCE,
 ) -> tuple[Fingerprint | None, float]:
     """Nearest-centroid match, refusing rather than guessing.
 
@@ -358,19 +365,36 @@ def audit(
     return {"duplicate_labels": duplicates, "small_shapes": small}
 
 
-def carry_labels(old: list[Fingerprint], new: list[Fingerprint]) -> list[Fingerprint]:
-    """Preserve human-applied labels across a re-learn, by position.
+def carry_labels(
+    old: list[Fingerprint],
+    new: list[Fingerprint],
+    tolerance: float = MATCH_TOLERANCE,
+) -> list[Fingerprint]:
+    """Carry human-applied names across a re-learn, by shape.
 
-    Re-learning over more data must not silently discard naming work. Position
-    is the carrier because clustering returns clusters largest-first and a
-    re-run over a superset usually preserves that order.
+    Each named old shape passes its name to the nearest new shape within
+    `tolerance`, nearest pairs first, one name per new shape. Cluster order is
+    size order, which shifts between windows, so it cannot carry a name.
 
-    It is not guaranteed to. When the order does shift, a label lands on the
-    wrong shape and the user can see that and fix it. That is the deliberate
-    trade: a visible wrong label beats silently throwing the labels away, and
-    beats pretending a positional match is an identity match.
+    A named shape that matched nothing did not run in the window (a heater in
+    summer, a second stage) and is kept as it was, after the new shapes.
     """
-    for idx, fp in enumerate(new):
-        if idx < len(old) and is_named(old[idx]):
-            fp.label = old[idx].label
-    return new
+    named = [fp for fp in old if is_named(fp)]
+    old_rows = normalize([fp.centroid for fp in named])
+    new_rows = normalize([fp.centroid for fp in new])
+    pairs = sorted(
+        (_dist(a, b), i, j)
+        for i, a in enumerate(old_rows)
+        for j, b in enumerate(new_rows)
+    )
+    carried: set[int] = set()
+    taken: set[int] = set()
+    for distance, i, j in pairs:
+        if distance > tolerance:
+            break
+        if i in carried or j in taken:
+            continue
+        new[j].label = named[i].label
+        carried.add(i)
+        taken.add(j)
+    return new + [fp for i, fp in enumerate(named) if i not in carried]

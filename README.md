@@ -138,7 +138,7 @@ automation:
         response_variable: found
 ```
 
-`learn` replaces a circuit's candidates. Names already given are carried onto the matching new shapes, but a shape that no longer occurs disappears with its name.
+`learn` replaces a circuit's candidates. Each name already given moves to the nearest new shape within the match tolerance, whatever order the shapes come in. A named shape that did not run in the window is kept. To drop one, rename it to `unnamed_N` before learning.
 
 ## Installation
 
@@ -389,7 +389,7 @@ Seven actions under `power_fingerprint.`. Every field is optional unless marked 
 
 ### `learn`
 
-Read history for each circuit, group the appliance runs by shape, and store them as candidates. Returns a description of every shape found. Names already given are carried onto the matching new shapes.
+Read history for each circuit, group the appliance runs by shape, and store them as candidates. Returns a description of every shape found. Each name already given moves to the nearest new shape within the match tolerance; a named shape that did not run in the window is kept and listed with `kept: true`.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -706,7 +706,7 @@ python3.14 tools/validate_local.py
 
 `tools/validate_local.py` is 3.14 source and reports a SyntaxError under an older interpreter. `tools/hooks/pre-push` runs it at push time and picks its interpreter by version; install it with `cp tools/hooks/pre-push .git/hooks/pre-push`.
 
-283 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
+287 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
 
 `tests/fixtures/breaker_trips.json` holds recorder windows from one install with every entity id replaced by a generic one: a 7-second breaker flip, a Home Assistant restart, one integration dropping 22 entities with no circuit moving, eight appliance circuits reaching the noise floor, and 720 hourly minima per circuit. `tests/test_breaker_replay.py` replays them through the trip detector.
 
@@ -722,11 +722,11 @@ python3.14 tools/validate_local.py
 
 Neither workflow supplies the names, so the bare-name rule is a workstation gate and the CI run says so. The reason is not the printed string, which is redacted under `CI`: a report names the file and the line, which on a public repository locates the string either way, and a repository secret would be a second copy of the names outside the network. In a fresh clone with `CI=true` and no names the run exits 0, with a note naming `PF_INTERNAL_HOSTS` and stating which rules the result covers.
 
-The commit half reads `PF_PUSH_RANGE`, which both workflows set from the push event. A range derived from the tracking branch answers on a workstation and cannot answer in CI, where a checkout points that branch at the commit it checked out; a derived range that reads nothing is reported as coverage the run did not have rather than as a count of zero.
+The commit half reads `PF_PUSH_RANGE`, which the GitHub `Tests` workflow sets from the push event; the forge's validator runs on dispatch, which names no earlier commit, so it sets none. A range derived from the tracking branch answers on a workstation and cannot answer in CI, where a checkout points that branch at the commit it checked out; a derived range that reads nothing is reported as coverage the run did not have rather than as a count of zero.
 
 A match under `CI` prints the file, the line and the rule with the matched text replaced by `[redacted]`. A local run prints the match. Each matcher fires on a control line built at runtime first, and the redaction is controlled the same way, so a clean result is a matcher that matched rather than one that stopped working.
 
-230 more in `tests/ha/` cover the Home Assistant layer.
+233 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|

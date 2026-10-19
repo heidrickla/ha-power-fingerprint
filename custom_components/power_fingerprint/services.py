@@ -465,17 +465,18 @@ def async_setup_services(hass: HomeAssistant) -> None:
             # Pure CPU over days of samples - segmenting and clustering a
             # 27-circuit panel on the event loop stalled all of Home Assistant.
             fps = await hass.async_add_executor_job(_crunch, entity, samples)
-            if not fps:
-                report[entity] = []
-                continue
-            await store.async_replace_circuit(entity, fps)
+            # A read window with no runs still replaces the candidates; named
+            # shapes are kept and reported as such.
+            stored = await store.async_replace_circuit(entity, fps)
             report[entity] = [
                 {
                     "label": fp.label,
                     "runs": fp.count,
                     "description": fp.describe(),
+                    # A named shape that did not run in this window.
+                    **({"kept": True} if idx >= len(fps) else {}),
                 }
-                for fp in fps
+                for idx, fp in enumerate(stored)
             ]
 
         await coordinator.async_request_refresh()

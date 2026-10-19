@@ -69,7 +69,7 @@ async def test_relearning_replaces_only_the_circuit_it_learned(hass: HomeAssista
     await store.async_replace_circuit(CIRCUIT_A, [shape("unnamed_0")])
 
     labels = {fp.circuit: fp.label for fp in store.fingerprints}
-    # The name a human gave is carried onto the new shape by position.
+    # The name a human gave is carried onto the new shape of the same power.
     assert labels[CIRCUIT_A] == "Dryer"
     assert labels[CIRCUIT_B] == "Fridge"
 

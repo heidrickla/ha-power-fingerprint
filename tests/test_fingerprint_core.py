@@ -65,7 +65,7 @@ def test_a_washer_and_a_dryer_on_one_circuit_are_two_clusters():
 
 
 def test_the_largest_cluster_is_cluster_zero():
-    """Ordered largest first, which is what `carry_labels` relies on."""
+    """Ordered largest first, so `unnamed_0` is the commonest shape."""
     rows = [run(2400, 350), run(2450, 355), run(2420, 345), run(120, 2)]
     labels = fp.cluster(fp.normalize(rows))
     assert labels[-1] != 0

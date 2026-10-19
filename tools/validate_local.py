@@ -30,8 +30,9 @@ that names `PF_INTERNAL_HOSTS`, not a failure. The name half is a workstation
 gate: supplying the names to a public run would publish them in its log, which
 is the disclosure the rule exists to prevent. A CI run covers the address,
 URL-host, device-identifier and private-suffix rules over the published tree,
-and over the commits in `PF_PUSH_RANGE`, which both workflows set from the
-push. The bare-name rule runs on a workstation only.
+and over the commits in `PF_PUSH_RANGE`, which the GitHub `Tests` workflow
+sets from the push; the forge's dispatch run sets none. The bare-name rule
+runs on a workstation only.
 
 Under `CI` every report replaces the matched string with `[redacted]` and keeps
 the file, the line and the rule that matched, which locate the match without

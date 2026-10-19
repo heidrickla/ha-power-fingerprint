@@ -420,28 +420,28 @@ class FingerprintStore:
 
     async def async_replace_circuit(
         self, circuit: str, fingerprints: list[Fingerprint]
-    ) -> None:
+    ) -> list[Fingerprint]:
         """Swap in freshly learned candidates for one circuit.
 
-        Labels a human already applied are carried across by position, so
-        re-learning does not silently discard naming work. Position is used
-        because clustering is ordered largest-first and a re-run over more data
-        usually preserves that order - but if it does not, the labels move and
-        the user has to fix them. That is visible; silently dropping them would
-        not be.
+        Names a human already applied follow their shapes, and a named shape
+        that did not run in the window is kept (`carry_labels`). Returns the
+        circuit's shapes as stored.
         """
-        old_order = [fp for fp in self._fingerprints if fp.circuit == circuit]
-        fingerprints = carry_labels(old_order, fingerprints)
+        old = [fp for fp in self._fingerprints if fp.circuit == circuit]
+        learned = len(fingerprints)
+        fingerprints = carry_labels(old, fingerprints)
         self._fingerprints = [
             fp for fp in self._fingerprints if fp.circuit != circuit
         ] + fingerprints
         _LOGGER.debug(
-            "Replaced %d fingerprints on %s (%d labels carried over)",
-            len(fingerprints),
+            "Replaced %d fingerprints on %s (%d named, %d named kept unmatched)",
+            learned,
             circuit,
-            sum(1 for fp in fingerprints if is_named(fp)),
+            sum(1 for fp in fingerprints[:learned] if is_named(fp)),
+            len(fingerprints) - learned,
         )
         await self.async_save()
+        return fingerprints
 
     async def async_relabel(self, circuit: str, old: str, new: str) -> bool:
         for fp in self._fingerprints:

@@ -145,6 +145,87 @@ async def test_a_tighter_threshold_splits_more_shapes(
     assert len(tight["circuits"][CIRCUIT_A]) > len(loose["circuits"][CIRCUIT_A])
 
 
+def dryer_and_washer(cycling, dryer_runs, washer_runs):
+    washer = [
+        (stamp + timedelta(hours=1), w) for stamp, w in cycling(800.0, runs=washer_runs)
+    ]
+    return sorted(cycling(1200.0, runs=dryer_runs) + washer)
+
+
+async def _name(hass, current, new):
+    await hass.services.async_call(
+        DOMAIN,
+        "label",
+        {"circuit": CIRCUIT_A, "current_label": current, "new_label": new},
+        blocking=True,
+    )
+
+
+async def test_relearning_moves_names_with_their_shapes(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    """Shapes come largest first, so a week with more washing than drying
+    reorders them. Each name stays on its own appliance."""
+    history[CIRCUIT_A] = dryer_and_washer(cycling, dryer_runs=8, washer_runs=4)
+    await _setup(hass, config_entry)
+    first = await _learn(hass, days=7, threshold=0.3, circuits=[CIRCUIT_A])
+    assert [s["runs"] for s in first["circuits"][CIRCUIT_A]] == [8, 4]
+    await _name(hass, "unnamed_0", "Dryer")
+    await _name(hass, "unnamed_1", "Washer")
+
+    history[CIRCUIT_A] = dryer_and_washer(cycling, dryer_runs=3, washer_runs=8)
+    second = await _learn(hass, days=7, threshold=0.3, circuits=[CIRCUIT_A])
+
+    found = second["circuits"][CIRCUIT_A]
+    assert [(s["label"], s["runs"]) for s in found] == [("Washer", 8), ("Dryer", 3)]
+    assert "peaks 1200 W" in found[1]["description"]
+
+
+async def test_a_named_shape_that_did_not_run_is_kept_and_reported(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    """A window without the dryer must not delete the dryer's name."""
+    history[CIRCUIT_A] = cycling(1200.0)
+    await _setup(hass, config_entry)
+    await _learn(hass, days=7, circuits=[CIRCUIT_A])
+    await _name(hass, "unnamed_0", "Dryer")
+
+    history[CIRCUIT_A] = cycling(300.0)
+    response = await _learn(hass, days=7, circuits=[CIRCUIT_A])
+
+    found = response["circuits"][CIRCUIT_A]
+    assert [(s["label"], s.get("kept", False)) for s in found] == [
+        ("unnamed_0", False),
+        ("Dryer", True),
+    ]
+    store = config_entry.runtime_data.store
+    assert [fp.label for fp in store.labelled()] == ["Dryer"]
+
+
+async def test_a_window_with_no_runs_drops_candidates_and_keeps_names(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    """History that was read and held no runs replaces the candidates like any
+    other window: the stale candidate goes, and the named shape is reported
+    as kept rather than the circuit reading empty."""
+    from homeassistant.util import dt as dt_util
+
+    history[CIRCUIT_A] = dryer_and_washer(cycling, dryer_runs=8, washer_runs=4)
+    await _setup(hass, config_entry)
+    await _learn(hass, days=7, threshold=0.3, circuits=[CIRCUIT_A])
+    await _name(hass, "unnamed_0", "Dryer")
+
+    start = dt_util.utcnow() - timedelta(hours=6)
+    history[CIRCUIT_A] = [(start + timedelta(minutes=i), 4.0) for i in range(300)]
+    response = await _learn(hass, days=7, circuits=[CIRCUIT_A])
+
+    found = response["circuits"][CIRCUIT_A]
+    assert [(s["label"], s.get("kept", False)) for s in found] == [("Dryer", True)]
+    store = config_entry.runtime_data.store
+    assert store.unnamed() == []
+    assert [fp.label for fp in store.labelled()] == ["Dryer"]
+
+
 # --- naming ----------------------------------------------------------------
 
 

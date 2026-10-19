@@ -16,8 +16,9 @@ sys.modules["pf_fingerprint"] = fp
 _spec.loader.exec_module(fp)
 
 
-def make(label, circuit="sensor.c1", count=1):
-    return fp.Fingerprint(label=label, circuit=circuit, count=count)
+def make(label, circuit="sensor.c1", count=1, watts=None):
+    centroid = {} if watts is None else {"peak_w": watts, "floor_w": watts * 0.8}
+    return fp.Fingerprint(label=label, circuit=circuit, count=count, centroid=centroid)
 
 
 def test_unnamed_is_not_an_identification():
@@ -26,26 +27,69 @@ def test_unnamed_is_not_an_identification():
 
 
 def test_relearning_keeps_human_labels():
-    old = [make("Dryer"), make("Washer")]
-    new = [make("unnamed_0"), make("unnamed_1")]
+    old = [make("Dryer", watts=2400), make("Washer", watts=500)]
+    new = [make("unnamed_0", watts=2350), make("unnamed_1", watts=520)]
     out = fp.carry_labels(old, new)
     assert [f.label for f in out] == ["Dryer", "Washer"]
 
 
+def test_a_name_follows_its_shape_when_the_size_order_changes():
+    """Clusters come largest first, so a week of more washing than drying
+    reorders them. The name goes with the shape, not the position."""
+    old = [make("Dryer", watts=2400), make("Washer", watts=500)]
+    new = [make("unnamed_0", watts=520), make("unnamed_1", watts=2350)]
+    out = fp.carry_labels(old, new)
+    assert [f.label for f in out] == ["Washer", "Dryer"]
+
+
 def test_relearning_does_not_invent_labels_for_extra_clusters():
     """A re-run finding MORE shapes must leave the new ones unnamed."""
-    old = [make("Dryer")]
-    new = [make("unnamed_0"), make("unnamed_1"), make("unnamed_2")]
+    old = [make("Dryer", watts=2400)]
+    new = [
+        make("unnamed_0", watts=2350),
+        make("unnamed_1", watts=500),
+        make("unnamed_2", watts=60),
+    ]
     out = fp.carry_labels(old, new)
     assert [f.label for f in out] == ["Dryer", "unnamed_1", "unnamed_2"]
 
 
 def test_unnamed_old_labels_are_not_carried():
     """Carrying 'unnamed_0' forward would be noise, not information."""
-    old = [make("unnamed_0"), make("Washer")]
-    new = [make("unnamed_0"), make("unnamed_1")]
+    old = [make("unnamed_0", watts=2400), make("Washer", watts=500)]
+    new = [make("unnamed_0", watts=2350), make("unnamed_1", watts=520)]
     out = fp.carry_labels(old, new)
     assert [f.label for f in out] == ["unnamed_0", "Washer"]
+
+
+def test_a_name_is_not_carried_onto_a_shape_the_match_would_refuse():
+    """Nearest is not enough: past the match tolerance the new shape is
+    another appliance, and the named shape is kept instead."""
+    old = [make("Dryer", watts=2400)]
+    new = [make("unnamed_0", watts=300)]
+    out = fp.carry_labels(old, new)
+    assert [f.label for f in out] == ["unnamed_0", "Dryer"]
+    assert out[1] is old[0]
+
+
+def test_a_named_shape_that_did_not_run_is_kept():
+    """A second stage or a heater can sit out a whole window; its name and
+    shape stay, after the new shapes."""
+    stage2 = make("Stage 2", watts=2700, count=40)
+    old = [make("Stage 1", watts=1500), stage2]
+    new = [make("unnamed_0", watts=1520)]
+    out = fp.carry_labels(old, new)
+    assert [f.label for f in out] == ["Stage 1", "Stage 2"]
+    assert out[1] is stage2
+
+
+def test_one_name_per_new_shape_and_the_nearest_wins():
+    """Two named shapes near one new shape: the nearer gives its name, and
+    the other is kept rather than naming the same shape twice."""
+    old = [make("Keurig", watts=1500), make("Kettle", watts=1400)]
+    new = [make("unnamed_0", watts=1490)]
+    out = fp.carry_labels(old, new)
+    assert [f.label for f in out] == ["Keurig", "Kettle"]
 
 
 def test_match_refuses_rather_than_guessing():
