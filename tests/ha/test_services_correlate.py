@@ -231,8 +231,28 @@ async def test_thermostat_action_changes_are_a_series(
         for stamp, action in _toggles(starts, ends, on="cooling", off="idle")
     ]
     shape = (await _call(hass, "correlate"))["circuits"][CIRCUIT_A][0]
-    found = {(s["entity_id"], s["transition"]) for s in shape["suggestions"]}
-    assert ("climate.house", "hvac_action cooling") in found
+    row = next(
+        s
+        for s in shape["suggestions"]
+        if (s["entity_id"], s["transition"]) == ("climate.house", "hvac_action cooling")
+    )
+    assert row["role"] == "switch"
+    # Its reports run on the thermostat's own schedule; the step does not judge it.
+    assert row["fit"] == "unknown"
+
+
+async def test_a_whole_house_meter_is_set_aside_as_upstream(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    _, starts, ends = await _learned(hass, config_entry, history, cycling)
+    house = "sensor.battery_power_to_home"
+    _device(hass, "Home Battery", "B-10", {house: ("900", POWER_ATTRS)})
+    history[house] = _toggles(starts, ends, on=5200.0, off=900.0)
+    shape = (await _call(hass, "correlate"))["circuits"][CIRCUIT_A][0]
+    assert house not in {s["entity_id"] for s in shape["suggestions"]}
+    upstream = [c for c in shape["context"] if c["entity_id"] == house]
+    assert upstream
+    assert upstream[0]["fit"] == "upstream"
 
 
 async def test_setting_power_for_a_device_that_does_not_exist_is_refused(

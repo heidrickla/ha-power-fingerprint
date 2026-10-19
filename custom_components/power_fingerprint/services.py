@@ -58,6 +58,8 @@ from .coordinator import (
 from .correlate import (
     CONTEXT,
     KINDS,
+    THERMOSTAT_DOMAINS,
+    UPSTREAM,
     Match,
     draw_hint,
     fit,
@@ -1565,14 +1567,15 @@ def async_setup_services(hass: HomeAssistant) -> None:
                             rating.get("kind"),
                             rating.get("typical_w"),
                             rating.get("max_w"),
-                            step,
+                            None if domain in THERMOSTAT_DOMAINS else step,
                         ),
                         "device": device,
                         "measured_w": measured,
                         "step_w": step,
                         "rating": rating or None,
                     }
-                    (context if series_role == CONTEXT else suggestions).append(row)
+                    aside = series_role == CONTEXT or row["fit"] == UPSTREAM
+                    (context if aside else suggestions).append(row)
                 suggestions.sort(
                     key=lambda r: (
                         r["verdict"] != "clear",

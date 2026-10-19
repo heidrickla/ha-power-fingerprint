@@ -41,6 +41,13 @@ METER = "meter"
 LOAD = "load"
 SENSOR = "sensor"
 KINDS = (LOAD, SWITCH, SENSOR)
+# A meter reading well above the shape while it runs measures more than this
+# load: a whole-house or battery-system meter upstream of it.
+UPSTREAM = "upstream"
+
+# A thermostat controls its load and reports its action on its own polling
+# schedule, so the circuit's step at those reports is not the load's.
+THERMOSTAT_DOMAINS = frozenset({"climate", "humidifier", "water_heater"})
 
 # Binary sensors that report the state of a load rather than of a room.
 _LOAD_BINARY = frozenset({"power", "plug", "running", "battery_charging"})
@@ -276,7 +283,7 @@ def role(
         return METER
     if kind in (LOAD, SWITCH):
         return kind
-    if domain in _SWITCH_DOMAINS:
+    if domain in _SWITCH_DOMAINS or domain in THERMOSTAT_DOMAINS:
         return SWITCH
     if domain == "binary_sensor":
         return LOAD if device_class in _LOAD_BINARY else CONTEXT
@@ -321,7 +328,8 @@ def fit(
     if draw_w <= 0:
         return "unknown"
     if measured_w is not None:
-        return _ratio(measured_w, draw_w)
+        verdict = _ratio(measured_w, draw_w)
+        return UPSTREAM if series_role == METER and verdict == "too_large" else verdict
     if max_w is not None and draw_w > max_w * 1.25:
         return "too_small"
     if kind != SWITCH and series_role != SWITCH:

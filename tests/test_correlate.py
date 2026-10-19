@@ -130,7 +130,8 @@ def test_no_runs_scores_nothing():
         ("device_tracker", None, "home", True, None, co.CONTEXT),
         ("device_tracker", None, "home", False, None, co.LOAD),
         ("media_player", None, "off", False, None, co.LOAD),
-        ("climate", None, "hvac_action cooling", False, None, co.LOAD),
+        ("climate", None, "hvac_action cooling", False, None, co.SWITCH),
+        ("water_heater", None, "heating", False, None, co.SWITCH),
         ("event", None, co.FIRED, False, None, co.CONTEXT),
         ("light", None, "on", False, co.SENSOR, co.CONTEXT),
         ("switch", None, "on", False, co.LOAD, co.LOAD),
@@ -150,6 +151,13 @@ def test_a_meter_reading_decides_the_fit():
     assert co.fit(co.SWITCH, 100.0, 95.0, None, None, None) == "fits"
     assert co.fit(co.SWITCH, 100.0, 30.0, None, None, None) == "too_small"
     assert co.fit(co.SWITCH, 100.0, 300.0, None, None, None) == "too_large"
+
+
+def test_a_meter_reading_far_above_the_shape_is_upstream_of_it():
+    assert co.fit(co.METER, 300.0, 5000.0, None, None, None) == co.UPSTREAM
+    assert co.fit(co.METER, 300.0, 310.0, None, None, None) == "fits"
+    # A switch's own meter reading high says it draws more, not that it is upstream.
+    assert co.fit(co.SWITCH, 300.0, 5000.0, None, None, None) == "too_large"
 
 
 def test_a_rating_bounds_a_load_both_ways():
