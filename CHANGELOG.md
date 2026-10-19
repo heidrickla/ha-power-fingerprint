@@ -4,6 +4,17 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.21.0] - 2026-10-18
+
+### Added
+
+- `correlate` lines each shape's runs up against every entity's recorded state changes and returns per shape the entities that change with it more often than timing explains, each with its role, device, manufacturer and model, rating, meter reading, the circuit's step at its events, and whether its power fits the shape. Motion sensors and other context entities, and whole-house meters, are listed apart from the suggestions. Shapes above 600 W carry a hint that a heating element or motor is likelier.
+- `set_device_power` stores a device's kind (`load`, `switch`, `sensor`) and its typical and maximum draw with their source. A stored kind replaces the role correlate gives the device's entities.
+
+### Changed
+
+- Storage minor version 3 holds the device ratings. A minor-2 store loads with none.
+
 ## [0.20.0] - 2026-10-18
 
 ### Fixed

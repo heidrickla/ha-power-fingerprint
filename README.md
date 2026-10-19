@@ -342,6 +342,44 @@ Two conditions worth a look, reported and never acted on:
 
 Both appear in the attributes of `sensor.power_fingerprint_unnamed_candidates` (25 rows each, with a `_not_shown` count beyond that), in the `learn` response under `audit`, and in diagnostics with circuits pseudonymised and labels omitted.
 
+### Names from events
+
+`power_fingerprint.correlate` lines each shape's runs up against the recorder's state changes for every entity in the window, and returns per shape the entities whose changes land near its run starts or ends more often than timing alone explains. It reads and suggests; `label` applies a name.
+
+| Step | Rule |
+|---|---|
+| Series | One per entity and state entered. `unavailable` and `unknown` are skipped, a timestamp state is `fired`, and more than 12 states collapse to `changed`. A device's power sensor gives on and off edges at its on threshold, 5 W at least. A thermostat's `hvac_action` is its own series. Numeric sensors, the circuit's own devices and this integration's entities are left out. |
+| Match | A run start or end with a change of the series within `window` seconds. One change serves one run, and a run already going at the first reading or still going at the last has no edge there. |
+| Chance | The highest of three: the series' event rate over the window, the series shifted by 3, 7, 13 and 19 hours, and the series shifted by one to three days. The day shifts stop a sensor that keeps the household's hours from scoring. |
+| Verdict | The binomial tail of the matched count, times the number of tests (series with two or more events, per edge). `clear` below 0.01 with 3 or more matched and a day shift inside the window (`day_control`), `weak` up to 1. A 1-day request has no day shift and returns only `weak`. |
+| Role | `context`: motion, door and other binary sensors, events, buttons, scenes, scripts, people, locks, cameras, device trackers on battery devices. `switch`: lights, switches, fans and thermostats, which carry whatever load is behind them. `meter`: a device's power sensor. `load`: everything else. A stored kind replaces the role. |
+| Fit | The device's own meter during the runs it matched, then a stored rating, then the circuit's median step at the entity's events. A device's own meter is its only power sensor; on a device with several, an entity other than a meter has none. |
+
+| Fit | Meaning |
+|---|---|
+| `fits` | Meter or step 0.5 to 1.5 times the draw, or a draw inside the rating: up to 1.25 times the maximum and at least 0.3 times the typical. |
+| `too_small` | The device draws less than the shape: the draw is over 1.25 times its maximum, or its meter or step is under half the draw. |
+| `too_large` | The device draws more than the shape: its meter or step is over 1.5 times the draw, or the draw is under 0.3 times its typical. |
+| `not_a_load` | A context entity under a shape above 5 W. Motion sensors run on batteries or wall adapters. |
+| `upstream` | A meter reading over 1.5 times the draw, such as a whole-house or battery meter. Listed under context. |
+| `unknown` | No meter, rating or step to judge by. A thermostat is never judged by the step, since its reports trail the compressor. |
+
+The step reads every event of the series, up to 200 spread across the window, from the minute before the event to the minute starting 15 s after it; at matched events alone it would equal the draw whatever caused the run. A switch's rating can only rule it out, as its draw is the load behind it. One row is listed per device, edge and set of matched runs, on each side: a switch and its meter collapse into one. `draw_w` is the shape's draw above the circuit's floor: `mean`, `peak`, and `start` from the first two readings, where start-up current shows. Above 600 W the shape carries `hint: heating element or motor likelier`. A large incandescent lighting load passes 600 W too, and a light stays a candidate.
+
+`power_fingerprint.set_device_power` stores what a device is and what it draws, from its manufacturer's specification. Correlate reads the manufacturer and model from the device registry and returns them with each suggestion, so the rating can be looked up.
+
+```yaml
+action: power_fingerprint.set_device_power
+data:
+  device_id: "<device id>"
+  kind: load
+  typical_w: 128
+  max_w: 360
+  source: "Manufacturer specification"
+```
+
+On the development install a 7-day run read 2,087 entities as 748 series and 126,393 events in 27 s.
+
 ## Passive and active together
 
 `map_devices` correlates each self-metering device against every circuit. `verify_circuit` switches a device and watches which circuit moves. Passive covers everything at once but is inference; active is measurement but touches one device at a time.
@@ -385,7 +423,7 @@ Six of seven disputed placements collapsed to `unknown` when three probes had to
 
 ## Actions
 
-Seven actions under `power_fingerprint.`. Every field is optional unless marked required. Where a default reads "confidence setting", leaving the field empty uses the value the [Confidence](#confidence) setting supplies, and a value overrides it for that call only.
+Nine actions under `power_fingerprint.`. Every field is optional unless marked required. Where a default reads "confidence setting", leaving the field empty uses the value the [Confidence](#confidence) setting supplies, and a value overrides it for that call only.
 
 ### `learn`
 
@@ -706,7 +744,7 @@ python3.14 tools/validate_local.py
 
 `tools/validate_local.py` is 3.14 source and reports a SyntaxError under an older interpreter. `tools/hooks/pre-push` runs it at push time and picks its interpreter by version; install it with `cp tools/hooks/pre-push .git/hooks/pre-push`.
 
-287 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
+339 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage`, `correlate` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
 
 `tests/fixtures/breaker_trips.json` holds recorder windows from one install with every entity id replaced by a generic one: a 7-second breaker flip, a Home Assistant restart, one integration dropping 22 entities with no circuit moving, eight appliance circuits reaching the noise floor, and 720 hourly minima per circuit. `tests/test_breaker_replay.py` replays them through the trip detector.
 
@@ -726,17 +764,17 @@ The commit half reads `PF_PUSH_RANGE`, which the GitHub `Tests` workflow sets fr
 
 A match under `CI` prints the file, the line and the rule with the matched text replaced by `[redacted]`. A local run prints the match. Each matcher fires on a control line built at runtime first, and the redaction is controlled the same way, so a clean result is a matcher that matched rather than one that stopped working.
 
-233 more in `tests/ha/` cover the Home Assistant layer.
+250 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|
 | Entry lifecycle | Setup, unload and removal; the store goes with the entry. |
 | Flows | Config, reconfigure and options, each validation refusal followed by a recovery to a created entry. |
 | Entities | Derived values, availability, device grouping, the appliance sensor following its circuit, the diagnostics download carrying no entity id. |
-| Store | Evidence strength deciding which answer stands and the conflicts kept, `measured` reserved for probes on write and on the minor-2 migration, amendments to a trip adding up, and the rename migration. |
+| Store | Evidence strength deciding which answer stands and the conflicts kept, `measured` reserved for probes on write and on the minor-2 migration, amendments to a trip adding up, device ratings kept across a reload and absent from a minor-2 store, and the rename migration. |
 | Dashboard | The energy dashboard reader against every shape the energy schema has had. |
 | Coordinator | The recorder seed, blind-time accounting behind the absence alert, and unit conversion at ingestion. |
-| Actions | All seven driven end to end, the history actions against recorded history, including the probe's restore path, its five refusals and the automations it pauses, and `record_breaker_evidence`'s timing refusals, its refusal of casualties on a trip with no return, and a second import adding to the first. |
+| Actions | All nine driven end to end, the history actions against recorded history, including the probe's restore path, its five refusals and the automations it pauses, and `record_breaker_evidence`'s timing refusals, its refusal of casualties on a trip with no return, a second import adding to the first, and `correlate`'s roles, fits and context list against recorded state changes, ratings and stored kinds. |
 | Breaker trips | One assignment per device and the event, arming after startup, eligibility from statistics, what is excluded as a casualty, a probe never overwritten. |
 | Outage evidence | A trip with a Zigbee device, a Z-Wave node and a TV on a measured trip's timings; a TV switched off by a person; a node that never comes back; a refused incident; a circuit dead past the limit; a second trip during an outage; probing off; an unload mid-outage; a request that hangs; discovery leaving out battery and lock devices, enabled or disabled; reading a failed request by its cause; a return near the dead limit; a return that does not hold, before and after the first probe; the controls cut off at the window's end; one media entity going off, and one unreadable; a device with its main entity disabled; an incident opened during a run. |
 
