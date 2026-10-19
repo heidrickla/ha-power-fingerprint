@@ -120,9 +120,10 @@ def history():
     code path in both - including the unit conversion, the downsampling and
     the minimal-response filtering.
 
-    Yields a dict of entity id to (timestamp, watts) rows. Values are stated
-    in watts and read back through whatever unit the live state declares,
-    which is how the integration itself reads them.
+    Yields a dict of entity id to (timestamp, value) rows, or (timestamp,
+    value, attributes) where the attributes matter. Power values are stated in
+    watts and read back through whatever unit the live state declares, which
+    is how the integration itself reads them.
     """
     traces = {}
 
@@ -133,9 +134,15 @@ def history():
             if not rows:
                 continue
             out[entity] = [
-                State(entity, str(value), {}, last_changed=stamp)
-                for stamp, value in rows
-                if start <= stamp <= end
+                State(
+                    entity,
+                    str(row[1]),
+                    row[2] if len(row) > 2 else {},
+                    last_changed=row[0],
+                    last_updated=row[0],
+                )
+                for row in rows
+                if start <= row[0] <= end
             ]
         return out
 

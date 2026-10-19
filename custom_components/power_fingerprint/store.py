@@ -27,7 +27,8 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 # Minor 2: an assignment not made by a probe is never `measured`.
-STORAGE_MINOR_VERSION = 2
+# Minor 3: `device_power` holds each device's kind and rated draw.
+STORAGE_MINOR_VERSION = 3
 
 PROBE = "probe"
 BREAKER = "breaker"
@@ -125,6 +126,9 @@ class FingerprintStore:
         # Breaker trips the integration detected, oldest first. Eligibility
         # leaves their hours out, or a circuit would lose it by tripping once.
         self._trips: list[dict[str, Any]] = []
+        # device id -> kind (load, switch, sensor), typical and maximum watts,
+        # and where the numbers came from; set by `set_device_power`.
+        self._device_power: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
     @staticmethod
@@ -177,6 +181,11 @@ class FingerprintStore:
             self._trips = [
                 dict(t) for t in data.get("breaker_trips", []) if isinstance(t, dict)
             ]
+            self._device_power = {
+                k: dict(v)
+                for k, v in data.get("device_power", {}).items()
+                if isinstance(v, dict)
+            }
             # SELF-HEAL: drop any assignment for this integration's OWN
             # sensors. `unmonitored_load` is mains minus the circuits, so
             # correlating it against a circuit is circular by construction, and
@@ -204,6 +213,7 @@ class FingerprintStore:
             "last_poll": self._last_poll,
             "assignments": self._assignments,
             "breaker_trips": self._trips,
+            "device_power": self._device_power,
         }
 
     async def async_save(self) -> None:
@@ -324,6 +334,19 @@ class FingerprintStore:
         self._assignments[device] = row
         await self.async_save()
         return True
+
+    def device_power(self) -> dict[str, dict[str, Any]]:
+        return {k: dict(v) for k, v in self._device_power.items()}
+
+    async def async_set_device_power(
+        self, device_id: str, row: dict[str, Any] | None
+    ) -> None:
+        """Store a device's kind and rated draw, or forget it with None."""
+        if row is None:
+            self._device_power.pop(device_id, None)
+        else:
+            self._device_power[device_id] = dict(row)
+        await self.async_save()
 
     async def async_forget_assignment(self, device: str) -> bool:
         if device not in self._assignments:

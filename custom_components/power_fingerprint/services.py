@@ -13,8 +13,10 @@ name them - naming needs someone who knows what is plugged in.
 from __future__ import annotations
 
 import asyncio
+import bisect
 import logging
 from datetime import datetime, timedelta
+from statistics import median
 from typing import Any, cast
 
 import voluptuous as vol
@@ -37,12 +39,33 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 from homeassistant.util import dt as dt_util
 
-from .analysis import Sample, cadences_by_cluster, sample_interval, segment, to_watts
+from .analysis import (
+    Event,
+    Sample,
+    cadences_by_cluster,
+    circuit_floor,
+    on_threshold,
+    sample_interval,
+    segment,
+    to_watts,
+)
 from .attribution import assign, resample
 from .const import DOMAIN
 from .coordinator import (
     PowerFingerprintConfigEntry,
     PowerFingerprintData,
+)
+from .correlate import (
+    CONTEXT,
+    KINDS,
+    Match,
+    draw_hint,
+    fit,
+    power_edges,
+    role,
+    score,
+    step_at,
+    transitions,
 )
 from .dashboard import async_circuit_names
 from .fingerprint import (
@@ -50,6 +73,7 @@ from .fingerprint import (
     audit,
     cluster,
     is_named,
+    match,
     normalize,
     suggest_label,
     summarize,
@@ -77,6 +101,8 @@ SERVICE_MAP = "map_devices"
 SERVICE_AUTOLABEL = "autolabel"
 SERVICE_LABELS = "apply_circuit_labels"
 SERVICE_OUTAGE = "record_breaker_evidence"
+SERVICE_CORRELATE = "correlate"
+SERVICE_DEVICE_POWER = "set_device_power"
 
 LEARN_SCHEMA = vol.Schema(
     {
@@ -107,6 +133,31 @@ LABELS_SCHEMA = vol.Schema(
         vol.Optional("dry_run", default=True): cv.boolean,
         vol.Optional("remove", default=False): cv.boolean,
         vol.Optional("prefix", default="Circuit"): cv.string,
+    }
+)
+
+CORRELATE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("circuits"): cv.entity_ids,
+        vol.Optional("days", default=7): vol.All(int, vol.Range(min=1, max=30)),
+        vol.Optional("window", default=30): vol.All(int, vol.Range(min=10, max=300)),
+        vol.Optional("include_named", default=False): cv.boolean,
+        vol.Optional("limit", default=5): vol.All(int, vol.Range(min=1, max=20)),
+    }
+)
+
+DEVICE_POWER_SCHEMA = vol.Schema(
+    {
+        vol.Required("device_id"): cv.string,
+        vol.Optional("kind"): vol.In(KINDS),
+        vol.Optional("typical_w"): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=100_000)
+        ),
+        vol.Optional("max_w"): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=100_000)
+        ),
+        vol.Optional("source"): cv.string,
+        vol.Optional("remove", default=False): cv.boolean,
     }
 )
 
@@ -169,9 +220,9 @@ LABEL_SCHEMA = vol.Schema(
 )
 
 
-async def _histories(
-    hass: HomeAssistant, entities: list[str], days: int
-) -> dict[str, list[Sample]]:
+async def _raw_states(
+    hass: HomeAssistant, entities: list[str], days: int, *, attributes: bool = False
+) -> dict[str, list[State]]:
     """Pull several entities' history in ONE recorder query.
 
     Note this is NOT the REST history endpoint, which returns only ~24 hours
@@ -193,7 +244,7 @@ async def _histories(
             end,
             entity_ids=list(entities),
             include_start_time_state=False,
-            no_attributes=True,
+            no_attributes=not attributes,
         )
         # Minimal-response rows may appear beside State objects; only States
         # carry a readable value.
@@ -211,7 +262,14 @@ async def _histories(
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="recorder_not_running"
         ) from err
-    data = await recorder.async_add_executor_job(_fetch)
+    return await recorder.async_add_executor_job(_fetch)
+
+
+async def _histories(
+    hass: HomeAssistant, entities: list[str], days: int
+) -> dict[str, list[Sample]]:
+    """Several power sensors' history in watts, from one recorder query."""
+    data = await _raw_states(hass, entities, days)
     # `no_attributes=True` strips the unit from every row, so it comes from
     # the live state and is applied to the whole window - the same approach
     # the coordinator takes when it seeds from the recorder.
@@ -377,6 +435,181 @@ def _device_siblings(hass: HomeAssistant, entity_id: str) -> dict[str, str | Non
             else other.original_device_class
         )
     return out
+
+
+# Domains whose state changes say nothing about a load: configuration, clocks,
+# the assistant's own pipeline.
+_UNCORRELATED_DOMAINS = frozenset(
+    {
+        "ai_task",
+        "automation",
+        "calendar",
+        "conversation",
+        "date",
+        "datetime",
+        "image",
+        "input_datetime",
+        "input_number",
+        "input_select",
+        "input_text",
+        "notify",
+        "number",
+        "select",
+        "stt",
+        "sun",
+        "text",
+        "time",
+        "todo",
+        "tts",
+        "update",
+        "wake_word",
+        "weather",
+        "zone",
+    }
+)
+_CONTEXT_SHOWN = 3
+_FIT_ORDER = {"fits": 0, "unknown": 1}
+# A device meter's own floor of noise; its on threshold is at least this.
+_METER_MIN_W = 5.0
+
+
+def _correlation_sources(
+    hass: HomeAssistant, panel: set[str]
+) -> tuple[list[str], list[str], list[str]]:
+    """Entities to line up against runs: discrete states, device meters, thermostats.
+
+    `panel` is the configured circuits and mains. Their devices, this
+    integration's own entities and numeric sensors other than device power
+    meters are left out. A power sensor with no device is a template or group
+    total, which follows every circuit.
+    """
+    registry = er.async_get(hass)
+    own = _entry_id(hass)
+    panel_devices = {
+        row.device_id
+        for entity in panel
+        if (row := registry.async_get(entity)) is not None and row.device_id
+    }
+    discrete: list[str] = []
+    meters: list[str] = []
+    climates: list[str] = []
+    for state in hass.states.async_all():
+        if state.entity_id in panel or state.domain in _UNCORRELATED_DOMAINS:
+            continue
+        row = registry.async_get(state.entity_id)
+        if row is not None and (
+            row.config_entry_id == own
+            or (row.device_id is not None and row.device_id in panel_devices)
+        ):
+            continue
+        attrs = state.attributes
+        if state.domain == "sensor":
+            if attrs.get("device_class") == "power":
+                if row is not None and row.device_id:
+                    meters.append(state.entity_id)
+                continue
+            if (
+                attrs.get("state_class")
+                or attrs.get("unit_of_measurement")
+                or attrs.get("device_class") == "timestamp"
+            ):
+                continue
+        if state.domain == "climate":
+            climates.append(state.entity_id)
+        discrete.append(state.entity_id)
+    return discrete, meters, climates
+
+
+def _build_series(
+    raw: dict[str, list[State]],
+    climate_raw: dict[str, list[State]],
+    meters: dict[str, list[Sample]],
+) -> dict[tuple[str, str], list[float]]:
+    """Every (entity, transition) series and its event times."""
+    series: dict[tuple[str, str], list[float]] = {}
+    for entity, states in raw.items():
+        rows = [(st.last_updated.timestamp(), st.state) for st in states]
+        for state, times in transitions(rows).items():
+            series[(entity, state)] = times
+    for entity, states in climate_raw.items():
+        rows = [
+            (st.last_updated.timestamp(), str(st.attributes.get("hvac_action")))
+            for st in states
+        ]
+        for action, times in transitions(rows).items():
+            series[(entity, f"hvac_action {action}")] = times
+    for entity, samples in meters.items():
+        if len(samples) < 10:
+            continue
+        threshold = max(_METER_MIN_W, on_threshold(samples))
+        edges = power_edges([(t.timestamp(), w) for t, w in samples], threshold)
+        for edge, times in edges.items():
+            series[(entity, edge)] = times
+    return series
+
+
+def _runs_by_shape(
+    samples: list[Sample], library: list[Fingerprint]
+) -> tuple[dict[str, list[Event]], float]:
+    """The circuit's runs grouped by the stored shape each matches, and its floor."""
+    by: dict[str, list[Event]] = {}
+    for event in segment(samples):
+        shape, _ = match(event.as_features(), library)
+        if shape is not None:
+            by.setdefault(shape.label, []).append(event)
+    return by, circuit_floor(samples) if samples else 0.0
+
+
+def _draw(events: list[Event], floor: float) -> dict[str, float]:
+    """A shape's draw above the circuit floor: mean, peak and first two readings.
+
+    A motor's start-up current shows in the first readings when the meter's
+    averaging leaves any of it.
+    """
+    return {
+        "mean": round(median(e.mean_w for e in events) - floor, 1),
+        "peak": round(median(e.peak_w for e in events) - floor, 1),
+        "start": round(median(max(e.samples[:2]) for e in events) - floor, 1),
+    }
+
+
+def _measured(samples: list[Sample], events: list[Event]) -> float | None:
+    """A device meter's median reading across a shape's runs.
+
+    The recorder keeps a reading only when it changes, so a run with no reading
+    inside it takes the last one before it ended.
+    """
+    times = [t for t, _ in samples]
+    per_run: list[float] = []
+    for event in events:
+        lo = bisect.bisect_left(times, event.start)
+        hi = bisect.bisect_right(times, event.end)
+        if hi > lo:
+            per_run.append(sum(w for _, w in samples[lo:hi]) / (hi - lo))
+        elif hi > 0:
+            per_run.append(samples[hi - 1][1])
+    return round(median(per_run), 1) if per_run else None
+
+
+def _device_info(
+    hass: HomeAssistant, entity_id: str
+) -> tuple[str | None, dict[str, Any] | None]:
+    """The device behind an entity: its id and what a person would look up."""
+    entry = er.async_get(hass).async_get(entity_id)
+    if entry is None or entry.device_id is None:
+        return None, None
+    device = dr.async_get(hass).async_get(entry.device_id)
+    if device is None:
+        return None, None
+    area_id = entry.area_id or device.area_id
+    area = ar.async_get(hass).async_get_area(area_id) if area_id else None
+    return device.id, {
+        "id": device.id,
+        "name": device.name_by_user or device.name,
+        "manufacturer": device.manufacturer,
+        "model": device.model,
+        "area": area.name if area else None,
+    }
 
 
 def _label_name(title: str, prefix: str) -> str:
@@ -1209,6 +1442,207 @@ def async_setup_services(hass: HomeAssistant) -> None:
         )
         return _response({"trip": amended})
 
+    async def _correlate(call: ServiceCall) -> ServiceResponse:
+        """Line each shape's runs up against every entity's state changes."""
+        runtime = _runtime(hass)
+        coordinator = runtime.coordinator
+        store = runtime.store
+        days = call.data["days"]
+        half_s = float(call.data["window"])
+        limit = call.data["limit"]
+        include_named = call.data["include_named"]
+        library = store.fingerprints
+        circuits = call.data.get("circuits") or sorted({fp.circuit for fp in library})
+
+        end = dt_util.utcnow()
+        start = end - timedelta(days=days)
+        panel = {*coordinator.circuits, *circuits}
+        if coordinator.mains:
+            panel.add(coordinator.mains)
+        discrete, meter_ids, climate_ids = _correlation_sources(hass, panel)
+
+        circuit_samples = await _histories(hass, list(circuits), days)
+        raw = await _raw_states(hass, discrete, days)
+        climate_raw = (
+            await _raw_states(hass, climate_ids, days, attributes=True)
+            if climate_ids
+            else {}
+        )
+        meters = await _histories(hass, meter_ids, days) if meter_ids else {}
+
+        arrays: dict[str, tuple[list[float], list[float]]] = {}
+
+        def _crunch() -> tuple[
+            dict[tuple[str, str], list[float]],
+            dict[str, tuple[dict[str, list[Event]], float]],
+            dict[str, dict[str, list[Match]]],
+        ]:
+            # Thousands of series against every shape's runs: executor work.
+            series = _build_series(raw, climate_raw, meters)
+            for circuit in circuits:
+                rows = circuit_samples.get(circuit) or []
+                arrays[circuit] = (
+                    [t.timestamp() for t, _ in rows],
+                    [w for _, w in rows],
+                )
+            shapes: dict[str, tuple[dict[str, list[Event]], float]] = {}
+            scored: dict[str, dict[str, list[Match]]] = {}
+            for circuit in circuits:
+                samples = circuit_samples.get(circuit) or []
+                if not samples:
+                    continue
+                own = [fp for fp in library if fp.circuit == circuit]
+                by, floor = _runs_by_shape(samples, own)
+                shapes[circuit] = (by, floor)
+                named = {fp.label for fp in own if is_named(fp)}
+                scored[circuit] = {
+                    label: score(
+                        series,
+                        [e.start.timestamp() for e in events],
+                        [e.end.timestamp() for e in events],
+                        half_s,
+                        start.timestamp(),
+                        end.timestamp(),
+                    )
+                    for label, events in by.items()
+                    if include_named or label not in named
+                }
+            return series, shapes, scored
+
+        series, shapes, scored = await hass.async_add_executor_job(_crunch)
+
+        ratings = store.device_power()
+        report: dict[str, list[dict[str, Any]]] = {}
+        for circuit in circuits:
+            if circuit not in shapes:
+                report[circuit] = [{"error": "no history in window"}]
+                continue
+            by, floor = shapes[circuit]
+            rows: list[dict[str, Any]] = []
+            for label, matches in scored[circuit].items():
+                events = by[label]
+                draw = _draw(events, floor)
+                suggestions: list[dict[str, Any]] = []
+                context: list[dict[str, Any]] = []
+                seen: set[tuple[str, str, int, str]] = set()
+                for found in matches:
+                    state = hass.states.get(found.entity_id)
+                    domain = found.entity_id.split(".", 1)[0]
+                    device_id, device = _device_info(hass, found.entity_id)
+                    key = (
+                        device_id or found.entity_id,
+                        found.edge,
+                        found.matched,
+                        found.transition,
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rating = ratings.get(device_id, {}) if device_id else {}
+                    series_role = role(
+                        domain,
+                        state.attributes.get("device_class") if state else None,
+                        found.transition,
+                        is_battery_powered(_device_siblings(hass, found.entity_id)),
+                        rating.get("kind"),
+                    )
+                    meter = _own_meter(hass, found.entity_id)
+                    meter_rows = meters.get(meter) if meter else None
+                    measured = _measured(meter_rows, events) if meter_rows else None
+                    # What the circuit itself does when this entity changes:
+                    # the draw of whatever it switches, with or without a meter.
+                    step = step_at(
+                        *arrays[circuit], series[(found.entity_id, found.transition)]
+                    )
+                    row = {
+                        **found.to_dict(),
+                        "name": state.name if state else found.entity_id,
+                        "role": series_role,
+                        "fit": fit(
+                            series_role,
+                            draw["mean"],
+                            measured,
+                            rating.get("kind"),
+                            rating.get("typical_w"),
+                            rating.get("max_w"),
+                            step,
+                        ),
+                        "device": device,
+                        "measured_w": measured,
+                        "step_w": step,
+                        "rating": rating or None,
+                    }
+                    (context if series_role == CONTEXT else suggestions).append(row)
+                suggestions.sort(
+                    key=lambda r: (
+                        r["verdict"] != "clear",
+                        _FIT_ORDER.get(r["fit"], 2),
+                        r["expected_false"],
+                    )
+                )
+                rows.append(
+                    {
+                        "label": label,
+                        "runs": len(events),
+                        "draw_w": draw,
+                        **({"hint": hint} if (hint := draw_hint(draw["mean"])) else {}),
+                        "suggestions": suggestions[:limit],
+                        "context": context[:_CONTEXT_SHOWN],
+                    }
+                )
+            rows.sort(key=lambda r: -int(r["runs"]))
+            report[circuit] = rows
+
+        return _response(
+            {
+                "circuits": report,
+                "sources": {
+                    "entities": len(discrete) + len(meter_ids),
+                    "series": len(series),
+                    "events": sum(len(t) for t in series.values()),
+                },
+            }
+        )
+
+    async def _set_device_power(call: ServiceCall) -> None:
+        """Store what a device is and how much it draws, from its specification."""
+        runtime = _runtime(hass)
+        device_id = call.data["device_id"]
+        if dr.async_get(hass).async_get(device_id) is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_device",
+                translation_placeholders={"device_id": str(device_id)},
+            )
+        if call.data["remove"]:
+            await runtime.store.async_set_device_power(device_id, None)
+            return
+        if "kind" not in call.data:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="kind_required"
+            )
+        await runtime.store.async_set_device_power(
+            device_id,
+            {
+                key: call.data[key]
+                for key in ("kind", "typical_w", "max_w", "source")
+                if key in call.data
+            },
+        )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CORRELATE,
+        _correlate,
+        schema=CORRELATE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DEVICE_POWER,
+        _set_device_power,
+        schema=DEVICE_POWER_SCHEMA,
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_OUTAGE,

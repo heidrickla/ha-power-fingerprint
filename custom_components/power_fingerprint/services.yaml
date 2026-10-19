@@ -148,3 +148,85 @@ record_breaker_evidence:
       required: false
       selector:
         object:
+
+correlate:
+  fields:
+    circuits:
+      required: false
+      selector:
+        entity:
+          domain: sensor
+          device_class: power
+          multiple: true
+    days:
+      required: false
+      default: 7
+      selector:
+        number:
+          min: 1
+          max: 30
+          unit_of_measurement: days
+          mode: slider
+    window:
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 10
+          max: 300
+          unit_of_measurement: s
+          mode: box
+    include_named:
+      required: false
+      default: false
+      selector:
+        boolean:
+    limit:
+      required: false
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 20
+          mode: box
+
+set_device_power:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+    kind:
+      required: false
+      selector:
+        select:
+          options:
+            - load
+            - switch
+            - sensor
+          translation_key: device_kind
+    typical_w:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100000
+          unit_of_measurement: W
+          mode: box
+    max_w:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100000
+          unit_of_measurement: W
+          mode: box
+    source:
+      required: false
+      selector:
+        text:
+    remove:
+      required: false
+      default: false
+      selector:
+        boolean:

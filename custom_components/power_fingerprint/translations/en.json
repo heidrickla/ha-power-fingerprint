@@ -193,6 +193,62 @@
           "description": "Devices that refused requests before the trip and answered after it, each with `entity`, `failed_at` and `answered_at`. Noted on the trip, never assigned."
         }
       }
+    },
+    "correlate": {
+      "name": "Correlate shapes with entity events",
+      "description": "Line each shape's runs up against the state changes of every other entity, device power meter and thermostat in the recorder, and against what timing alone would produce. Returns the devices whose changes match, with their manufacturer, model, area and whether their draw fits the shape. Writes nothing.",
+      "fields": {
+        "circuits": {
+          "name": "Circuits",
+          "description": "Leave empty for every circuit with learned shapes."
+        },
+        "days": {
+          "name": "Days of history",
+          "description": "How far back to read."
+        },
+        "window": {
+          "name": "Window",
+          "description": "How close to a run's start or end a state change must be to count, either side."
+        },
+        "include_named": {
+          "name": "Include named shapes",
+          "description": "Also correlate shapes that already have a name, to check them."
+        },
+        "limit": {
+          "name": "Suggestions per shape",
+          "description": "Most device suggestions returned for each shape."
+        }
+      }
+    },
+    "set_device_power": {
+      "name": "Set device power",
+      "description": "Record what a device is and how much it draws, from its specification. Correlate uses it to say whether the device can account for a shape.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The device the rating belongs to."
+        },
+        "kind": {
+          "name": "Kind",
+          "description": "Load: the device draws the power itself. Switch: it passes through whatever is plugged in. Sensor: it draws a few watts at most."
+        },
+        "typical_w": {
+          "name": "Typical draw",
+          "description": "What the device draws in normal use."
+        },
+        "max_w": {
+          "name": "Maximum draw",
+          "description": "For a load its maximum draw; for a switch its maximum rated load."
+        },
+        "source": {
+          "name": "Source",
+          "description": "Where the numbers came from, such as the manufacturer's specification."
+        },
+        "remove": {
+          "name": "Remove",
+          "description": "Forget this device's stored rating."
+        }
+      }
     }
   },
   "options": {
@@ -302,6 +358,12 @@
     },
     "trip_not_ended": {
       "message": "The trip on {circuit} has no recorded return yet. Casualties and recovered devices need the power back."
+    },
+    "unknown_device": {
+      "message": "There is no device with id {device_id}."
+    },
+    "kind_required": {
+      "message": "Give the device's kind: load, switch or sensor."
     }
   },
   "issues": {
@@ -316,6 +378,13 @@
         "cautious": "Cautious - fewer answers, trust all of them",
         "balanced": "Balanced - the measured default",
         "eager": "Eager - more answers, some wrong (exploring a panel)"
+      }
+    },
+    "device_kind": {
+      "options": {
+        "load": "Load",
+        "switch": "Switch",
+        "sensor": "Sensor"
       }
     }
   }

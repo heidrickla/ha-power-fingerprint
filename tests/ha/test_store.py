@@ -8,7 +8,11 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.power_fingerprint.const import DOMAIN
 from custom_components.power_fingerprint.fingerprint import Fingerprint
-from custom_components.power_fingerprint.store import MAX_CONFLICTS, FingerprintStore
+from custom_components.power_fingerprint.store import (
+    MAX_CONFLICTS,
+    STORAGE_MINOR_VERSION,
+    FingerprintStore,
+)
 
 CIRCUIT_A = "sensor.circuit_a_power"
 CIRCUIT_B = "sensor.circuit_b_power"
@@ -52,6 +56,31 @@ async def test_what_was_saved_is_what_comes_back(hass: HomeAssistant):
     assert reloaded.orphaned_pauses() == ["automation.hall"]
     assert reloaded.last_seen() == {"a|Dryer": "2026-09-04T12:00:00+00:00"}
     assert reloaded.last_poll() == "stamp"
+
+
+async def test_a_device_rating_is_kept_and_can_be_forgotten(hass: HomeAssistant):
+    store = await _loaded(hass)
+    assert store.device_power() == {}
+    row = {"kind": "load", "typical_w": 100.0, "max_w": 400.0, "source": "spec"}
+    await store.async_set_device_power("dev1", row)
+    assert (await _loaded(hass)).device_power() == {"dev1": row}
+    await store.async_set_device_power("dev1", None)
+    await store.async_set_device_power("never-set", None)
+    assert (await _loaded(hass)).device_power() == {}
+
+
+async def test_a_minor_2_store_loads_with_no_device_ratings(
+    hass: HomeAssistant, hass_storage
+):
+    hass_storage[f"{DOMAIN}.entry"] = {
+        "version": 1,
+        "minor_version": 2,
+        "key": f"{DOMAIN}.entry",
+        "data": {"fingerprints": [shape("Dryer").to_dict()], "assignments": {}},
+    }
+    store = await _loaded(hass)
+    assert store.device_power() == {}
+    assert [fp.label for fp in store.fingerprints] == ["Dryer"]
 
 
 async def test_a_candidate_never_drives_an_entity(hass: HomeAssistant):
@@ -348,7 +377,7 @@ async def test_a_passive_placement_stored_as_measured_loads_as_inferred(
     assert rows[LAMP]["evidence"] == {"correlation": 0.019}
     assert rows["sensor.hall_lamp_power"]["confidence"] == "inferred"
     # Written back at the new minor version, so the rewrite happens once.
-    assert hass_storage[f"{DOMAIN}.entry"]["minor_version"] == 2
+    assert hass_storage[f"{DOMAIN}.entry"]["minor_version"] == STORAGE_MINOR_VERSION
     saved = hass_storage[f"{DOMAIN}.entry"]["data"]["assignments"]
     assert saved[LAMP]["confidence"] == "inferred"
 
