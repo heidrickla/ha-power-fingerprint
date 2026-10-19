@@ -37,6 +37,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.util import dt as dt_util
 
 from .analysis import (
@@ -1351,7 +1352,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
             }
         )
 
-    hass.services.async_register(
+    # It writes the label registry and other integrations' device entries,
+    # which only an administrator may change.
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_LABELS,
         _apply_labels,

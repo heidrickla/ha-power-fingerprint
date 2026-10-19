@@ -4,6 +4,12 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.21.1] - 2026-10-19
+
+### Changed
+
+- `apply_circuit_labels` is an admin action: it creates labels and changes other integrations' device entries, which only an administrator may do. Automations are unaffected.
+
 ## [0.21.0] - 2026-10-18
 
 ### Added

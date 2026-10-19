@@ -500,7 +500,7 @@ Name every learned shape whose circuit already says what it is. No fields. See [
 
 ### `apply_circuit_labels`
 
-Add a label naming the circuit to each mapped device, so devices can be filtered by breaker. See [Filtering by breaker](#filtering-by-breaker).
+Add a label naming the circuit to each mapped device, so devices can be filtered by breaker. It writes the label registry and other integrations' device entries, so a signed-in user who calls it must be an administrator. See [Filtering by breaker](#filtering-by-breaker).
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -764,7 +764,7 @@ The commit half reads `PF_PUSH_RANGE`, which the GitHub `Tests` workflow sets fr
 
 A match under `CI` prints the file, the line and the rule with the matched text replaced by `[redacted]`. A local run prints the match. Each matcher fires on a control line built at runtime first, and the redaction is controlled the same way, so a clean result is a matcher that matched rather than one that stopped working.
 
-250 more in `tests/ha/` cover the Home Assistant layer.
+251 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|

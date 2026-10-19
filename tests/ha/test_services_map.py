@@ -8,8 +8,8 @@ written to the store, and what a label run does to the device registry.
 from datetime import timedelta
 
 import pytest
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, Unauthorized
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -272,6 +272,33 @@ async def test_applying_adds_the_label_without_touching_the_others(
 
     # Running it again changes nothing.
     assert (await _labels(hass, dry_run=False))["labelled"] == 0
+
+
+async def test_only_an_administrator_may_apply_or_remove_labels(
+    hass: HomeAssistant, config_entry, lamp_device, powered
+):
+    hass.states.async_set(
+        CIRCUIT_A, 100.0, {**POWER, "friendly_name": "Circuit 23 Study"}
+    )
+    await _setup(hass, config_entry)
+    await _record(config_entry, LAMP_METER, CIRCUIT_A)
+    # The first person account is the owner, and the owner is an administrator.
+    await hass.auth.async_create_user("Owner")
+    member = await hass.auth.async_create_user("Household", group_ids=["system-users"])
+    assert not member.is_admin
+
+    for data in ({"dry_run": False}, {"dry_run": False, "remove": True}):
+        with pytest.raises(Unauthorized):
+            await hass.services.async_call(
+                DOMAIN,
+                "apply_circuit_labels",
+                data,
+                blocking=True,
+                return_response=True,
+                context=Context(user_id=member.id),
+            )
+    assert lr.async_get(hass).async_get_label_by_name("Circuit 23 Study") is None
+    assert dr.async_get(hass).async_get(lamp_device.id).labels == set()
 
 
 async def test_removing_takes_only_the_circuit_labels_back_off(
