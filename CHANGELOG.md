@@ -4,6 +4,17 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.20.0] - 2026-10-18
+
+### Fixed
+
+- `learn` carried each name to the new shape in the same position. Shapes come largest first, so a window in which one appliance ran more often than another put names on the wrong shapes. Each name now moves to the nearest new shape within the match tolerance, nearest first, one name per shape.
+- A learning window that was read and held no runs left the circuit's old candidates in place and reported none. It now replaces them like any other window, and the named shapes are kept.
+
+### Changed
+
+- A named shape that did not run in the learning window is kept, and the `learn` response lists it with `kept: true`. It was deleted with its name.
+
 ## [0.19.3] - 2026-10-07
 
 ### Changed
