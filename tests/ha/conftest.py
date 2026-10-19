@@ -123,12 +123,14 @@ def history():
     Yields a dict of entity id to (timestamp, value) rows, or (timestamp,
     value, attributes) where the attributes matter. Power values are stated in
     watts and read back through whatever unit the live state declares, which
-    is how the integration itself reads them.
+    is how the integration itself reads them. A query with `no_attributes`
+    gets none, as the recorder answers it.
     """
     traces = {}
 
     def _significant_states(hass, start, end, entity_ids=None, **kwargs):
         out = {}
+        keep = not kwargs.get("no_attributes", False)
         for entity in entity_ids or []:
             rows = traces.get(entity)
             if not rows:
@@ -137,7 +139,7 @@ def history():
                 State(
                     entity,
                     str(row[1]),
-                    row[2] if len(row) > 2 else {},
+                    row[2] if keep and len(row) > 2 else {},
                     last_changed=row[0],
                     last_updated=row[0],
                 )

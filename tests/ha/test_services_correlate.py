@@ -255,6 +255,104 @@ async def test_a_whole_house_meter_is_set_aside_as_upstream(
     assert upstream[0]["fit"] == "upstream"
 
 
+async def test_a_meter_is_read_over_the_runs_its_device_lined_up_with(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    """The heater accounts for three of the shape's eight runs; its meter reads
+    nothing during the other five, which are another load's."""
+    _, starts, ends = await _learned(hass, config_entry, history, cycling)
+    heater = _device(
+        hass,
+        "Garage Heater",
+        "HX-1500",
+        {SWITCH: ("off", {}), METER: ("0", POWER_ATTRS)},
+    )
+    mine = [1, 4, 6]
+    history[SWITCH] = _toggles([starts[i] for i in mine], [ends[i] for i in mine])
+    history[METER] = _toggles(
+        [starts[i] for i in mine], [ends[i] for i in mine], on=1195.0, off=0.0
+    )
+    shape = (await _call(hass, "correlate"))["circuits"][CIRCUIT_A][0]
+    row = next(s for s in shape["suggestions"] if s["device"]["id"] == heater)
+    assert row["matched"] == 3
+    assert row["measured_w"] == pytest.approx(1195.0)
+    assert row["fit"] == "fits"
+
+
+async def test_a_switch_on_a_device_with_several_meters_takes_none_of_them(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    _, starts, ends = await _learned(hass, config_entry, history, cycling)
+    outlet_1 = "sensor.strip_outlet_1_power"
+    outlet_2 = "sensor.strip_outlet_2_power"
+    strip = _device(
+        hass,
+        "Power Strip",
+        "PS-6",
+        {
+            "switch.strip_outlet_2": ("off", {}),
+            outlet_1: ("0", POWER_ATTRS),
+            outlet_2: ("0", POWER_ATTRS),
+        },
+    )
+    history["switch.strip_outlet_2"] = _toggles(starts, ends)
+    history[outlet_2] = _toggles(starts, ends, on=1195.0, off=0.0)
+    history[outlet_1] = _toggles(starts, ends, on=0.5, off=0.0, lead=900, lag=900)
+    shape = (await _call(hass, "correlate"))["circuits"][CIRCUIT_A][0]
+    rows = [s for s in shape["suggestions"] if (s["device"] or {}).get("id") == strip]
+    assert rows
+    for row in rows:
+        if row["entity_id"] == "switch.strip_outlet_2":
+            assert row["measured_w"] is None
+        assert row["fit"] == "fits"
+
+
+async def test_a_motion_sensor_on_the_lights_device_stays_in_context(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    _, starts, ends = await _learned(hass, config_entry, history, cycling)
+    light = "light.garage_motion_light"
+    motion = "binary_sensor.garage_motion_light_motion"
+    _device(
+        hass,
+        "Garage Motion Light",
+        "26931",
+        {light: ("off", {}), motion: ("off", {"device_class": "motion"})},
+    )
+    history[light] = _toggles(starts, ends)
+    history[motion] = _toggles(starts, ends)
+    shape = (await _call(hass, "correlate"))["circuits"][CIRCUIT_A][0]
+    assert light in {s["entity_id"] for s in shape["suggestions"]}
+    assert motion in {c["entity_id"] for c in shape["context"]}
+
+
+async def test_a_numeric_sensor_without_a_unit_is_not_a_series(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    _, starts, ends = await _learned(hass, config_entry, history, cycling)
+    counter = "sensor.hall_counter"
+    hass.states.async_set(counter, "20", {})
+    history[counter] = _toggles(starts, ends, on="10", off="20")
+    shape = (await _call(hass, "correlate"))["circuits"][CIRCUIT_A][0]
+    listed = {r["entity_id"] for r in (*shape["suggestions"], *shape["context"])}
+    assert counter not in listed
+
+
+async def test_a_run_still_going_at_the_last_reading_has_no_end(
+    hass: HomeAssistant, config_entry, powered, history, cycling
+):
+    _, starts, ends = await _learned(hass, config_entry, history, cycling)
+    # The last run's trailing idle readings had not arrived yet.
+    history[CIRCUIT_A] = history[CIRCUIT_A][:-4]
+    _device(hass, "Garage Heater", "HX-1500", {SWITCH: ("off", {})})
+    history[SWITCH] = _toggles(starts, ends)
+    shape = (await _call(hass, "correlate"))["circuits"][CIRCUIT_A][0]
+    rows = {s["edge"]: s for s in shape["suggestions"] if s["entity_id"] == SWITCH}
+    assert rows["start"]["runs"] == len(starts)
+    assert rows["end"]["runs"] == len(ends) - 1
+    assert rows["end"]["matched"] == len(ends) - 1
+
+
 async def test_setting_power_for_a_device_that_does_not_exist_is_refused(
     hass: HomeAssistant, config_entry, powered, history
 ):

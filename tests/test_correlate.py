@@ -52,6 +52,29 @@ def test_hits_counts_edges_with_an_event_inside_the_window():
     assert co.hits([], [90.0], 30.0) == 0
 
 
+def test_one_event_serves_one_run():
+    """Run starts 90 s apart inside a 300 s window: one change is one match."""
+    assert co.pairs([100.0], [0.0, 90.0, 180.0], 300.0) == [0]
+    assert co.hits([100.0], [0.0, 90.0, 180.0], 300.0) == 1
+
+
+def test_pairs_matches_as_many_runs_as_the_events_allow():
+    assert co.pairs([95.0, 140.0], [100.0, 130.0], 20.0) == [0, 1]
+    assert co.pairs([125.0], [100.0, 130.0], 30.0) == [0]
+
+
+def test_a_repeated_timestamp_is_one_event():
+    starts = [0.0, 90.0, 180.0]
+    ends = [s + 30 for s in starts]
+    series = {("person.someone", "home"): [100.0, 100.0]}
+    assert co.score(series, starts, ends, 300.0, 0.0, WEEK) == []
+
+
+def test_only_edges_the_history_saw_are_edges():
+    spans = [(0.0, 50.0), (100.0, 150.0), (200.0, 300.0)]
+    assert co.observed(spans, 0.0, 300.0) == ([1, 2], [0, 1])
+
+
 def test_binomial_tail_small_cases_are_exact():
     assert co.binomial_tail(3, 0, 0.5) == 1.0
     assert co.binomial_tail(3, 4, 0.5) == 0.0
@@ -103,6 +126,38 @@ def test_a_sensor_that_keeps_the_households_hours_is_not_clear():
         {("binary_sensor.kitchen", "on"): daily}, starts, ends, 30.0, 0.0, WEEK
     )
     assert all(m.verdict != "clear" for m in found)
+
+
+def test_without_a_day_shift_in_the_window_nothing_is_clear():
+    """A one-day window: every day shift falls outside it, so the control for
+    a series that keeps the household's hours was never measured."""
+    rng = random.Random(4)
+    starts = sorted(rng.uniform(3600, DAY - 3600) for _ in range(12))
+    ends = [s + 300 for s in starts]
+    series = {("switch.heater", "on"): [s - 5 for s in starts]}
+    best = co.score(series, starts, ends, 30.0, 0.0, DAY)[0]
+    assert best.expected_false < co.CLEAR
+    assert best.matched == 12
+    assert not best.controlled
+    assert best.verdict == "weak"
+    assert best.to_dict()["day_control"] is False
+
+
+def test_series_too_short_to_test_do_not_count_as_tests():
+    starts, ends = _runs(20)
+    series = {("switch.heater", "on"): [s - 5 for s in starts]}
+    alone = co.score(series, starts, ends, 30.0, 0.0, WEEK)[0].expected_false
+    for i in range(500):
+        series[(f"button.b{i}", co.FIRED)] = [float(i)]
+    crowded = co.score(series, starts, ends, 30.0, 0.0, WEEK)[0].expected_false
+    assert crowded == alone
+
+
+def test_the_match_names_the_runs_it_hit():
+    starts, ends = _runs(10)
+    series = {("switch.heater", "on"): [starts[i] - 5 for i in (1, 4, 7)]}
+    best = co.score(series, starts, ends, 30.0, 0.0, WEEK)[0]
+    assert best.hit == (1, 4, 7)
 
 
 def test_a_single_coincidence_is_not_reported():
@@ -203,6 +258,23 @@ def test_step_at_reads_the_circuit_change_across_events():
     assert co.step_at([], [], [300.0]) is None
 
 
+def test_step_at_puts_a_reading_stamped_at_the_event_after_it():
+    """Switch and circuit both recorded the change at t=300."""
+    times, watts = [0.0, 300.0, 400.0], [10.0, 610.0, 610.0]
+    assert co.step_at(times, watts, [300.0]) == pytest.approx(600.0)
+
+
+def test_step_at_samples_events_across_the_window():
+    assert co.spread([float(i) for i in range(10)], 4) == [0.0, 3.0, 6.0, 9.0]
+    assert co.spread([1.0, 2.0], 5) == [1.0, 2.0]
+    # The first events step 600 W, the later ones nothing: the last few alone
+    # would read 0.
+    times = [float(t) for t in range(0, 10000, 6)]
+    watts = [10.0 if t < 300 else 610.0 for t in times]
+    events = [300.0] * 3 + [5000.0] * 2
+    assert co.step_at(times, watts, events, limit=3) == pytest.approx(600.0)
+
+
 def test_step_at_holds_the_last_reading_through_a_quiet_minute():
     """The recorder keeps only changes: a flat stretch has no rows in it."""
     times, watts = [0.0, 290.0], [10.0, 410.0]
@@ -214,4 +286,5 @@ def test_match_to_dict_rounds_for_the_response():
     d = m.to_dict()
     assert d["chance"] == 0.0123
     assert d["expected_false"] == 0.000123
+    assert d["day_control"] is True
     assert d["verdict"] == "clear"

@@ -63,6 +63,7 @@ from .correlate import (
     Match,
     draw_hint,
     fit,
+    observed,
     power_edges,
     role,
     score,
@@ -414,6 +415,33 @@ def _own_meter(hass: HomeAssistant, entity_id: str) -> str | None:
     return sorted(candidates)[0] if candidates else None
 
 
+def _series_meter(
+    hass: HomeAssistant, entity_id: str, meters: dict[str, list[Sample]]
+) -> str | None:
+    """The power sensor measuring this entity's own load, where that is certain.
+
+    A power sensor is its own; otherwise the device's only one. A device with
+    several (a power strip, a PDU) does not say which outlet an entity switches,
+    and each of its meters is scored as a series of its own.
+    """
+    if entity_id in meters:
+        return entity_id
+    found = [
+        entity
+        for entity, device_class in _device_siblings(hass, entity_id).items()
+        if device_class == "power" and entity in meters
+    ]
+    return found[0] if len(found) == 1 else None
+
+
+def _is_number(value: str) -> bool:
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
+
+
 def _device_siblings(hass: HomeAssistant, entity_id: str) -> dict[str, str | None]:
     """device_class of every entity sharing a device with this one.
 
@@ -514,6 +542,7 @@ def _correlation_sources(
                 attrs.get("state_class")
                 or attrs.get("unit_of_measurement")
                 or attrs.get("device_class") == "timestamp"
+                or _is_number(state.state)
             ):
                 continue
         if state.domain == "climate":
@@ -1474,6 +1503,9 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
         arrays: dict[str, tuple[list[float], list[float]]] = {}
 
+        # Per circuit and shape, the runs whose start and whose end were seen.
+        observed_runs: dict[str, dict[str, tuple[list[Event], list[Event]]]] = {}
+
         def _crunch() -> tuple[
             dict[tuple[str, str], list[float]],
             dict[str, tuple[dict[str, list[Event]], float]],
@@ -1497,18 +1529,28 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 by, floor = _runs_by_shape(samples, own)
                 shapes[circuit] = (by, floor)
                 named = {fp.label for fp in own if is_named(fp)}
-                scored[circuit] = {
-                    label: score(
+                first, last = samples[0][0], samples[-1][0]
+                seen_runs = observed_runs.setdefault(circuit, {})
+                scored[circuit] = {}
+                for label, events in by.items():
+                    if not include_named and label in named:
+                        continue
+                    s_idx, e_idx = observed(
+                        [(e.start.timestamp(), e.end.timestamp()) for e in events],
+                        first.timestamp(),
+                        last.timestamp(),
+                    )
+                    began = [events[i] for i in s_idx]
+                    stopped = [events[i] for i in e_idx]
+                    seen_runs[label] = (began, stopped)
+                    scored[circuit][label] = score(
                         series,
-                        [e.start.timestamp() for e in events],
-                        [e.end.timestamp() for e in events],
+                        [e.start.timestamp() for e in began],
+                        [e.end.timestamp() for e in stopped],
                         half_s,
                         start.timestamp(),
                         end.timestamp(),
                     )
-                    for label, events in by.items()
-                    if include_named or label not in named
-                }
             return series, shapes, scored
 
         series, shapes, scored = await hass.async_add_executor_job(_crunch)
@@ -1524,22 +1566,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
             for label, matches in scored[circuit].items():
                 events = by[label]
                 draw = _draw(events, floor)
+                began, stopped = observed_runs[circuit][label]
                 suggestions: list[dict[str, Any]] = []
                 context: list[dict[str, Any]] = []
-                seen: set[tuple[str, str, int, str]] = set()
+                seen: set[tuple[str, str, tuple[int, ...], bool]] = set()
                 for found in matches:
                     state = hass.states.get(found.entity_id)
                     domain = found.entity_id.split(".", 1)[0]
                     device_id, device = _device_info(hass, found.entity_id)
-                    key = (
-                        device_id or found.entity_id,
-                        found.edge,
-                        found.matched,
-                        found.transition,
-                    )
-                    if key in seen:
-                        continue
-                    seen.add(key)
                     rating = ratings.get(device_id, {}) if device_id else {}
                     series_role = role(
                         domain,
@@ -1548,9 +1582,19 @@ def async_setup_services(hass: HomeAssistant) -> None:
                         is_battery_powered(_device_siblings(hass, found.entity_id)),
                         rating.get("kind"),
                     )
-                    meter = _own_meter(hass, found.entity_id)
+                    meter = _series_meter(hass, found.entity_id, meters)
                     meter_rows = meters.get(meter) if meter else None
-                    measured = _measured(meter_rows, events) if meter_rows else None
+                    # The device's own reading during the runs it lined up with;
+                    # on a shape several loads share, the other runs are not its.
+                    runs_hit = [
+                        (began if found.edge == "start" else stopped)[i]
+                        for i in found.hit
+                    ]
+                    measured = (
+                        _measured(meter_rows, runs_hit)
+                        if meter_rows and runs_hit
+                        else None
+                    )
                     # What the circuit itself does when this entity changes:
                     # the draw of whatever it switches, with or without a meter.
                     step = step_at(
@@ -1575,6 +1619,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
                         "rating": rating or None,
                     }
                     aside = series_role == CONTEXT or row["fit"] == UPSTREAM
+                    # One row per device, edge and set of runs, on each side: a
+                    # switch and its meter collapse, a motion sensor on the same
+                    # device as the light it drives does not.
+                    key = (device_id or found.entity_id, found.edge, found.hit, aside)
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     (context if aside else suggestions).append(row)
                 suggestions.sort(
                     key=lambda r: (

@@ -118,14 +118,40 @@ def power_edges(
     return {k: v for k, v in out.items() if v}
 
 
+def pairs(times: list[float], edges: list[float], half_s: float) -> list[int]:
+    """Indices of the edges with an event in `times` within `half_s` either side.
+
+    Both lists ascending. An event serves one edge at most, so runs closer
+    together than the window are not each credited with the same change; taking
+    the earliest free event for each edge in turn matches as many as can be.
+    """
+    out: list[int] = []
+    j = 0
+    for i, edge in enumerate(edges):
+        j = bisect.bisect_left(times, edge - half_s, lo=j)
+        if j < len(times) and times[j] <= edge + half_s:
+            out.append(i)
+            j += 1
+    return out
+
+
 def hits(times: list[float], edges: list[float], half_s: float) -> int:
-    """How many edges have an event in `times` within `half_s` either side."""
-    k = 0
-    for edge in edges:
-        i = bisect.bisect_left(times, edge - half_s)
-        if i < len(times) and times[i] <= edge + half_s:
-            k += 1
-    return k
+    """How many edges `pairs` matches."""
+    return len(pairs(times, edges, half_s))
+
+
+def observed(
+    spans: list[tuple[float, float]], first: float, last: float
+) -> tuple[list[int], list[int]]:
+    """Indices of the runs whose start, and whose end, the history saw.
+
+    A run already going at the first reading started earlier, and one still
+    going at the last reading has not stopped; neither time is an edge.
+    """
+    return (
+        [i for i, (s, _) in enumerate(spans) if s > first],
+        [i for i, (_, e) in enumerate(spans) if e < last],
+    )
 
 
 def _shifted_rate(
@@ -178,6 +204,12 @@ def chance(
     )
 
 
+def day_controlled(edges: list[float], start: float, end: float) -> bool:
+    """Whether any day shift of the edges stays in the window, so `chance`
+    measured what a series that keeps the household's hours scores."""
+    return any(start <= e + d * 86400.0 <= end for d in DAY_OFFSETS for e in edges)
+
+
 def binomial_tail(n: int, k: int, p: float) -> float:
     """P(X >= k) for X ~ Binomial(n, p), in log space so large n cannot overflow."""
     if k <= 0:
@@ -207,10 +239,17 @@ class Match:
     events: int
     chance: float
     expected_false: float
+    # Indices of the matched runs in the edge list scored, for measuring them.
+    hit: tuple[int, ...] = ()
+    controlled: bool = True
 
     @property
     def verdict(self) -> str:
-        if self.expected_false < CLEAR and self.matched > MIN_MATCHED:
+        if (
+            self.expected_false < CLEAR
+            and self.matched > MIN_MATCHED
+            and self.controlled
+        ):
             return "clear"
         return "weak"
 
@@ -224,6 +263,7 @@ class Match:
             "events": self.events,
             "chance": round(self.chance, 4),
             "expected_false": float(f"{self.expected_false:.3g}"),
+            "day_control": self.controlled,
             "verdict": self.verdict,
         }
 
@@ -238,27 +278,45 @@ def score(
 ) -> list[Match]:
     """Every series that lines up with the runs better than chance, best first.
 
+    `starts` and `ends` hold only the edges the history saw (`observed`).
     `expected_false` is the binomial tail times the number of tests made, so a
     house with thousands of entities does not report the few that line up by
-    luck. A series needs two matched runs and two events of its own.
+    luck. A series needs two matched runs and two distinct events of its own.
+    Without a day shift inside the window a match is never `clear`.
     """
-    n = len(starts)
-    if n == 0:
-        return []
-    tests = max(1, 2 * len(series))
+    edges = [
+        (name, points) for name, points in (("start", starts), ("end", ends)) if points
+    ]
+    distinct = {key: sorted(set(times)) for key, times in series.items()}
+    eligible = {
+        key: times for key, times in distinct.items() if len(times) >= MIN_MATCHED
+    }
+    tests = max(1, len(edges) * len(eligible))
+    controlled = {name: day_controlled(points, start, end) for name, points in edges}
     out: list[Match] = []
-    for (entity_id, transition), times in series.items():
-        if len(times) < MIN_MATCHED:
-            continue
-        for edge, points in (("start", starts), ("end", ends)):
-            k = hits(times, points, half_s)
+    for (entity_id, transition), times in eligible.items():
+        for edge, points in edges:
+            hit = pairs(times, points, half_s)
+            k = len(hit)
             if k < MIN_MATCHED:
                 continue
             c = chance(times, points, half_s, start, end)
+            n = len(points)
             expected = binomial_tail(n, k, c) * tests
             if expected <= WEAK:
                 out.append(
-                    Match(entity_id, transition, edge, k, n, len(times), c, expected)
+                    Match(
+                        entity_id,
+                        transition,
+                        edge,
+                        k,
+                        n,
+                        len(times),
+                        c,
+                        expected,
+                        tuple(hit),
+                        controlled[edge],
+                    )
                 )
     out.sort(key=lambda m: (m.expected_false, -m.matched))
     return out
@@ -342,6 +400,14 @@ def fit(
     return "unknown"
 
 
+def spread(items: list[float], limit: int) -> list[float]:
+    """At most `limit` of `items`, evenly spaced from the first to the last."""
+    if len(items) <= limit:
+        return items
+    step = (len(items) - 1) / (limit - 1)
+    return [items[round(i * step)] for i in range(limit)]
+
+
 def step_at(
     times: list[float],
     watts: list[float],
@@ -352,14 +418,15 @@ def step_at(
 ) -> float | None:
     """The circuit's median change across a series' events, in watts.
 
-    Before is the minute ending at the event; after is the minute starting
-    `settle_s` later, leaving the meter's averaging time to catch up. The
-    recorder keeps a reading only when it changes, so an empty minute takes the
-    reading in force at its end.
+    Every event counts, matched or not: at the matched ones the circuit steps by
+    the shape's draw whatever caused it. Before is the minute up to the event,
+    excluding a reading stamped at it; after is the minute starting `settle_s`
+    later, leaving the meter's averaging time to catch up. The recorder keeps a
+    reading only when it changes, so an empty minute takes the reading in force.
     """
     deltas: list[float] = []
-    for t in events[-limit:]:
-        b0, b1 = bisect.bisect_left(times, t - span_s), bisect.bisect_right(times, t)
+    for t in spread(events, limit):
+        b0, b1 = bisect.bisect_left(times, t - span_s), bisect.bisect_left(times, t)
         a0 = bisect.bisect_left(times, t + settle_s)
         a1 = bisect.bisect_right(times, t + settle_s + span_s)
         before = watts[b0:b1] if b1 > b0 else watts[b1 - 1 : b1] if b1 else []
