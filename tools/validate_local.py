@@ -325,9 +325,10 @@ def check_version_is_released(version: str) -> None:
     v0.17.0. An install from that tree reports a version that never carried
     those commits, and HACS reads the same string.
 
-    A tag with no commits after it is the released state and passes. A tree
-    with no tags, or no git, cannot answer, and says so rather than passing
-    quietly.
+    A tag with no commits after it is the released state and passes. Only
+    commits that change the installed package count: one that touches CI,
+    docs or tools leaves an install identical to the release. A tree with no
+    tags, or no git, cannot answer, and says so rather than passing quietly.
     """
     tag = git_text("describe", "--tags", "--abbrev=0")
     if not tag:
@@ -336,14 +337,16 @@ def check_version_is_released(version: str) -> None:
             "against the last release"
         )
         return
-    ahead = git_text("rev-list", "--count", f"{tag}..HEAD")
+    ahead = git_text(
+        "rev-list", "--count", f"{tag}..HEAD", "--", f"custom_components/{DOMAIN}"
+    )
     if ahead is None or not ahead.isdigit():
         notes.append(f"git could not count the commits after {tag}")
         return
     count = int(ahead)
     check(
         not (count and version == tag.lstrip("v")),
-        f"version {version} is tag {tag} with {count} commits after it - "
+        f"version {version} is tag {tag} with {count} package commits after it - "
         "manifest.json, const.VERSION and pyproject.toml agree with each "
         "other and with the last release, so an install reports a version "
         "that never shipped these commits",
