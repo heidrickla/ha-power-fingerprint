@@ -12,7 +12,7 @@ on:
 jobs:
   tests:
     if: github.server_url == 'https://github.com'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       # Full history and tags. The default is --no-tags --depth=1, under which
       # `git describe --tags` finds nothing and the released-version check in
