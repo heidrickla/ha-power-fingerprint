@@ -98,7 +98,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      # The runner image ships 3.10; Home Assistant 2026.x needs 3.14.
+      # Home Assistant 2026.x needs 3.14.
       - uses: actions/setup-python@v5
         timeout-minutes: 15
         with:
