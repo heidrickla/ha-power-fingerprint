@@ -9,13 +9,19 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.const import EVENT_CALL_SERVICE
+from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.exceptions import (
+    ServiceValidationError,
+    Unauthorized,
+    UnknownUser,
+)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
+    MockUser,
     async_mock_service,
 )
 
@@ -449,3 +455,143 @@ async def test_an_automation_that_is_already_off_is_left_alone(
 
     assert response["automations_paused"] == []
     assert hass.states.get("automation.porch_light").state == "off"
+
+
+# --- the caller's permissions ----------------------------------------------
+
+
+def _calls_by(hass, domain):
+    """Record the user id on every call to `domain`, as the logbook sees it."""
+    seen: list[str | None] = []
+
+    @callback
+    def _record(event):
+        if event.data["domain"] == domain:
+            seen.append(event.context.user_id)
+
+    hass.bus.async_listen(EVENT_CALL_SERVICE, _record)
+    return seen
+
+
+async def test_each_switch_call_carries_the_callers_context(
+    hass: HomeAssistant, config_entry, powered, lamp, switching, instant_settle
+):
+    await _setup(hass, config_entry)
+    # The first person account is the owner, and the owner is an administrator.
+    await hass.auth.async_create_user("Owner")
+    member = await hass.auth.async_create_user("Household", group_ids=["system-users"])
+    seen = _calls_by(hass, "switch")
+
+    await hass.services.async_call(
+        DOMAIN,
+        "verify_circuit",
+        {"device": LAMP, "probes": 1, "settle": 10},
+        blocking=True,
+        return_response=True,
+        context=Context(user_id=member.id),
+    )
+    await hass.async_block_till_done()
+
+    assert seen
+    assert set(seen) == {member.id}
+
+
+async def test_an_administrator_probes_whatever_their_policy_lists(
+    hass: HomeAssistant, config_entry, powered, lamp, switching, instant_settle
+):
+    await _setup(hass, config_entry)
+    owner = await hass.auth.async_create_user("Owner")
+    assert owner.is_admin
+    seen = _calls_by(hass, "switch")
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        "verify_circuit",
+        {"device": LAMP, "probes": 1, "settle": 10},
+        blocking=True,
+        return_response=True,
+        context=Context(user_id=owner.id),
+    )
+    await hass.async_block_till_done()
+
+    assert response["probes"]
+    assert set(seen) == {owner.id}
+
+
+async def test_a_context_naming_no_known_user_is_refused(
+    hass: HomeAssistant, config_entry, powered, lamp, switching, instant_settle
+):
+    await _setup(hass, config_entry)
+    seen = _calls_by(hass, "switch")
+
+    with pytest.raises(UnknownUser):
+        await hass.services.async_call(
+            DOMAIN,
+            "verify_circuit",
+            {"device": LAMP, "probes": 1, "settle": 10},
+            blocking=True,
+            return_response=True,
+            context=Context(user_id="no-such-user"),
+        )
+    await hass.async_block_till_done()
+
+    assert seen == []
+
+
+async def test_a_user_who_may_not_control_the_device_cannot_probe_it(
+    hass: HomeAssistant, config_entry, powered, lamp, switching, instant_settle
+):
+    await _setup(hass, config_entry)
+    await hass.auth.async_create_user("Owner")
+    viewer = await hass.auth.async_create_user("Viewer", group_ids=["system-read-only"])
+    seen = _calls_by(hass, "switch")
+
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            DOMAIN,
+            "verify_circuit",
+            {"device": LAMP, "probes": 1, "settle": 10},
+            blocking=True,
+            return_response=True,
+            context=Context(user_id=viewer.id),
+        )
+    await hass.async_block_till_done()
+
+    assert seen == []
+    assert hass.states.get(LAMP).state == "off"
+
+
+async def test_an_automation_the_user_may_not_control_is_not_paused_for_them(
+    hass: HomeAssistant, config_entry, powered, lamp, switching, instant_settle
+):
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {
+            "automation": {
+                "alias": "porch light",
+                "trigger": {"platform": "state", "entity_id": LAMP},
+                "action": {"service": "switch.turn_on", "entity_id": LAMP},
+            }
+        },
+    )
+    await hass.async_block_till_done()
+    await _setup(hass, config_entry)
+    lamp_only = MockUser(name="Lamp only").add_to_hass(hass)
+    lamp_only.mock_policy({"entities": {"entity_ids": {LAMP: True}}})
+    seen = _calls_by(hass, "switch")
+
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            DOMAIN,
+            "verify_circuit",
+            {"device": LAMP, "probes": 1, "settle": 10, "pause_automations": True},
+            blocking=True,
+            return_response=True,
+            context=Context(user_id=lamp_only.id),
+        )
+    await hass.async_block_till_done()
+
+    assert seen == []
+    assert hass.states.get("automation.porch_light").state == "on"
+    assert config_entry.runtime_data.store.orphaned_pauses() == []

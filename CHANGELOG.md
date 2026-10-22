@@ -4,6 +4,12 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.21.2] - 2026-10-22
+
+### Changed
+
+- `verify_circuit` switches the device and pauses automations as the user who called it, so the logbook names that user. A user who may not control the device or a watching automation is refused before anything moves. Automations and scripts are unaffected.
+
 ## [0.21.1] - 2026-10-19
 
 ### Changed

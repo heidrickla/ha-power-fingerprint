@@ -20,18 +20,25 @@ from statistics import median
 from typing import Any, cast
 
 import voluptuous as vol
+from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.components.automation import (
     automations_with_entity,
     entities_in_automation,
 )
 from homeassistant.core import (
+    Context,
     HomeAssistant,
     ServiceCall,
     ServiceResponse,
     State,
     SupportsResponse,
 )
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+    UnknownUser,
+)
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
@@ -353,6 +360,29 @@ def _watchers(hass: HomeAssistant, entities: list[str]) -> dict[str, str | None]
         state = hass.states.get(auto_id)
         snapshot[auto_id] = state.attributes.get("last_triggered") if state else None
     return snapshot
+
+
+async def _require_control(
+    hass: HomeAssistant, context: Context, entities: list[str]
+) -> None:
+    """Refuse before anything moves when the caller may not control an entity.
+
+    The switch and automation calls carry the caller's context, so HA would
+    refuse them one by one; checking first keeps a refusal from landing
+    between a pause and its restore. A call with no user passes.
+    """
+    if context.user_id is None:
+        return
+    user = await hass.auth.async_get_user(context.user_id)
+    if user is None:
+        raise UnknownUser(context=context)
+    if user.is_admin:
+        return
+    for entity in entities:
+        if not user.permissions.check_entity(entity, POLICY_CONTROL):
+            raise Unauthorized(
+                context=context, entity_id=entity, permission=POLICY_CONTROL
+            )
 
 
 def _pausable(
@@ -787,6 +817,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 translation_key="may_not_probe",
                 translation_placeholders={"device": device, "reason": why},
             )
+        await _require_control(hass, call.context, [device])
         state = hass.states.get(device)
         if state is None or state.state in ("unavailable", "unknown"):
             raise ServiceValidationError(
@@ -850,13 +881,18 @@ def async_setup_services(hass: HomeAssistant) -> None:
         refused: list[dict[str, str]] = []
         if call.data["pause_automations"]:
             paused, refused = _pausable(hass, watching)
+            await _require_control(hass, call.context, paused)
             # Record before switching off. Dying between the two leaves a
             # stale record that restores something already running, which is
             # harmless; the other order leaves automations off silently.
             await store.async_record_paused(paused)
             for entity in paused:
                 await hass.services.async_call(
-                    "automation", "turn_off", {"entity_id": entity}, blocking=True
+                    "automation",
+                    "turn_off",
+                    {"entity_id": entity},
+                    blocking=True,
+                    context=call.context,
                 )
             _LOGGER.info(
                 "Paused %d automations for a probe of %s (%d refused as unsafe)",
@@ -877,7 +913,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 # "on" would refuse to verify anything already running.
                 target = "turn_off" if prior == "on" else "turn_on"
                 await hass.services.async_call(
-                    domain, target, {"entity_id": device}, blocking=True
+                    domain,
+                    target,
+                    {"entity_id": device},
+                    blocking=True,
+                    context=call.context,
                 )
                 await asyncio.sleep(settle)
 
@@ -924,6 +964,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     "turn_on" if prior == "on" else "turn_off",
                     {"entity_id": device},
                     blocking=True,
+                    context=call.context,
                 )
                 await asyncio.sleep(settle)
         finally:
@@ -936,10 +977,15 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 "turn_on" if prior == "on" else "turn_off",
                 {"entity_id": device},
                 blocking=True,
+                context=call.context,
             )
             for entity in paused:
                 await hass.services.async_call(
-                    "automation", "turn_on", {"entity_id": entity}, blocking=True
+                    "automation",
+                    "turn_on",
+                    {"entity_id": entity},
+                    blocking=True,
+                    context=call.context,
                 )
             if paused:
                 await store.async_clear_paused()
