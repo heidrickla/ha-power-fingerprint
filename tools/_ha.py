@@ -2,7 +2,8 @@
 
 Every tool in this directory reads `HA_URL` and `HA_TOKEN` from the
 environment. `HA_URL` is the install's base URL; `HA_TOKEN` is a long-lived
-access token from the user profile page.
+access token from the user profile page. Certificates are verified;
+`HA_INSECURE=1` accepts a self-signed one.
 
 THE `end_time` TRAP LIVES HERE AND NOWHERE ELSE.
 
@@ -33,9 +34,17 @@ from datetime import UTC, datetime, timedelta
 
 Sample = tuple[datetime, float]
 
-CTX = ssl.create_default_context()
-CTX.check_hostname = False
-CTX.verify_mode = ssl.CERT_NONE  # self-signed appliance certs are the norm here
+
+def tls_context() -> ssl.SSLContext:
+    """Verifying, unless `HA_INSECURE=1` accepts a self-signed certificate."""
+    ctx = ssl.create_default_context()
+    if os.environ.get("HA_INSECURE") == "1":
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+CTX = tls_context()
 
 
 def load_module(name: str):

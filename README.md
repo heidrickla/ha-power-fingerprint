@@ -512,6 +512,8 @@ Add a label naming the circuit to each mapped device, so devices can be filtered
 
 Development scripts in `tools/`, run from a workstation. Most read the REST API; `labelled_set.py` reads exported traces. They load the pure modules by path and need no Home Assistant install.
 
+The REST tools read `HA_URL` and `HA_TOKEN` and verify the install's certificate. `HA_INSECURE=1` accepts a self-signed one.
+
 | Script | Purpose |
 |---|---|
 | `identify.py` | Segment and cluster history for one circuit. |
@@ -744,7 +746,7 @@ python3.14 tools/validate_local.py
 
 `tools/validate_local.py` is 3.14 source and reports a SyntaxError under an older interpreter. `tools/hooks/pre-push` runs it at push time and picks its interpreter by version; install it with `cp tools/hooks/pre-push .git/hooks/pre-push`.
 
-339 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage`, `correlate` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
+342 tests cover the pure modules - `analysis`, `fingerprint`, `attribution`, `verify`, `virtual`, `breaker`, `outage`, `correlate` - and `tools/labelled_set.py`, which import nothing from Home Assistant and are loaded by path, so they run on a bare checkout.
 
 `tests/fixtures/breaker_trips.json` holds recorder windows from one install with every entity id replaced by a generic one: a 7-second breaker flip, a Home Assistant restart, one integration dropping 22 entities with no circuit moving, eight appliance circuits reaching the noise floor, and 720 hourly minima per circuit. `tests/test_breaker_replay.py` replays them through the trip detector.
 
@@ -764,7 +766,7 @@ The commit half reads `PF_PUSH_RANGE`, which the GitHub `Tests` workflow sets fr
 
 A match under `CI` prints the file, the line and the rule with the matched text replaced by `[redacted]`. A local run prints the match. Each matcher fires on a control line built at runtime first, and the redaction is controlled the same way, so a clean result is a matcher that matched rather than one that stopped working.
 
-251 more in `tests/ha/` cover the Home Assistant layer.
+256 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|
