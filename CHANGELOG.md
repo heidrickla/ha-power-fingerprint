@@ -9,6 +9,7 @@ This file starts at 0.17.0. Earlier versions were developed against one install 
 ### Changed
 
 - `verify_circuit` switches the device and pauses automations as the user who called it, so the logbook names that user. A user who may not control the device or a watching automation is refused before anything moves. Automations and scripts are unaffected.
+- The REST tools in `tools/` verify the install's certificate. `HA_INSECURE=1` accepts a self-signed one.
 
 ## [0.21.1] - 2026-10-19
 
