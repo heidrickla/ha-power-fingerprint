@@ -473,27 +473,56 @@ def _calls_by(hass, domain):
     return seen
 
 
-async def test_each_switch_call_carries_the_callers_context(
+async def test_only_an_administrator_or_an_automation_may_probe(
     hass: HomeAssistant, config_entry, powered, lamp, switching, instant_settle
 ):
     await _setup(hass, config_entry)
     # The first person account is the owner, and the owner is an administrator.
-    await hass.auth.async_create_user("Owner")
+    owner = await hass.auth.async_create_user("Owner")
     member = await hass.auth.async_create_user("Household", group_ids=["system-users"])
+    assert owner.is_admin
+    assert not member.is_admin
     seen = _calls_by(hass, "switch")
+    data = {"device": LAMP, "probes": 1, "settle": 10}
 
-    await hass.services.async_call(
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            DOMAIN,
+            "verify_circuit",
+            data,
+            blocking=True,
+            return_response=True,
+            context=Context(user_id=member.id),
+        )
+    await hass.async_block_till_done()
+    assert seen == []
+    assert hass.states.get(LAMP).state == "off"
+
+    response = await hass.services.async_call(
         DOMAIN,
         "verify_circuit",
-        {"device": LAMP, "probes": 1, "settle": 10},
+        data,
         blocking=True,
         return_response=True,
-        context=Context(user_id=member.id),
+        context=Context(user_id=owner.id),
     )
     await hass.async_block_till_done()
+    assert response["probes"]
+    assert set(seen) == {owner.id}
 
+    seen.clear()
+    response = await hass.services.async_call(
+        DOMAIN,
+        "verify_circuit",
+        data,
+        blocking=True,
+        return_response=True,
+        context=Context(),
+    )
+    await hass.async_block_till_done()
+    assert response["probes"]
     assert seen
-    assert set(seen) == {member.id}
+    assert set(seen) == {None}
 
 
 async def test_an_administrator_probes_whatever_their_policy_lists(

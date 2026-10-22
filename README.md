@@ -447,7 +447,7 @@ Turn a candidate into an identification. Only named fingerprints drive entities.
 
 ### `verify_circuit`
 
-Switch a device and watch which circuit moves. It actuates the device, several times, and always restores its prior state. Only `switch` and `light` entities may be probed. It switches the device and pauses automations as the user who called it, so the logbook names that user, and a signed-in user who may not control the device or a watching automation is refused before anything moves. Automations and scripts are unaffected. See [Limits of active probing](#limits-of-active-probing).
+Switch a device and watch which circuit moves. It actuates the device, several times, and always restores its prior state. Only `switch` and `light` entities may be probed. It is an administrator action: a signed-in user who is not an administrator is refused before anything moves. It switches the device and pauses automations as the user who called it, so the logbook names that user. Automations and scripts are unaffected. See [Limits of active probing](#limits-of-active-probing).
 
 | Field | Default | Meaning |
 |---|---|---|

@@ -1754,7 +1754,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
         schema=OUTAGE_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
-    hass.services.async_register(
+    # It switches another integration's device and pauses automations, which
+    # only an administrator may do.
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_VERIFY,
         _verify,

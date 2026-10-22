@@ -4,6 +4,12 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.21.3] - 2026-10-22
+
+### Changed
+
+- `verify_circuit` is an administrator action. A signed-in user who is not an administrator is refused before anything moves; automations and scripts are unaffected.
+
 ## [0.21.2] - 2026-10-22
 
 ### Changed
