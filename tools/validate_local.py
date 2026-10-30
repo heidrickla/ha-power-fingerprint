@@ -316,6 +316,20 @@ def git_text(*args: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+# The keys HACS reads from hacs.json; anything else is ignored there.
+HACS_KEYS = {
+    "name",
+    "content_in_root",
+    "zip_release",
+    "filename",
+    "hide_default_branch",
+    "country",
+    "homeassistant",
+    "hacs",
+    "persistent_directory",
+}
+
+
 def check_version_is_released(version: str) -> None:
     """Refuse a version string that is the last release with commits after it.
 
@@ -397,14 +411,8 @@ PRIVATE_SUFFIXES = _netblocks.PRIVATE_SUFFIXES
 
 # Hosts that look like a development host and are not one. Every entry is
 # load-bearing in this repository and carries the reason on its line; an
-# entry added without one is how the rule stops working.
-ALLOWED_HOSTS = frozenset(
-    {
-        # The default Home Assistant address, in every install document.
-        "homeassistant.local",
-    }
-    | REPO_ALLOWED_HOSTS
-)
+# entry added without one is how the rule stops working. None is needed now.
+ALLOWED_HOSTS: frozenset[str] = REPO_ALLOWED_HOSTS
 
 # Text that ships to whoever clones or installs the repository. The file list
 # comes from git rather than a walk: git already knows what is ignored, which
@@ -942,7 +950,9 @@ def scan_published_tree(name_re: Any) -> None:
 def main() -> int:
     manifest = read_json(COMP, "manifest.json")
     const_src = read(COMP, "const.py")
-    strings = read_json(COMP, "strings.json")
+    # The one translation source: hassfest validates translations/en.json, and a
+    # strings.json beside it is a second copy the Marketplace does not read.
+    strings = read_json(COMP, "translations", "en.json")
 
     # ---------------------------------------------------------- manifest
     for key in REQUIRED_MANIFEST:
@@ -1005,6 +1015,10 @@ def main() -> int:
         "homeassistant" in hacs,
         "hacs.json must declare a minimum homeassistant version",
     )
+    check(
+        set(hacs) <= HACS_KEYS,
+        f"hacs.json carries keys HACS does not read: {sorted(set(hacs) - HACS_KEYS)}",
+    )
 
     # ---------------------------------------------------------- brand images
     brand = os.path.join(COMP, "brand")
@@ -1012,16 +1026,22 @@ def main() -> int:
         check(os.path.isfile(os.path.join(brand, name)), f"missing brand/{name}")
 
     # ---------------------------------------------------------- translations
-    en = read_json(COMP, "translations", "en.json")
     check(
-        strings == en,
-        "strings.json and translations/en.json differ - copy strings.json over",
+        not os.path.exists(os.path.join(COMP, "strings.json")),
+        "strings.json ships beside translations/en.json - delete it, en.json is "
+        "the one source",
     )
-    # The same six fields appear on the user, reconfigure and options forms;
-    # each block must describe them all or the form shows raw keys.
+    # Every field appears on the reconfigure and options forms, and across the
+    # setup's steps and its Advanced section; each must describe them all or
+    # the form shows raw keys.
+    config_steps = strings["config"]["step"]
+    setup = [config_steps["user"], config_steps["price"]]
+    setup += list(config_steps["user"].get("sections", {}).values())
+    for block in config_steps["user"].get("sections", {}).values():
+        check("name" in block, "a setup section has no name, so it shows its key")
     step_labels = [
-        strings["config"]["step"]["user"]["data"],
-        strings["config"]["step"]["reconfigure"]["data"],
+        {key: label for block in setup for key, label in block["data"].items()},
+        config_steps["reconfigure"]["data"],
         strings["options"]["step"]["init"]["data"],
     ]
     conf_fields = set(constants(const_src, "CONF_").values())
@@ -1031,19 +1051,22 @@ def main() -> int:
             f"a form labels {sorted(labels)} but const.py declares "
             f"{sorted(conf_fields)}",
         )
-    # Both flows validate with the same function and the same error keys.
+    # Both flows validate with the same function and the same error keys; the
+    # setup also has its check-again steps' base errors.
+    flow_src = read(COMP, "config_flow.py")
+    base_errors = set(re.findall(r'\{"base": "([a-z_]+)"\}', flow_src))
     check(
-        set(strings["config"]["error"]) == set(strings["options"]["error"]),
+        set(strings["config"]["error"]) - base_errors
+        == set(strings["options"]["error"]),
         "config.error and options.error declare different keys",
     )
-    flow_src = read(COMP, "config_flow.py")
     used_errors = set(
         re.findall(r'"((?:mains|circuit)_[a-z_]+|no_circuits)"', flow_src)
     )
     # The kind-prefixed keys are built as f"{kind}_missing"; expand them.
     for suffix in re.findall(r'f"\{kind\}_([a-z_]+)"', flow_src):
         used_errors |= {f"mains_{suffix}", f"circuit_{suffix}"}
-    used_errors |= set(re.findall(r'"(not_power_unit)"', flow_src))
+    used_errors |= set(re.findall(r'"(not_power_unit)"', flow_src)) | base_errors
     check(
         used_errors <= set(strings["config"]["error"]),
         f"config_flow.py returns undeclared error keys "
@@ -1051,7 +1074,7 @@ def main() -> int:
     )
     check(
         set(strings["config"]["error"]) <= used_errors,
-        f"strings.json declares unused error keys "
+        f"translations/en.json declares unused error keys "
         f"{sorted(set(strings['config']['error']) - used_errors)}",
     )
 
@@ -1063,7 +1086,7 @@ def main() -> int:
     declared_services = set(strings.get("services", {}))
     check(
         declared_services == service_consts,
-        f"strings.json describes {sorted(declared_services)} but services.py "
+        f"translations/en.json describes {sorted(declared_services)} but services.py "
         f"registers {sorted(service_consts)}",
     )
     try:
@@ -1081,13 +1104,13 @@ def main() -> int:
             check(
                 yaml_fields == described,
                 f"action {name}: services.yaml fields {sorted(yaml_fields)} != "
-                f"strings.json fields {sorted(described)}",
+                f"translations/en.json fields {sorted(described)}",
             )
             # `name` and `description` are legible in both files and Home
             # Assistant reads both: `async_get_all_descriptions` returns the
             # services.yaml text while the `services` translation category
-            # returns the strings.json text. Two copies drift, and comparing
-            # field key sets above does not see it. strings.json is the one
+            # returns the translations/en.json text. Two copies drift, and
+            # comparing field key sets above does not see it. en.json is the one
             # source; services.yaml carries selectors, defaults and `required`.
             inline = [
                 f"{name}.{key}"
@@ -1102,7 +1125,7 @@ def main() -> int:
             ]
             check(
                 not inline,
-                f"services.yaml carries text that belongs in strings.json: "
+                f"services.yaml carries text that belongs in translations/en.json: "
                 f"{sorted(inline)}",
             )
             for field_spec in (spec or {}).get("fields", {}).values():
@@ -1111,7 +1134,7 @@ def main() -> int:
                 if tkey:
                     check(
                         tkey in strings.get("selector", {}),
-                        f"selector translation {tkey!r} missing from strings.json",
+                        f"selector translation {tkey!r} missing from en.json",
                     )
     except ImportError:
         check(
@@ -1228,7 +1251,7 @@ def main() -> int:
     )
     check(
         declared_exc <= raised,
-        f"strings.json declares unused exceptions {sorted(declared_exc - raised)}",
+        f"en.json declares unused exceptions {sorted(declared_exc - raised)}",
     )
 
     # ----------------------------------------------------- issue translations
@@ -1239,7 +1262,7 @@ def main() -> int:
     declared_issues = set(strings.get("issues", {}))
     check(
         issue_keys == declared_issues,
-        f"repair issues raised {sorted(issue_keys)} != strings.json issues "
+        f"repair issues raised {sorted(issue_keys)} != en.json issues "
         f"{sorted(declared_issues)}",
     )
 

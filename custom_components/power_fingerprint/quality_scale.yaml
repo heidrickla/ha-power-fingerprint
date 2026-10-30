@@ -26,12 +26,15 @@ rules:
   config-flow-test-coverage:
     status: done
     comment: |
-      tests/ha/test_config_flow.py covers the user step, the single-instance
-      abort, every error branch (mains or circuit missing, not numeric, not a
-      power unit, empty circuit list, mains listed as a circuit), recovery
-      from each error to a created entry, reconfigure with its error and
-      recovery, the options flow with its error and recovery, the options
-      shadowing case, and the dashboard price prefill in both directions.
+      tests/ha/test_config_flow.py covers the user step submitted untouched,
+      the sensors it pre-selects and the ones it will not guess, its Advanced
+      section stored flat and reopened by an error, the check-again step with
+      no power sensors, the price step, the single-instance abort, every error
+      branch (mains or circuit missing, not numeric, not a power unit, empty
+      circuit list, mains listed as a circuit), recovery from each error to a
+      created entry, reconfigure with its error and recovery, the options flow
+      with its error and recovery, the options shadowing case, and the
+      dashboard price used without asking or kept on reconfigure.
       Run by the GitHub Tests workflow on every push; config_flow.py is at
       100% of its statements under the coverage gate.
   config-flow: done

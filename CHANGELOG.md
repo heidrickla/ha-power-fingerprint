@@ -4,6 +4,17 @@ Notable changes to Power Fingerprint, newest first. The format follows [Keep a C
 
 This file starts at 0.17.0. Earlier versions were developed against one install and are not documented here.
 
+## [0.22.0] - 2026-10-30
+
+### Changed
+
+- The setup asks for nothing to be typed. The whole-panel and circuit power sensors are already selected when the energy dashboard names them: its grid power sensor in a house with no solar or battery, and its individual devices that no other device includes. Without those, the circuits are the mains meter's other power sensors when they add up to the mains reading.
+- The coverage tolerance, the confidence, the breaker-trip probe and the switch/circuit pairs sit in a collapsed Advanced section of the first screen with their defaults; an error reopens it and keeps what was typed.
+- The price per kWh is the energy dashboard's without asking. When the dashboard has none, a last step offers 0.13 and Submit is enough.
+- With fewer than two power sensors in Home Assistant, the setup says what provides them and checks again on Submit.
+- The README opens the repository in HACS and starts the setup with My Home Assistant buttons.
+- The translations ship as `translations/en.json` alone, and `hacs.json` carries only the keys HACS reads.
+
 ## [0.21.3] - 2026-10-22
 
 ### Changed

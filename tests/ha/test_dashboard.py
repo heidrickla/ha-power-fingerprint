@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.power_fingerprint.dashboard import (
     async_circuit_names,
+    async_dashboard_power_sensors,
     async_dashboard_price,
 )
 
@@ -154,3 +155,53 @@ async def test_an_install_without_the_energy_component_reads_nothing(
     supported and falls back to the configured price."""
     with patch.dict(sys.modules, {"homeassistant.components.energy.data": None}):
         assert not await read(hass)
+
+
+async def test_the_power_sensors_come_from_the_grid_and_the_top_level_devices(
+    hass: HomeAssistant,
+):
+    """The unified grid source carries `stat_rate`, the older one a `power` list;
+    a device another device includes is inside a circuit and is left out."""
+    prefs = {
+        "energy_sources": [
+            {"type": "grid", "stat_rate": "sensor.grid_power"},
+            {"type": "grid", "power": [{"stat_rate": "sensor.old_grid_power"}, "x"]},
+            {"type": "grid", "flow_from": []},
+            "not a dict",
+        ],
+        "device_consumption": [
+            {"stat_consumption": "sensor.a_energy", "stat_rate": "sensor.a_power"},
+            {
+                "stat_consumption": "sensor.lamp_energy",
+                "stat_rate": "sensor.lamp_power",
+                "included_in_stat": "sensor.a_energy",
+            },
+            {"stat_consumption": "sensor.b_energy"},
+            "not a dict",
+        ],
+    }
+    with patch(MANAGER, manager(prefs)):
+        assert await async_dashboard_power_sensors(hass) == (
+            ["sensor.grid_power", "sensor.old_grid_power"],
+            ["sensor.a_power"],
+        )
+
+
+@pytest.mark.parametrize("other", ["solar", "battery"])
+async def test_a_house_with_another_source_names_no_mains(hass: HomeAssistant, other):
+    """The grid reads the panel less what the other source supplies."""
+    prefs = {
+        "energy_sources": [
+            {"type": "grid", "stat_rate": "sensor.grid_power"},
+            {"type": other, "stat_rate": "sensor.other_power"},
+        ],
+    }
+    with patch(MANAGER, manager(prefs)):
+        assert await async_dashboard_power_sensors(hass) == ([], [])
+
+
+async def test_an_install_without_the_energy_component_names_no_sensors(
+    hass: HomeAssistant,
+):
+    with patch.dict(sys.modules, {"homeassistant.components.energy.data": None}):
+        assert await async_dashboard_power_sensors(hass) == ([], [])

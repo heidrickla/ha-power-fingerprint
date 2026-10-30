@@ -142,6 +142,22 @@ automation:
 
 ## Installation
 
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=heidrickla&repository=ha-power-fingerprint&category=integration)
+
+1. Press the button above, then Download in HACS, and restart Home Assistant when it asks.
+2. Press this button to start the setup:
+
+[![Open your Home Assistant instance and start setting up Power Fingerprint.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=power_fingerprint)
+
+The setup asks for nothing to be typed:
+
+1. Power Fingerprint: the whole-panel power sensor and the circuit power sensors. They are already selected when your energy dashboard names them (its grid power sensor in a house with no solar or battery, and its individual devices' power sensors), or when the meter that reads the mains also reads circuits that add up to it. Check them and press Submit.
+2. Electricity price: shown only when the energy dashboard has no price per kWh. Press Submit to keep 0.13, or enter what you pay.
+
+The Advanced section of the first screen holds the coverage tolerance, the confidence, the breaker-trip probe and the switch/circuit pairs; the defaults fit most panels. If Home Assistant has fewer than two power sensors, the setup says what provides them, and Submit checks again.
+
+Without the buttons: HACS, the three-dot menu, Custom repositories, add `https://github.com/heidrickla/ha-power-fingerprint` as an Integration, download Power Fingerprint and restart; then Settings, Devices & services, Add integration, Power Fingerprint. Manual install: copy `custom_components/power_fingerprint/` into your configuration's `custom_components` folder and restart.
+
 Home Assistant 2026.8 or later. A device belongs to one config entry from 2026.8, and a stray device entry is removed with `async_remove_device`, the call that replaces the config-entry parameters removed in 2027.8. The config flow uses APIs added in 2024.12, and the brand images ship inside the repository, which Home Assistant serves at `/api/brands/integration/power_fingerprint/` from 2026.3. The source uses Python 3.14 syntax, which every Home Assistant release from 2026.3 supplies: each declares `requires-python >=3.14.2`.
 
 | Reader | Reads | Result |
@@ -152,13 +168,7 @@ Home Assistant 2026.8 or later. A device belongs to one config entry from 2026.8
 
 The HACS panel's icon column requests the CDN path rather than the Home Assistant proxy, so it shows a placeholder (hacs/integration issue 5223).
 
-HACS (custom repository): add `https://github.com/heidrickla/ha-power-fingerprint` as a custom repository of type Integration, install, restart Home Assistant.
-
 `hacs.json` sets no `country`. That key filters the store listing to the countries it names. This integration reads power sensors Home Assistant already has: no vendor, no cloud, no regional service. Naming a country would hide the listing from everyone outside it and gain nothing.
-
-Manual: copy `custom_components/power_fingerprint/` into your Home Assistant `config/custom_components/` directory and restart.
-
-Then Settings -> Devices & Services -> Add Integration -> Power Fingerprint.
 
 There is no discovery, and there is nothing to discover: this integration reads sensors another integration has already created, so it is added by hand and asks which of those sensors to use. Only one entry is allowed, because a second would count every circuit twice.
 
@@ -184,7 +194,7 @@ An automation paused for a probe is recorded to storage before being switched of
 
 ### Reconfiguring
 
-Reconfigure (the entry's own menu) and Configure (the options button) show the same six fields as setup and run the same validation. Reconfigure writes to the entry data and clears any saved options; Configure writes options, which take precedence at runtime. Either one reloads the entry.
+Reconfigure (the entry's own menu) and Configure (the options button) show all seven fields on one form and run the same validation as setup. Reconfigure writes to the entry data and clears any saved options; Configure writes options, which take precedence at runtime. Either one reloads the entry.
 
 ## Confidence
 
@@ -539,12 +549,12 @@ Device labels are counted again with each device trace shifted by 3, 7, 13 and 1
 
 ## Configuration
 
-The same seven fields appear at setup, on Reconfigure and on Configure.
+Reconfigure and Configure show all seven on one form. Setup shows the two sensors with the next four in its collapsed Advanced section, and asks for the price last, only when the energy dashboard has none.
 
 | Field | Required | Default | Meaning |
 |---|---|---|---|
-| Whole-panel power sensor | yes | | The sensor reading the mains. Its total should be close to the sum of the circuits. |
-| Circuit power sensors | yes, at least one | | One per breaker. Leave out phase and total sensors, or they are counted twice. The mains may not also be a circuit. |
+| Whole-panel power sensor | yes | the energy dashboard's grid power sensor, when nothing else feeds the house | The sensor reading the mains. Its total should be close to the sum of the circuits. |
+| Circuit power sensors | yes, at least one | the energy dashboard's individual devices, else the mains meter's other power sensors when they add up to the mains | One per breaker. Leave out phase and total sensors, or they are counted twice. The mains may not also be a circuit. |
 | Electricity price per kWh | no | the energy dashboard's price, else 0.13 | Turns standby watts into an annual figure. A price set here beats the dashboard's. |
 | Coverage tolerance | no | 5 % | How far the circuits may drift from the mains before a fault is raised. |
 | How sure do you want to be? | no | Balanced | See [Confidence](#confidence). |
@@ -766,15 +776,15 @@ The commit half reads `PF_PUSH_RANGE`, which the GitHub `Tests` workflow sets fr
 
 A match under `CI` prints the file, the line and the rule with the matched text replaced by `[redacted]`. A local run prints the match. Each matcher fires on a control line built at runtime first, and the redaction is controlled the same way, so a clean result is a matcher that matched rather than one that stopped working.
 
-256 more in `tests/ha/` cover the Home Assistant layer.
+272 more in `tests/ha/` cover the Home Assistant layer.
 
 | Area | What is covered |
 |---|---|
 | Entry lifecycle | Setup, unload and removal; the store goes with the entry. |
-| Flows | Config, reconfigure and options, each validation refusal followed by a recovery to a created entry. |
+| Flows | Config, reconfigure and options, each validation refusal followed by a recovery to a created entry; the sensors setup pre-selects and the ones it will not guess, the Advanced section, the price step and the check-again step. |
 | Entities | Derived values, availability, device grouping, the appliance sensor following its circuit, the diagnostics download carrying no entity id. |
 | Store | Evidence strength deciding which answer stands and the conflicts kept, `measured` reserved for probes on write and on the minor-2 migration, amendments to a trip adding up, device ratings kept across a reload and absent from a minor-2 store, and the rename migration. |
-| Dashboard | The energy dashboard reader against every shape the energy schema has had. |
+| Dashboard | The energy dashboard reader, price and power sensors, against every shape the energy schema has had. |
 | Coordinator | The recorder seed, blind-time accounting behind the absence alert, and unit conversion at ingestion. |
 | Actions | All nine driven end to end, the history actions against recorded history, including the probe's restore path, its five refusals and the automations it pauses, and `record_breaker_evidence`'s timing refusals, its refusal of casualties on a trip with no return, a second import adding to the first, and `correlate`'s roles, fits and context list against recorded state changes, ratings and stored kinds. |
 | Breaker trips | One assignment per device and the event, arming after startup, eligibility from statistics, what is excluded as a casualty, a probe never overwritten. |

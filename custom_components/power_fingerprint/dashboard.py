@@ -1,6 +1,6 @@
-"""Reads what the energy dashboard already knows: the price, and circuit names.
+"""Reads what the energy dashboard already knows: price, names and power sensors.
 
-Both are things the user has typed once already. A second place to enter them
+All are things the user has set once already. A second place to enter them
 is a second place for them to be wrong.
 """
 
@@ -13,6 +13,24 @@ from typing import Any, cast
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def _async_prefs(hass: HomeAssistant) -> Mapping[str, Any]:
+    """The energy dashboard's preferences, empty for every way they can be absent.
+
+    Read as a loose mapping on purpose: the energy schema has changed shape
+    across versions and this module handles every shape it has had.
+    """
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+    except ImportError:
+        return {}
+    try:
+        manager = await async_get_manager(hass)
+    except Exception as err:
+        _LOGGER.debug("Could not read the energy dashboard: %s", err)
+        return {}
+    return cast("Mapping[str, Any] | None", manager.data) or {}
 
 
 def _price_from_source(hass: HomeAssistant, source: Mapping[str, Any]) -> float | None:
@@ -53,21 +71,7 @@ async def async_dashboard_price(hass: HomeAssistant) -> float | None:
     missing price is an ordinary state, not a fault, and the caller has a
     perfectly good fallback.
     """
-    try:
-        from homeassistant.components.energy.data import async_get_manager
-    except ImportError:
-        return None
-
-    try:
-        manager = await async_get_manager(hass)
-    except Exception as err:
-        _LOGGER.debug("Could not read the energy dashboard's price: %s", err)
-        return None
-
-    # Read as a loose mapping on purpose: the energy schema has changed
-    # shape across versions and this module handles every shape it has had.
-    prefs = cast("Mapping[str, Any] | None", manager.data)
-    for source in (prefs or {}).get("energy_sources", []):
+    for source in (await _async_prefs(hass)).get("energy_sources", []):
         if not isinstance(source, dict) or source.get("type") != "grid":
             continue
         price = _price_from_source(hass, source)
@@ -91,19 +95,8 @@ async def async_circuit_names(hass: HomeAssistant) -> dict[str, str]:
     exactly what this integration is configured with. The consumption
     statistic is a different entity and would not match.
     """
-    try:
-        from homeassistant.components.energy.data import async_get_manager
-    except ImportError:
-        return {}
-    try:
-        manager = await async_get_manager(hass)
-    except Exception as err:
-        _LOGGER.debug("Could not read the energy dashboard's names: %s", err)
-        return {}
-
     out: dict[str, str] = {}
-    prefs = cast("Mapping[str, Any] | None", manager.data)
-    for device in (prefs or {}).get("device_consumption", []):
+    for device in (await _async_prefs(hass)).get("device_consumption", []):
         if not isinstance(device, dict):
             continue
         rate = device.get("stat_rate")
@@ -111,3 +104,33 @@ async def async_circuit_names(hass: HomeAssistant) -> dict[str, str]:
         if rate and name:
             out[str(rate)] = str(name)
     return out
+
+
+async def async_dashboard_power_sensors(
+    hass: HomeAssistant,
+) -> tuple[list[str], list[str]]:
+    """The power sensors the energy dashboard names for the mains and the circuits.
+
+    The grid's power sensor reads the whole panel only when nothing else feeds
+    the house, so a solar or battery source leaves the mains unnamed. Circuits
+    are the individual devices no other device includes, so a plug metered
+    inside a circuit is not counted twice.
+    """
+    prefs = await _async_prefs(hass)
+    sources = [s for s in prefs.get("energy_sources", []) if isinstance(s, dict)]
+    mains: list[str] = []
+    if all(s.get("type") == "grid" for s in sources):
+        for source in sources:
+            # The unified grid source carries `stat_rate`; the older one a `power` list.
+            legacy = source.get("power")
+            for power in [source, *(legacy if isinstance(legacy, list) else [])]:
+                if isinstance(power, dict) and power.get("stat_rate"):
+                    mains.append(str(power["stat_rate"]))
+    circuits = [
+        str(device["stat_rate"])
+        for device in prefs.get("device_consumption", [])
+        if isinstance(device, dict)
+        and device.get("stat_rate")
+        and not device.get("included_in_stat")
+    ]
+    return mains, circuits
