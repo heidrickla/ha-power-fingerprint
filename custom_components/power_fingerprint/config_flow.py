@@ -73,8 +73,15 @@ async def _defaults_with_price(
 
 
 def _sensor_fields(defaults: dict[str, Any]) -> dict[vol.Marker, Any]:
+    # A default of None reaches the frontend as null, passes its required check
+    # and comes back as a selector error; with no guess the field opens empty.
+    mains = defaults.get(CONF_MAINS)
     return {
-        vol.Required(CONF_MAINS, default=defaults.get(CONF_MAINS)): _POWER_SENSOR,
+        (
+            vol.Required(CONF_MAINS)
+            if mains is None
+            else vol.Required(CONF_MAINS, default=mains)
+        ): _POWER_SENSOR,
         vol.Required(
             CONF_CIRCUITS, default=defaults.get(CONF_CIRCUITS, [])
         ): _POWER_SENSORS,
@@ -141,10 +148,12 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
 
 def _setup_schema(defaults: dict[str, Any], collapsed: bool) -> vol.Schema:
     """The sensors, with the tuning in a collapsed section; the price comes last."""
+    # No default on the section key: the frontend would send that default as
+    # the section's data and never fill in the defaults of the fields inside.
     return vol.Schema(
         {
             **_sensor_fields(defaults),
-            vol.Required(SECTION_ADVANCED, default={}): section(
+            vol.Required(SECTION_ADVANCED): section(
                 vol.Schema(_tuning_fields({})), {"collapsed": collapsed}
             ),
         }

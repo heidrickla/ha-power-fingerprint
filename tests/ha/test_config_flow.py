@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -22,6 +23,8 @@ from custom_components.power_fingerprint.const import (
     DOMAIN,
     SECTION_ADVANCED,
 )
+
+from .frontend_form import frontend_submission
 
 POWER_ATTRS = {
     "device_class": "power",
@@ -130,7 +133,9 @@ async def test_the_first_screen_submitted_untouched_creates_the_entry(
     }
     with energy(prefs):
         result = await _start(hass)
-        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], frontend_submission(result)
+        )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == {
@@ -215,10 +220,10 @@ async def test_without_power_sensors_the_flow_says_how_and_checks_again(
 
 
 def _default(result, key):
-    """The default the form offers for one field."""
+    """The default the form offers for one field, None when it offers none."""
     for marker in result["data_schema"].schema:
         if marker == key:
-            return marker.default()
+            return None if marker.default is vol.UNDEFINED else marker.default()
     raise AssertionError(f"{key} is not on the form")
 
 

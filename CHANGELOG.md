@@ -10,6 +10,8 @@ This file starts at 0.17.0. Earlier versions were developed against one install 
 
 - The setup asks for nothing to be typed. The whole-panel and circuit power sensors are already selected when the energy dashboard names them: its grid power sensor in a house with no solar or battery, and its individual devices that no other device includes. Without those, the circuits are the mains meter's other power sensors when they add up to the mains reading.
 - The coverage tolerance, the confidence, the breaker-trip probe and the switch/circuit pairs sit in a collapsed Advanced section of the first screen with their defaults; an error reopens it and keeps what was typed.
+- Expanding Advanced on the first screen shows the tuning defaults, where before its fields opened empty.
+- A whole-panel sensor that could not be guessed opens empty and the dialog asks for it on Submit, where before it sent nothing and the setup answered with a selector error.
 - The price per kWh is the energy dashboard's without asking. When the dashboard has none, a last step offers 0.13 and Submit is enough.
 - With fewer than two power sensors in Home Assistant, the setup says what provides them and checks again on Submit.
 - The README opens the repository in HACS and starts the setup with My Home Assistant buttons.
