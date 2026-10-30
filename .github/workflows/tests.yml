@@ -28,11 +28,13 @@ jobs:
           python-version: "3.14"
       # 0.13.357 pins Home Assistant 2026.8.3, the release the development
       # install runs; it brings pytest, its asyncio and aiohttp plugins,
-      # pytest-cov and PyYAML with it (pinning those again here makes pip's
-      # resolution impossible).
+      # pytest-cov and PyYAML with it (pinning those again here makes the
+      # resolution impossible). uv installs the same packages as pip did
+      # (compared 2026-10-30) in a quarter of the time; 0.11.31 is the uv the
+      # harness itself pins.
       - run: |
-          python -m pip install --upgrade pip
-          python -m pip install "mypy==1.18.2" "ruff==0.15.21" \
+          python -m pip install "uv==0.11.31"
+          python -m uv pip install --system "mypy==1.18.2" "ruff==0.15.21" \
             "pytest-homeassistant-custom-component==0.13.357"
       - run: ruff check .
       - run: ruff format --check .
