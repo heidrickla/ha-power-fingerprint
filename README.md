@@ -4,6 +4,20 @@ Identify what is running on a circuit from the shape of its load.
 
 A Home Assistant integration for panels with per-circuit power monitoring. It takes `device_class: power` sensors and does not care where they come from, but see [What it has been tested against](#what-it-has-been-tested-against).
 
+## Screenshots
+
+![The Power Fingerprint setup screen with the whole-panel and circuit sensor pickers](docs/images/setup.png)
+
+Setup takes the whole-panel sensor and one sensor per breaker, pre-selected when the energy dashboard names them.
+
+![The setup screen shown when Home Assistant has no power sensors](docs/images/no-sensors.png)
+
+With no power sensors yet, setup says what it needs and checks again on Submit.
+
+![The Power Fingerprint service device page with its sensors](docs/images/device.png)
+
+The service device fed by example power sensors: 80 W of the mains reading is on no monitored circuit. The standby figures fill in as history builds up.
+
 ## Why this is not NILM
 
 Non-intrusive load monitoring tries to pull thirty overlapping appliances out of one meter reading. That is hard, which is why the field uses neural networks.
