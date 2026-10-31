@@ -16,10 +16,7 @@ Sizes are exact requirements, not suggestions:
     logo.png       shortest side 128-256
     logo@2x.png    shortest side 256-512
 
-The mark is a load trace: a flat baseline, a step up to a plateau, a spike, and
-a step back down - the shape this integration exists to recognise. The two
-dotted rules mark the floor and the peak, which are the features that actually
-identify an appliance.
+The icons use brand/icon-source.png. The wide logos retain the load trace.
 """
 
 from __future__ import annotations
@@ -91,9 +88,19 @@ def main() -> None:
         "logo.png": (512, 256),
         "logo@2x.png": (1024, 512),
     }
+    source = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "brand", "icon-source.png"
+    )
+    with Image.open(source) as original:
+        approved_icon = original.convert("RGBA")
     for name, size in specs.items():
         path = os.path.join(out, name)
-        draw(size, pad_frac=0.14 if "icon" in name else 0.10).save(path, "PNG")
+        image = (
+            approved_icon.resize(size, Image.LANCZOS)
+            if name.startswith("icon")
+            else draw(size, pad_frac=0.10)
+        )
+        image.save(path, "PNG")
         print(f"  {name:14s} {size[0]}x{size[1]}")
 
     # Verify against the published rules rather than trusting the call above.
