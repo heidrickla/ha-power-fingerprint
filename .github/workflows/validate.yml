@@ -12,6 +12,10 @@ on:
     - cron: "0 4 * * 1"
   workflow_dispatch:
 
+# Nothing here writes to the repo, publishes, or comments on a PR.
+permissions:
+  contents: read
+
 # Every job is gated to GitHub. A mirror that reads .github/workflows as well
 # skips them instantly and runs .gitea/workflows/validate.yml instead, so the
 # same checks are not run twice.
